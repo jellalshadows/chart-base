@@ -56,6 +56,18 @@ sales:
     tag: "1.4.2"
   resources:
     requests: {cpu: 250m, memory: 512Mi}
+machines:
+  image:
+    repository: ghcr.io/acme/machines
+    tag: "2.0.1"
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+front-web:
+  image:
+    repository: ghcr.io/acme/front-web
+    tag: "1.0.0"
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
 ```
 
 ```bash
@@ -197,7 +209,7 @@ sales-migrations:
 | job.activeDeadlineSeconds | int | `nil` | Max seconds a Job may run. `null` = no limit (also used by cronjob runs). |
 | job.backoffLimit | int | `3` | Retries before the Job is marked failed (also used by cronjob runs). |
 | job.phase | string | `"pre-deploy"` | Helm hook phase for `workload.type: job`: `pre-deploy` (pre-install,pre-upgrade) or `post-deploy` (post-install,post-upgrade). |
-| job.ttlSecondsAfterFinished | int | `3600` | Seconds a finished Job is kept (for logs) before deletion (also used by cronjob runs). |
+| job.ttlSecondsAfterFinished | int | `3600` | Seconds a finished Job (workload.type job) is kept for logs before deletion. CronJob runs are retained by the cronjob history limits instead. |
 | nodeSelector | object | `{}` | Node selector. |
 | pdb.enabled | bool | `true` | Render a PodDisruptionBudget (policy/v1). Deployments only. |
 | pdb.maxUnavailable | int or string | `nil` | Max unavailable pods. When neither this nor `minAvailable` is set, `1` is used. |
@@ -256,34 +268,44 @@ primary sources (Helm v4.3.0/v3.22.0 source code, official docs) and local rende
    CronJobs. *Rejected:* the `helm create` helper (`contains` shortcut + truncation).
 9. **No `nameOverride`/`fullnameOverride`.** Two aliases with the same override render duplicate names
    that neither `helm lint` nor `helm template` detect. The alias is the identity.
+   *Rejected:* keeping them.
 10. **`helm.sh/chart` is never a pod label.** Otherwise bumping `chart-base` would restart every pod of
-    the domain without any real change.
+    the domain without any real change. *Rejected:* the labels `helm create` puts on the pod template.
 11. **Strict draft-07 schema with reserved `global` and `enabled`.** Typos fail instead of being ignored;
     draft-07 works on every Helm 3/4 release. Helm always injects `global`, and `condition: <alias>.enabled`
     puts `enabled` under the alias. *Rejected:* draft 2020-12; a permissive schema.
 12. **No `.Capabilities` gating for CRD kinds.** Helm builds every object before creating anything, so a
     missing CRD already fails the release cleanly. *Rejected:* a gate plus an escape flag.
 13. **Secure by default:** Pod Security Standards `restricted`, read-only root filesystem (with `/tmp`
-    as an emptyDir), numeric UID 65532, no ServiceAccount token.
+    as an emptyDir), numeric UID 65532, no ServiceAccount token. *Rejected:* permissive defaults.
 14. **`resources.requests` are required.** HPA utilization and scheduling depend on them.
+    *Rejected:* making them optional.
 15. **PDB and topology spread on by default.** `maxUnavailable: 1` still lets a single-replica pod be
-    evicted, and `AlwaysAllow` lets drains evict pods that are not Ready.
+    evicted, and `AlwaysAllow` lets drains evict pods that are not Ready. *Rejected:* opt-in.
 16. **HTTPRoute first, Ingress optional and controller-neutral.** ingress-nginx was retired in March 2026
     and the Ingress API is frozen. *Rejected:* Ingress with nginx annotations by default.
 17. **`progressDeadlineSeconds: 240`.** A broken component fails before Helm's 300s timeout, with the
     real cause. *Rejected:* the Kubernetes default (600s).
 18. **`kubeVersion: ">=1.33.0-0"` plus a template guard.** 1.33 is supported by EKS/GKE/AKS into 2027;
     `-0` accepts provider suffixes like `v1.33.5-eks-x`; Helm does not check a subchart's `kubeVersion`.
+    *Rejected:* no floor, or no `-0`.
 19. **Helm 4 first, Helm 3.22 still tested.** Helm 3 only receives security fixes until 2027-02-10.
+    *Rejected:* Helm 3 only.
 20. **release-please v5 and publishing in the same workflow, with an overwrite guard.** Tags created by
     `GITHUB_TOKEN` do not trigger other workflows, and GHCR tags are mutable while `Chart.lock` stores no
     digest. *Rejected:* a PAT plus `workflow_run` with a "latest tag" heuristic.
 21. **release-please uses a GitHub App token.** CI runs on the Release PR automatically; tokens live 1h.
+    *Rejected:* `GITHUB_TOKEN` plus manual approval; a PAT.
 22. **Provenance with `actions/attest`, no cosign yet.** Verifiable with `gh`; fewer moving parts on GHCR.
+    *Rejected:* cosign (comes later as a `feat:` if it's requested).
 23. **No chart-testing (`ct`).** Its last release predates Helm 4 and its version-bump check conflicts with
-    release-please. Plain Helm and kind instead.
-24. **Renovate.** It updates action SHAs *and* tool versions (Helm, kubeconform, kind images).
-25. **Generated README.** The values table cannot drift from `values.yaml`.
+    release-please. Plain Helm and kind instead. *Rejected:* `ct lint`/`ct install`.
+24. **Renovate.** It updates action SHAs and the tool versions declared as `*_VERSION` workflow env vars
+    (Helm, helm-unittest, kubeconform, helm-docs, actionlint, Gateway API, the ESO chart). The `helm lint`
+    matrix and the kind versions/node image digests are bumped by hand.
+    *Rejected:* Dependabot (only `uses:` refs); doing it all by hand.
+25. **Generated README, in English.** The values table cannot drift from `values.yaml`; English reaches an
+    international audience. *Rejected:* Spanish; a hand-written table.
 
 ## Versioning and releases
 
@@ -297,7 +319,8 @@ primary sources (Helm v4.3.0/v3.22.0 source code, official docs) and local rende
 - Verify where a version was built:
 
 ```bash
-gh attestation verify oci://ghcr.io/jellalshadows/charts/chart-base:X.Y.Z --repo jellalshadows/chart-base
+gh attestation verify oci://ghcr.io/jellalshadows/charts/chart-base:X.Y.Z --repo jellalshadows/chart-base \
+  --signer-workflow jellalshadows/chart-base/.github/workflows/release.yaml
 ```
 
 ## Rules for consumers

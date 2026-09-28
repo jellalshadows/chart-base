@@ -53,6 +53,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Not tracked by Renovate: keep the 4.x entry equal to HELM_VERSION.
         helm: [v3.22.0, v4.3.0]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -90,6 +91,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Not tracked by Renovate: kind versions and node image digests are bumped by hand.
         include:
           # kind node images must match their kind release and be pinned by digest.
           - kubernetes: "1.33"
