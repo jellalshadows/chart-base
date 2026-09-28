@@ -3,7 +3,26 @@
   "title": "chart-base values",
   "type": "object",
   "additionalProperties": false,
-  "required": ["workload", "image", "resources"],
+  "required": [
+    "workload",
+    "image",
+    "resources",
+    "serviceAccount",
+    "job",
+    "cronjob",
+    "autoscaling",
+    "pdb",
+    "service",
+    "configFiles",
+    "externalSecret",
+    "probes",
+    "podSecurityContext",
+    "securityContext",
+    "replicas",
+    "progressDeadlineSeconds",
+    "preStopSleepSeconds",
+    "terminationGracePeriodSeconds"
+  ],
   "properties": {
     "global": { "type": "object", "description": "Injected by Helm into every alias. Ignored by chart-base." },
     "enabled": { "type": "boolean", "description": "Used by umbrellas as `condition: <alias>.enabled`." },
@@ -18,7 +37,7 @@
     "image": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository"],
+      "required": ["repository", "pullPolicy"],
       "properties": {
         "repository": { "type": "string", "minLength": 1 },
         "tag": { "type": "string" },
@@ -78,6 +97,7 @@
     "configFiles": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["mountPath"],
       "properties": {
         "mountPath": { "type": "string", "pattern": "^/" },
         "files": {
@@ -90,6 +110,7 @@
     "externalSecret": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["enabled", "refreshInterval", "reloadOnChange", "secretStoreRef"],
       "properties": {
         "enabled": { "type": "boolean" },
         "secretStoreRef": {
@@ -122,6 +143,7 @@
     "service": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["enabled", "type"],
       "properties": {
         "enabled": { "type": "boolean" },
         "type": { "enum": ["ClusterIP", "NodePort", "LoadBalancer"] }
@@ -139,6 +161,7 @@
     "autoscaling": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["enabled", "minReplicas", "maxReplicas", "targetCPUUtilizationPercentage"],
       "properties": {
         "enabled": { "type": "boolean" },
         "minReplicas": { "type": "integer", "minimum": 1 },
@@ -150,6 +173,7 @@
     "pdb": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["enabled", "unhealthyPodEvictionPolicy"],
       "properties": {
         "enabled": { "type": "boolean" },
         "maxUnavailable": { "type": ["integer", "string", "null"] },
@@ -214,6 +238,7 @@
     "cronjob": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["concurrencyPolicy", "successfulJobsHistoryLimit", "failedJobsHistoryLimit"],
       "properties": {
         "schedule": { "type": "string" },
         "timeZone": { "type": "string" },
@@ -225,6 +250,7 @@
     "job": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["phase", "backoffLimit", "ttlSecondsAfterFinished"],
       "properties": {
         "phase": { "enum": ["pre-deploy", "post-deploy"] },
         "backoffLimit": { "type": "integer", "minimum": 0 },
@@ -235,6 +261,7 @@
     "serviceAccount": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["create", "automountToken"],
       "properties": {
         "create": { "type": "boolean" },
         "annotations": { "type": "object", "additionalProperties": { "type": "string" } },
@@ -242,7 +269,11 @@
       }
     },
     "podAnnotations": { "type": "object", "additionalProperties": { "type": "string" } },
-    "podLabels": { "type": "object", "additionalProperties": { "type": "string" } },
+    "podLabels": {
+      "type": "object",
+      "propertyNames": { "not": { "enum": ["app.kubernetes.io/name", "app.kubernetes.io/instance"] } },
+      "additionalProperties": { "type": "string" }
+    },
     "podSecurityContext": { "type": "object" },
     "securityContext": { "type": "object" },
     "nodeSelector": { "type": "object", "additionalProperties": { "type": "string" } },

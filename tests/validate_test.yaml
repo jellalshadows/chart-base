@@ -46,6 +46,23 @@ tests:
       - hasDocuments:
           count: 0
 
+  - it: accepts a name that is exactly 63 characters for a deployment
+    release:
+      name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a name that is exactly 52 characters for a cronjob
+    release:
+      name: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+    asserts:
+      - hasDocuments:
+          count: 0
+
   - it: requires Kubernetes >= 1.33 (Helm does not check a subchart kubeVersion)
     capabilities:
       majorVersion: 1

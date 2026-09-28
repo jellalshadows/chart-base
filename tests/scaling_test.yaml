@@ -101,11 +101,19 @@ tests:
           path: spec.maxUnavailable
           value: 25%
 
-  - it: renders no PDB when disabled or for a cronjob
+  - it: renders no PDB for a cronjob
     template: templates/pdb.yaml
     set:
       workload.type: cronjob
       cronjob.schedule: "0 * * * *"
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders no PDB when pdb.enabled is false
+    template: templates/pdb.yaml
+    set:
+      pdb.enabled: false
     asserts:
       - hasDocuments:
           count: 0
