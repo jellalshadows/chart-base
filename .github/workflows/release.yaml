@@ -51,7 +51,7 @@ jobs:
   publish:
     name: publish to ghcr.io
     needs: release-please
-    if: needs.release-please.outputs.release_created == 'true' || inputs.tag != ''
+    if: ${{ !cancelled() && (needs.release-please.outputs.release_created == 'true' || inputs.tag != '') }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read # checkout of the release tag
@@ -72,7 +72,7 @@ jobs:
           echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.TAG }}
+          ref: refs/tags/${{ env.TAG }}
           persist-credentials: false
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
@@ -114,7 +114,7 @@ jobs:
       - name: Push to ghcr.io
         id: push
         run: |
-          out="$(helm push "dist/${CHART}-${VERSION}.tgz" "oci://ghcr.io/${REPOSITORY}" 2>&1)"
+          out="$(helm push "dist/${CHART}-${VERSION}.tgz" "oci://ghcr.io/${REPOSITORY}" 2>&1)" || { echo "$out"; echo "::error::helm push failed"; exit 1; }
           echo "$out"
           digest="$(echo "$out" | awk '/^Digest:/ {print $2}')"
           if [ -z "$digest" ]; then
