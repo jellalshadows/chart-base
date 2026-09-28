@@ -1,0 +1,111 @@
+suite: scaling and resilience (hpa and pdb)
+templates:
+  - templates/hpa.yaml
+  - templates/pdb.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+values:
+  - values/base.yaml
+tests:
+  - it: renders no HPA by default
+    template: templates/hpa.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders an autoscaling/v2 HPA on CPU targeting the Deployment
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+    asserts:
+      - isAPIVersion:
+          of: autoscaling/v2
+      - equal:
+          path: spec.scaleTargetRef
+          value:
+            apiVersion: apps/v1
+            kind: Deployment
+            name: vending-chart-base
+      - equal:
+          path: spec.minReplicas
+          value: 2
+      - equal:
+          path: spec.maxReplicas
+          value: 10
+      - lengthEqual:
+          path: spec.metrics
+          count: 1
+      - equal:
+          path: spec.metrics[0].resource
+          value:
+            name: cpu
+            target:
+              type: Utilization
+              averageUtilization: 80
+
+  - it: adds a memory metric when targetMemoryUtilizationPercentage is set
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.targetMemoryUtilizationPercentage: 75
+    asserts:
+      - equal:
+          path: spec.metrics[1].resource.name
+          value: memory
+      - equal:
+          path: spec.metrics[1].resource.target.averageUtilization
+          value: 75
+
+  - it: renders a PDB with maxUnavailable 1 and AlwaysAllow by default
+    template: templates/pdb.yaml
+    asserts:
+      - isAPIVersion:
+          of: policy/v1
+      - equal:
+          path: spec.maxUnavailable
+          value: 1
+      - notExists:
+          path: spec.minAvailable
+      - equal:
+          path: spec.unhealthyPodEvictionPolicy
+          value: AlwaysAllow
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: chart-base
+            app.kubernetes.io/instance: vending
+
+  - it: uses minAvailable when set (including 0)
+    template: templates/pdb.yaml
+    set:
+      pdb.minAvailable: 0
+    asserts:
+      - equal:
+          path: spec.minAvailable
+          value: 0
+      - notExists:
+          path: spec.maxUnavailable
+
+  - it: accepts percentages
+    template: templates/pdb.yaml
+    set:
+      pdb.maxUnavailable: 25%
+    asserts:
+      - equal:
+          path: spec.maxUnavailable
+          value: 25%
+
+  - it: renders no PDB when disabled or for a cronjob
+    template: templates/pdb.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+    asserts:
+      - hasDocuments:
+          count: 0
