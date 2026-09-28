@@ -1,0 +1,83 @@
+suite: exposure (httproute and ingress)
+templates:
+  - templates/httproute.yaml
+  - templates/ingress.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+values:
+  - values/base.yaml
+tests:
+  - it: renders no HTTPRoute and no Ingress by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders a Gateway API v1 HTTPRoute to the component Service
+    template: templates/httproute.yaml
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - name: platform-gw
+          namespace: gateway
+          sectionName: https
+      httpRoute.hostnames:
+        - sales.example.com
+      ports:
+        - name: http
+          containerPort: 8080
+          servicePort: 80
+    asserts:
+      - isAPIVersion:
+          of: gateway.networking.k8s.io/v1
+      - equal:
+          path: spec.parentRefs
+          value:
+            - name: platform-gw
+              namespace: gateway
+              sectionName: https
+      - equal:
+          path: spec.hostnames
+          value:
+            - sales.example.com
+      - equal:
+          path: spec.rules[0]
+          value:
+            matches:
+              - path:
+                  type: PathPrefix
+                  value: /
+            backendRefs:
+              - name: vending-chart-base
+                port: 80
+
+  - it: renders an Ingress with the required className and no controller annotations
+    template: templates/ingress.yaml
+    set:
+      ingress.enabled: true
+      ingress.className: internal
+      ingress.hosts:
+        - host: sales.internal.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+    asserts:
+      - isAPIVersion:
+          of: networking.k8s.io/v1
+      - equal:
+          path: spec.ingressClassName
+          value: internal
+      - notExists:
+          path: metadata.annotations
+      - equal:
+          path: spec.rules[0].http.paths[0].backend
+          value:
+            service:
+              name: vending-chart-base
+              port:
+                name: http
