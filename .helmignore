@@ -1,7 +1,9 @@
 # VCS and CI
 .git/
 .gitignore
+.gitattributes
 .github/
+.superpowers/
 # Tests and CI scenarios (not part of the published chart)
 tests/
 ci/
