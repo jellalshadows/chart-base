@@ -5,6 +5,10 @@ metadata:
   name: {{ include "chart-base.fullname" . }}-env
   labels:
     {{- include "chart-base.labels" . | nindent 4 }}
+  {{- with include "chart-base.supportHookAnnotations" . }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 data:
   {{- range $key, $value := .Values.config }}
   {{- /* Values files parse numbers as float64: toJson avoids "1e+07"-style output. */}}

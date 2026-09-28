@@ -1,0 +1,28 @@
+{{- if eq .Values.workload.type "job" }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "chart-base.fullname" . }}
+  labels:
+    {{- include "chart-base.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: {{ include "chart-base.jobHooks" . }}
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: {{ .Values.job.backoffLimit }}
+  {{- with .Values.job.activeDeadlineSeconds }}
+  activeDeadlineSeconds: {{ . | int64 }}
+  {{- end }}
+  ttlSecondsAfterFinished: {{ .Values.job.ttlSecondsAfterFinished | int64 }}
+  template:
+    metadata:
+      labels:
+        {{- include "chart-base.podLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- include "chart-base.podSpec" (dict "ctx" . "restartPolicy" "Never") | nindent 6 }}
+{{- end }}

@@ -1,0 +1,66 @@
+suite: hooks for the support resources of job components
+templates:
+  - templates/serviceaccount.yaml
+  - templates/configmap-env.yaml
+  - templates/configmap-files.yaml
+  - templates/externalsecret.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+values:
+  - values/base.yaml
+set:
+  workload.type: job
+  config.APP_MODE: migrate
+  configFiles.files:
+    migrations.yaml: "target: latest\n"
+  externalSecret.enabled: true
+  externalSecret.secretStoreRef.name: gcp-sm
+  externalSecret.data.DB_PASSWORD.key: sales-db-password
+tests:
+  - it: makes every support resource a pre-deploy hook that runs before the Job (weight -10)
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: pre-install,pre-upgrade
+      - equal:
+          path: metadata.annotations["helm.sh/hook-weight"]
+          value: "-10"
+      - equal:
+          path: metadata.annotations["helm.sh/hook-delete-policy"]
+          value: before-hook-creation,hook-succeeded
+
+  - it: follows job.phase post-deploy
+    set:
+      job.phase: post-deploy
+    asserts:
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: post-install,post-upgrade
+
+  - it: keeps user annotations next to the hook annotations on the ServiceAccount
+    template: templates/serviceaccount.yaml
+    set:
+      serviceAccount.annotations:
+        example.com/owner: vending
+    asserts:
+      - equal:
+          path: metadata.annotations["example.com/owner"]
+          value: vending
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: pre-install,pre-upgrade
+
+  - it: adds no hook annotations for deployments
+    set:
+      workload.type: deployment
+    asserts:
+      - notExists:
+          path: metadata.annotations["helm.sh/hook"]

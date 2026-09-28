@@ -5,6 +5,10 @@ metadata:
   name: {{ include "chart-base.fullname" . }}-files
   labels:
     {{- include "chart-base.labels" . | nindent 4 }}
+  {{- with include "chart-base.supportHookAnnotations" . }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 data:
   {{- range $name, $content := .Values.configFiles.files }}
   {{- if kindIs "string" $content }}

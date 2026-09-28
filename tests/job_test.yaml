@@ -1,0 +1,89 @@
+suite: job (Helm hook)
+templates:
+  - templates/job.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+values:
+  - values/base.yaml
+set:
+  workload.type: job
+tests:
+  - it: renders a batch/v1 Job as a pre-deploy hook by default
+    asserts:
+      - isKind:
+          of: Job
+      - equal:
+          path: metadata.name
+          value: vending-chart-base
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: pre-install,pre-upgrade
+      - equal:
+          path: metadata.annotations["helm.sh/hook-weight"]
+          value: "0"
+      - equal:
+          path: metadata.annotations["helm.sh/hook-delete-policy"]
+          value: before-hook-creation
+
+  - it: runs as a post-deploy hook when job.phase is post-deploy
+    set:
+      job.phase: post-deploy
+    asserts:
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: post-install,post-upgrade
+
+  - it: keeps finished Jobs for logs and never restarts pods in place
+    asserts:
+      - equal:
+          path: spec.ttlSecondsAfterFinished
+          value: 3600
+      - equal:
+          path: spec.backoffLimit
+          value: 3
+      - notExists:
+          path: spec.activeDeadlineSeconds
+      - equal:
+          path: spec.template.spec.restartPolicy
+          value: Never
+
+  - it: injects config, files and secrets like any other workload
+    set:
+      config.APP_MODE: migrate
+      configFiles.files:
+        migrations.yaml: "target: latest\n"
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: gcp-sm
+      externalSecret.data.DB_PASSWORD.key: sales-db-password
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].envFrom
+          value:
+            - configMapRef:
+                name: vending-chart-base-env
+            - secretRef:
+                name: vending-chart-base-secrets
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: config-files
+            mountPath: /config
+            readOnly: true
+
+  - it: renders large durations from values files as integers
+    values:
+      - values/base.yaml
+      - values/large-numbers.yaml
+    asserts:
+      - equal:
+          path: spec.ttlSecondsAfterFinished
+          value: 1209600
+      - equal:
+          path: spec.activeDeadlineSeconds
+          value: 1000000
