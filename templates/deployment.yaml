@@ -25,10 +25,10 @@ spec:
       {{- if or .Values.config .Values.configFiles.files .Values.podAnnotations }}
       annotations:
         {{- if .Values.config }}
-        checksum/config-env: {{ include (print $.Template.BasePath "/configmap-env.yaml") . | sha256sum }}
+        checksum/config-env: {{ (include (print $.Template.BasePath "/configmap-env.yaml") . | fromYaml).data | toJson | sha256sum }}
         {{- end }}
         {{- if .Values.configFiles.files }}
-        checksum/config-files: {{ include (print $.Template.BasePath "/configmap-files.yaml") . | sha256sum }}
+        checksum/config-files: {{ (include (print $.Template.BasePath "/configmap-files.yaml") . | fromYaml).data | toJson | sha256sum }}
         {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}

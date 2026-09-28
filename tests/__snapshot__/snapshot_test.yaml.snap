@@ -146,7 +146,7 @@ deployment scenario:
       template:
         metadata:
           annotations:
-            checksum/config-env: b9300982a53776f033a037bcb96a0a60c0760a5bea64c28eb8183ed337a0b3f0
+            checksum/config-env: 75b7a7c324b7b1ceeee7b8e259bbac68dc693ec9adf80945c927b2a1116c4ebb
           labels:
             app.kubernetes.io/component: deployment
             app.kubernetes.io/instance: vending
@@ -352,8 +352,8 @@ full scenario:
       template:
         metadata:
           annotations:
-            checksum/config-env: 8e47ec23cd5fb506cde9b5ec7a2ac3f1fb3c7dd7d464fa5dacc8c0236040b339
-            checksum/config-files: 6eca5e3945f60573dd6fe5826633f0ae80c3b9a70b80e7951dd26a15f0ec458c
+            checksum/config-env: 5bb45ae36a56ebe7a1525d036a5ba7c400189b0dcd20fed1f777f87e5282fc14
+            checksum/config-files: 2f54280aa10f85462610e938e4985cf3194df1c9ffb8ffaea4b1c70fa074f796
             example.com/team: vending
           labels:
             app.kubernetes.io/component: deployment
@@ -822,7 +822,7 @@ worker scenario:
       template:
         metadata:
           annotations:
-            checksum/config-env: df5e3a81dc1356fb17734ac50e749cf4a3f23c556f69b7bf254a052d784a031d
+            checksum/config-env: 456a9ffef4bcb8f562fc0dcbe7a7b0071dc235080b6d937b85edb6dea9e01d05
           labels:
             app.kubernetes.io/component: deployment
             app.kubernetes.io/instance: vending

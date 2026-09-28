@@ -157,6 +157,50 @@ tests:
           path: spec.template.metadata.annotations["checksum/config-files"]
           pattern: ^[a-f0-9]{64}$
 
+  - it: keeps config checksums stable across chart-base versions (suite chart version)
+    template: templates/deployment.yaml
+    set:
+      config.APP_MODE: api
+      configFiles.files:
+        application.yaml: "server:\n  port: 8080\n"
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config-env"]
+          value: 75b7a7c324b7b1ceeee7b8e259bbac68dc693ec9adf80945c927b2a1116c4ebb
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config-files"]
+          value: da1d8cf0160d2a981d53bd025d10965d98642bcee39d3f2f6faecbad0499fe73
+
+  - it: keeps config checksums stable across chart-base versions (bumped chart version)
+    template: templates/deployment.yaml
+    chart:
+      version: 9.9.9
+    set:
+      config.APP_MODE: api
+      configFiles.files:
+        application.yaml: "server:\n  port: 8080\n"
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config-env"]
+          value: 75b7a7c324b7b1ceeee7b8e259bbac68dc693ec9adf80945c927b2a1116c4ebb
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config-files"]
+          value: da1d8cf0160d2a981d53bd025d10965d98642bcee39d3f2f6faecbad0499fe73
+
+  - it: changes the config checksum when config changes
+    template: templates/deployment.yaml
+    set:
+      config.APP_MODE: worker
+      configFiles.files:
+        application.yaml: "server:\n  port: 8080\n"
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config-env"]
+          value: 456a9ffef4bcb8f562fc0dcbe7a7b0071dc235080b6d937b85edb6dea9e01d05
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config-files"]
+          value: da1d8cf0160d2a981d53bd025d10965d98642bcee39d3f2f6faecbad0499fe73
+
   - it: adds the Reloader annotation when an ExternalSecret is rendered
     template: templates/deployment.yaml
     set:
