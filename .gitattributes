@@ -1,0 +1,3 @@
+# Force LF everywhere: a CRLF template changes the checksum/config-* annotations
+# and breaks the helm-unittest snapshots in CI (Linux). This machine has core.autocrlf=true.
+* text=auto eol=lf
