@@ -1,0 +1,9 @@
+# Loaded as a values FILE on purpose: files parse numbers as float64 (unlike `set:`),
+# which is how umbrellas feed chart-base in real life.
+config:
+  MAX_REQUEST_SIZE: 10000000
+  BIG_ID: 123456789012345
+  RATIO: 1.5
+job:
+  ttlSecondsAfterFinished: 1209600
+  activeDeadlineSeconds: 1000000

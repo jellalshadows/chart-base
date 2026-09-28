@@ -1,0 +1,13 @@
+{{- if .Values.config }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "chart-base.fullname" . }}-env
+  labels:
+    {{- include "chart-base.labels" . | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.config }}
+  {{- /* Values files parse numbers as float64: toJson avoids "1e+07"-style output. */}}
+  {{ $key }}: {{ if kindIs "string" $value }}{{ $value | quote }}{{ else }}{{ $value | toJson | quote }}{{ end }}
+  {{- end }}
+{{- end }}
