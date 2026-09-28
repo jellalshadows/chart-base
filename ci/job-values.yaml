@@ -1,0 +1,39 @@
+# Job as a pre-deploy Helm hook (e.g. DB migrations). Its ServiceAccount,
+# ConfigMaps and ExternalSecret are hooks too, created before the Job runs.
+# The kind e2e provides a ClusterSecretStore named "fake" (ESO fake provider).
+workload:
+  type: job
+image:
+  repository: registry.k8s.io/e2e-test-images/agnhost
+  tag: "2.66.1"
+command:
+  - sh
+  - -c
+  - >-
+    test "$APP_MODE" = migrate &&
+    test "$DB_PASSWORD" = s3cr3t &&
+    test -f /config/migrations.yaml &&
+    echo migrations-ok
+ports: []
+resources:
+  requests:
+    cpu: 10m
+    memory: 16Mi
+config:
+  APP_MODE: migrate
+configFiles:
+  files:
+    migrations.yaml:
+      target: latest
+externalSecret:
+  enabled: true
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: fake
+  data:
+    DB_PASSWORD:
+      key: /sales/db-password
+job:
+  phase: pre-deploy
+  backoffLimit: 0
+  activeDeadlineSeconds: 120

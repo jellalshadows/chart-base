@@ -1,0 +1,17 @@
+# CronJob: every run starts fresh and reads the current ConfigMap.
+workload:
+  type: cronjob
+image:
+  repository: registry.k8s.io/e2e-test-images/agnhost
+  tag: "2.66.1"
+command: ["sh", "-c", "test \"$APP_MODE\" = cleanup && echo ok"]
+ports: []
+resources:
+  requests:
+    cpu: 10m
+    memory: 16Mi
+config:
+  APP_MODE: cleanup
+cronjob:
+  schedule: "*/30 * * * *"
+  timeZone: Europe/Madrid
