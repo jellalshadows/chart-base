@@ -1,0 +1,186 @@
+name: CI
+
+on:
+  pull_request:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # renovate: datasource=github-releases depName=helm/helm
+  HELM_VERSION: v4.3.0
+  # renovate: datasource=github-releases depName=helm-unittest/helm-unittest
+  HELM_UNITTEST_VERSION: v1.1.2
+  # renovate: datasource=github-releases depName=yannh/kubeconform
+  KUBECONFORM_VERSION: v0.8.0
+  # renovate: datasource=github-releases depName=norwoodj/helm-docs
+  HELM_DOCS_VERSION: v1.14.2
+  # renovate: datasource=github-releases depName=rhysd/actionlint
+  ACTIONLINT_VERSION: v1.7.12
+  # renovate: datasource=github-releases depName=kubernetes-sigs/gateway-api
+  GATEWAY_API_VERSION: v1.6.2
+  # renovate: datasource=helm depName=external-secrets registryUrl=https://charts.external-secrets.io
+  ESO_CHART_VERSION: 2.11.0
+
+jobs:
+  unittest:
+    name: unit tests
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: Install helm-unittest
+        # Git sources cannot be GPG-verified on Helm 4; the plugin install hook verifies the
+        # binary against the release checksum file.
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest.git --version "$HELM_UNITTEST_VERSION" --verify=false
+      - name: Run unit tests
+        run: helm unittest --strict .
+
+  lint:
+    name: lint + kubeconform + alias contract (helm ${{ matrix.helm }})
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        helm: [v3.22.0, v4.3.0]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ matrix.helm }}
+      - name: Install kubeconform
+        run: |
+          cd "$RUNNER_TEMP"
+          base="https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}"
+          curl -fsSLO "${base}/kubeconform-linux-amd64.tar.gz"
+          curl -fsSLO "${base}/CHECKSUMS"
+          grep ' kubeconform-linux-amd64.tar.gz$' CHECKSUMS | sha256sum -c -
+          tar -xzf kubeconform-linux-amd64.tar.gz kubeconform
+          sudo install kubeconform /usr/local/bin/kubeconform
+      - name: helm lint --strict (every ci/ scenario)
+        run: |
+          for values in ci/*-values.yaml; do
+            helm lint --strict . -f "$values"
+          done
+      - name: kubeconform on Kubernetes 1.33
+        run: .github/scripts/validate-manifests.sh . 1.33.12
+      - name: kubeconform on Kubernetes 1.37
+        run: .github/scripts/validate-manifests.sh . 1.37.0
+      - name: Alias contract (throwaway umbrella)
+        run: .github/scripts/alias-contract.sh .
+
+  e2e:
+    name: e2e on kind (kubernetes ${{ matrix.kubernetes }})
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # kind node images must match their kind release and be pinned by digest.
+          - kubernetes: "1.33"
+            kind: v0.32.0
+            node_image: kindest/node:v1.33.12@sha256:3f5c8443c620245e4d355cfe09e96a91ead32ceaa569d3f1ca9edf0cb2fe2ff4
+          - kubernetes: "1.37"
+            kind: v0.33.0
+            node_image: kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+        with:
+          version: ${{ matrix.kind }}
+          node_image: ${{ matrix.node_image }}
+          cluster_name: chart-base
+      - name: Install every scenario (PSS restricted, Gateway API, ESO fake provider)
+        run: .github/scripts/e2e.sh .
+
+  docs:
+    name: README is up to date
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install helm-docs
+        run: |
+          cd "$RUNNER_TEMP"
+          version="${HELM_DOCS_VERSION#v}"
+          base="https://github.com/norwoodj/helm-docs/releases/download/${HELM_DOCS_VERSION}"
+          curl -fsSLO "${base}/helm-docs_${version}_Linux_x86_64.tar.gz"
+          curl -fsSLO "${base}/checksums.txt"
+          grep " helm-docs_${version}_Linux_x86_64.tar.gz\$" checksums.txt | sha256sum -c -
+          tar -xzf "helm-docs_${version}_Linux_x86_64.tar.gz" helm-docs
+          sudo install helm-docs /usr/local/bin/helm-docs
+      - name: Regenerate README and fail on drift
+        run: |
+          helm-docs --chart-search-root . --template-files README.md.gotmpl
+          git diff --exit-code README.md || { echo "::error::README.md is stale: run helm-docs and commit it"; exit 1; }
+
+  pr-title:
+    name: PR title is a conventional commit
+    runs-on: ubuntu-24.04
+    permissions:
+      pull-requests: read # read the PR title
+    steps:
+      - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  workflows:
+    name: workflow lint (actionlint + zizmor)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: actionlint
+        run: |
+          cd "$RUNNER_TEMP"
+          version="${ACTIONLINT_VERSION#v}"
+          base="https://github.com/rhysd/actionlint/releases/download/${ACTIONLINT_VERSION}"
+          curl -fsSLO "${base}/actionlint_${version}_linux_amd64.tar.gz"
+          curl -fsSLO "${base}/actionlint_${version}_checksums.txt"
+          grep " actionlint_${version}_linux_amd64.tar.gz\$" "actionlint_${version}_checksums.txt" | sha256sum -c -
+          tar -xzf "actionlint_${version}_linux_amd64.tar.gz" actionlint
+          cd "$GITHUB_WORKSPACE" && "$RUNNER_TEMP/actionlint" -color
+      - uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+        with:
+          advanced-security: false
+
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs: [unittest, lint, e2e, docs, pr-title, workflows]
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - name: Every required job succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            [ "$result" = success ] || { echo "::error::a required job ended with: $result"; exit 1; }
+          done
