@@ -83,5 +83,5 @@ configuration change.
 - `templates/_labels.tpl`
 - `templates/deployment.yaml`
 - `templates/configmap-env.yaml`, `templates/configmap-files.yaml`
-- [README: Versioning and releases](https://github.com/jellalshadows/chart-base/blob/main/README.md.gotmpl)
+- [README: Versioning and releases](../../README.md#versioning-and-releases)
 - [ADR-0006](0006-checksum-for-config-reloader-for-secrets.md)

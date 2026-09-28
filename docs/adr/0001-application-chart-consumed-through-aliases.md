@@ -85,5 +85,5 @@ or a new feature has to be ported to every copy instead of a single dependency b
 - `values.schema.json`
 - `.github/scripts/alias-contract.sh`
 - `Chart.yaml`
-- [README quick start](https://github.com/jellalshadows/chart-base/blob/main/README.md.gotmpl)
+- [README quick start](../../README.md#quick-start)
 - [Helm: Subcharts and Global Values](https://helm.sh/docs/chart_template_guide/subcharts_and_globals/)
