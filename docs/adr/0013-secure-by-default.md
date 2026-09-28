@@ -35,10 +35,14 @@ so a pod that does not satisfy `restricted` fails to admit, and the e2e job fail
   `readOnlyRootFilesystem: true`, `runAsNonRoot: true`, `capabilities.drop: [ALL]` (no capabilities are
   added back).
 - Of these, `restricted` requires exactly: `runAsNonRoot`, a `RuntimeDefault` (or `Localhost`) seccomp
-  profile, `allowPrivilegeEscalation: false`, and dropping every Linux capability with none re-added.
-  `readOnlyRootFilesystem`, the fixed UID/GID `65532`, `fsGroup` and `fsGroupChangePolicy` are **not**
-  part of the `restricted` profile — they are extra hardening the chart chooses as its default on top
-  of the profile's minimum.
+  profile, `allowPrivilegeEscalation: false`, and dropping all Linux capabilities — the profile's own
+  Capabilities control still permits one capability to be added back,
+  `securityContext.capabilities.add: [NET_BIND_SERVICE]`, and no other. chart-base's default adds
+  nothing back at all (`capabilities.drop: [ALL]`, no `add` key in `values.yaml`): that is the chart's
+  own choice on top of the profile's minimum, not something `restricted` itself requires — the same
+  way `readOnlyRootFilesystem`, the fixed UID/GID `65532`, `fsGroup` and `fsGroupChangePolicy` are
+  **not** part of the `restricted` profile either; all of these are extra hardening the chart chooses
+  as its default on top of the profile's minimum.
 - `65532` is a fixed, non-root, non-root-group UID/GID (the conventional "nonroot" distroless user) so
   the pod runs with a known, predictable identity regardless of what the image's own `USER` declares.
 - Because the container filesystem is read-only by default, an `emptyDir` volume is always mounted at
