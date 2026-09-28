@@ -1,0 +1,202 @@
+# chart-base values.
+# Every key below is public API: renaming or removing one is a breaking change.
+# Reserved keys (not set here, accepted by the schema):
+#   global  - injected by Helm into every alias; ignored by chart-base
+#   enabled - used by umbrellas as `condition: <alias>.enabled`
+
+workload:
+  # -- Workload kind: `deployment` (API or worker), `cronjob`, or `job` (a Helm hook, see `job.phase`).
+  type: deployment
+
+image:
+  # -- Required. Image repository, e.g. `ghcr.io/acme/sales`.
+  repository: ""
+  # -- Image tag. Required unless `image.digest` is set.
+  tag: ""
+  # -- Image digest (`sha256:...`). When set it wins over `image.tag`.
+  digest: ""
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+
+# -- Pull secrets for private registries, e.g. `[{name: ghcr-pull}]`.
+imagePullSecrets: []
+
+# -- Container command (overrides the image ENTRYPOINT).
+command: []
+
+# -- Container args (overrides the image CMD).
+args: []
+
+# -- Container ports. Each entry also becomes a Service port when a Service is rendered.
+# `servicePort` is optional and defaults to `containerPort`.
+ports:
+  - name: http
+    containerPort: 8080
+
+# -- Required: `requests.cpu` and `requests.memory`. Container resources.
+resources: {}
+
+# -- Environment variables. Rendered into ConfigMap `<fullname>-env` and injected with `envFrom`.
+config: {}
+
+configFiles:
+  # -- Directory where `configFiles.files` are mounted read-only. Must not be `/tmp`.
+  mountPath: /config
+  # -- Files rendered into ConfigMap `<fullname>-files`. A string value is written verbatim;
+  # a map value is rendered with `toYaml` (so it can be merged per environment).
+  files: {}
+
+externalSecret:
+  # -- Render an ExternalSecret (external-secrets.io/v1) whose Secret `<fullname>-secrets` is injected with `envFrom`.
+  enabled: false
+  secretStoreRef:
+    # -- `ClusterSecretStore` or `SecretStore`.
+    kind: ClusterSecretStore
+    # -- Name of the secret store. Required when enabled.
+    name: ""
+  # -- How often ESO re-reads the remote secrets.
+  refreshInterval: 1h
+  # -- Map of `ENV_VAR: {key: <remote key>, property: <optional field>}`.
+  data: {}
+  # -- Add the Stakater Reloader annotation so Deployments restart when the Secret changes.
+  reloadOnChange: true
+
+# -- Deployment replicas. Ignored when `autoscaling.enabled`.
+replicas: 1
+
+# -- Seconds without rollout progress before the Deployment is marked Failed (lower than Helm's default 300s timeout).
+progressDeadlineSeconds: 240
+
+service:
+  # -- Render a Service (deployments only). Set `false` for workers.
+  enabled: true
+  # -- Service type.
+  type: ClusterIP
+
+probes:
+  # -- Startup probe (Kubernetes probe object). Empty = not rendered.
+  startup: {}
+  # -- Liveness probe (Kubernetes probe object). Empty = not rendered.
+  liveness: {}
+  # -- Readiness probe (Kubernetes probe object). Empty = not rendered.
+  readiness: {}
+
+autoscaling:
+  # -- Render a HorizontalPodAutoscaler (autoscaling/v2). Deployments only.
+  enabled: false
+  # -- Minimum replicas.
+  minReplicas: 2
+  # -- Maximum replicas.
+  maxReplicas: 10
+  # -- Target average CPU utilization (percent of requests).
+  targetCPUUtilizationPercentage: 80
+  # -- (int) Target average memory utilization (percent of requests). `null` = not used.
+  targetMemoryUtilizationPercentage: null
+
+pdb:
+  # -- Render a PodDisruptionBudget (policy/v1). Deployments only.
+  enabled: true
+  # -- (int or string) Max unavailable pods. When neither this nor `minAvailable` is set, `1` is used.
+  maxUnavailable: null
+  # -- (int or string) Min available pods. Mutually exclusive with `maxUnavailable`.
+  minAvailable: null
+  # -- `IfHealthyBudget` or `AlwaysAllow` (lets drains evict pods that are not Ready).
+  unhealthyPodEvictionPolicy: AlwaysAllow
+
+# -- (list) `null` = chart defaults (zone + hostname spread, ScheduleAnyway); `[]` = none; a list = used verbatim.
+topologySpreadConstraints: null
+
+# -- Seconds to sleep in preStop so endpoints drain before SIGTERM. `0` disables it. Deployments only.
+preStopSleepSeconds: 5
+
+# -- Pod termination grace period. Must be greater than `preStopSleepSeconds`.
+terminationGracePeriodSeconds: 30
+
+httpRoute:
+  # -- Render a Gateway API HTTPRoute (gateway.networking.k8s.io/v1). Requires `service.enabled`.
+  enabled: false
+  # -- Gateways to attach to (required when enabled), e.g. `[{name: platform-gw, namespace: gateway, sectionName: https}]`.
+  parentRefs: []
+  # -- Hostnames matched by the route.
+  hostnames: []
+  # -- HTTPRoute matches. The backend is always this component's Service (first port).
+  matches:
+    - path:
+        type: PathPrefix
+        value: /
+
+ingress:
+  # -- Render a networking.k8s.io/v1 Ingress. Requires `service.enabled`.
+  enabled: false
+  # -- IngressClass name, required when enabled. No controller-specific annotations are added.
+  className: ""
+  # -- Ingress annotations.
+  annotations: {}
+  # -- Hosts, e.g. `[{host: sales.example.com, paths: [{path: /, pathType: Prefix}]}]`.
+  hosts: []
+  # -- Ingress TLS entries.
+  tls: []
+
+cronjob:
+  # -- Cron schedule. Required for cronjob.
+  schedule: ""
+  # -- IANA time zone, e.g. `Europe/Madrid`. Empty = controller default (UTC).
+  timeZone: ""
+  # -- `Allow`, `Forbid` or `Replace`.
+  concurrencyPolicy: Forbid
+  # -- Successful Jobs to keep.
+  successfulJobsHistoryLimit: 3
+  # -- Failed Jobs to keep.
+  failedJobsHistoryLimit: 1
+
+job:
+  # -- Helm hook phase for `workload.type: job`: `pre-deploy` (pre-install,pre-upgrade) or `post-deploy` (post-install,post-upgrade).
+  phase: pre-deploy
+  # -- Retries before the Job is marked failed (also used by cronjob runs).
+  backoffLimit: 3
+  # -- (int) Max seconds a Job may run. `null` = no limit (also used by cronjob runs).
+  activeDeadlineSeconds: null
+  # -- Seconds a finished Job (workload.type job) is kept for logs before deletion. CronJob runs are retained by the cronjob history limits instead.
+  ttlSecondsAfterFinished: 3600
+
+serviceAccount:
+  # -- Create a ServiceAccount named `<fullname>`. When `false`, the namespace `default` ServiceAccount is used.
+  create: true
+  # -- ServiceAccount annotations (e.g. GKE Workload Identity).
+  annotations: {}
+  # -- Mount the ServiceAccount token into the pod.
+  automountToken: false
+
+# -- Extra pod annotations.
+podAnnotations: {}
+
+# -- Extra pod labels.
+podLabels: {}
+
+# -- Pod security context. Defaults satisfy the Pod Security Standards `restricted` profile; override key by key.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container security context. `readOnlyRootFilesystem` is extra hardening (an emptyDir is always mounted at `/tmp`).
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  capabilities:
+    drop:
+      - ALL
+
+# -- Node selector.
+nodeSelector: {}
+
+# -- Tolerations.
+tolerations: []
+
+# -- Affinity.
+affinity: {}

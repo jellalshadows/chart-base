@@ -1,0 +1,91 @@
+suite: cronjob
+templates:
+  - templates/cronjob.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+values:
+  - values/base.yaml
+set:
+  workload.type: cronjob
+  cronjob.schedule: "*/30 * * * *"
+tests:
+  - it: renders a batch/v1 CronJob named <release>-<component>
+    asserts:
+      - isKind:
+          of: CronJob
+      - equal:
+          path: metadata.name
+          value: vending-chart-base
+      - equal:
+          path: spec.schedule
+          value: "*/30 * * * *"
+      - equal:
+          path: spec.concurrencyPolicy
+          value: Forbid
+      - notExists:
+          path: spec.timeZone
+
+  - it: sets the time zone when given
+    set:
+      cronjob.timeZone: Europe/Madrid
+    asserts:
+      - equal:
+          path: spec.timeZone
+          value: Europe/Madrid
+
+  - it: applies backoffLimit and activeDeadlineSeconds to every run but leaves retention to the history limits
+    set:
+      job.activeDeadlineSeconds: 600
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.backoffLimit
+          value: 3
+      - equal:
+          path: spec.jobTemplate.spec.activeDeadlineSeconds
+          value: 600
+      - notExists:
+          path: spec.jobTemplate.spec.ttlSecondsAfterFinished
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.restartPolicy
+          value: Never
+
+  - it: keeps activeDeadlineSeconds as a large int64 when values come from a file
+    values:
+      - values/base.yaml
+      - values/large-numbers.yaml
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.activeDeadlineSeconds
+          value: 1000000
+
+  - it: shares the restricted pod spec but has no preStop, spread or checksum
+    set:
+      config.APP_MODE: cleanup
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - notExists:
+          path: spec.jobTemplate.spec.template.spec.containers[0].lifecycle
+      - notExists:
+          path: spec.jobTemplate.spec.template.spec.topologySpreadConstraints
+      - notExists:
+          path: spec.jobTemplate.spec.template.metadata.annotations
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].envFrom[0].configMapRef.name
+          value: vending-chart-base-env
+
+  - it: never adds the Reloader annotation (each run reads the current Secret)
+    set:
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: gcp-sm
+      externalSecret.data.DB_PASSWORD.key: sales-db-password
+    asserts:
+      - notExists:
+          path: metadata.annotations

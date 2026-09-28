@@ -1,0 +1,289 @@
+suite: values.schema.json
+templates:
+  - templates/validate.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+values:
+  - values/base.yaml
+tests:
+  - it: accepts the reserved keys global and enabled (injected by umbrellas)
+    set:
+      global.anything: true
+      enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: requires image.repository
+    set:
+      image.repository: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "/image/repository': minLength"
+
+  - it: requires image.tag or image.digest
+    set:
+      image.tag: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "/image/tag': minLength"
+
+  - it: accepts a digest without a tag
+    set:
+      image.tag: ""
+      image.digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a malformed digest
+    set:
+      image.digest: sha256:abc
+    asserts:
+      - failedTemplate:
+          errorPattern: "/image/digest'"
+
+  - it: requires resources.requests.cpu and memory
+    set:
+      resources.requests.cpu: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/resources/requests"
+
+  - it: rejects unknown keys (typos fail instead of being ignored)
+    set:
+      replica: 3
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'replica' not allowed"
+
+  - it: rejects an unknown workload.type
+    set:
+      workload.type: statefulset
+    asserts:
+      - failedTemplate:
+          errorPattern: "/workload/type'"
+
+  - it: requires cronjob.schedule for cronjobs
+    set:
+      workload.type: cronjob
+    asserts:
+      - failedTemplate:
+          errorPattern: "/cronjob/schedule': minLength"
+
+  - it: rejects httpRoute on a job (explicitly enabled but unsupported)
+    set:
+      workload.type: job
+      httpRoute.enabled: true
+      httpRoute.parentRefs[0].name: gw
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/enabled': value must be false"
+
+  - it: rejects autoscaling on a cronjob
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      autoscaling.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/enabled': value must be false"
+
+  - it: ignores service and pdb defaults on a job
+    set:
+      workload.type: job
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: requires a store name when externalSecret is enabled with data
+    set:
+      externalSecret.enabled: true
+      externalSecret.data.DB.key: x
+    asserts:
+      - failedTemplate:
+          errorPattern: "/externalSecret/secretStoreRef/name': minLength"
+
+  - it: requires at least one data entry when externalSecret is enabled with a store name
+    set:
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: gcp-sm
+    asserts:
+      - failedTemplate:
+          errorPattern: "/externalSecret/data': minProperties"
+
+  - it: requires parentRefs when httpRoute is enabled
+    set:
+      httpRoute.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/parentRefs': minItems"
+
+  - it: requires service.enabled when httpRoute is enabled
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs[0].name: gw
+      service.enabled: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "/service/enabled': value must be true"
+
+  - it: requires className when ingress is enabled with hosts
+    set:
+      ingress.enabled: true
+      ingress.hosts[0].host: a.example.com
+      ingress.hosts[0].paths[0].path: /
+      ingress.hosts[0].paths[0].pathType: Prefix
+    asserts:
+      - failedTemplate:
+          errorPattern: "/ingress/className': minLength"
+
+  - it: requires hosts when ingress is enabled with a className
+    set:
+      ingress.enabled: true
+      ingress.className: nginx
+    asserts:
+      - failedTemplate:
+          errorPattern: "/ingress/hosts': minItems"
+
+  - it: rejects minAvailable together with maxUnavailable
+    set:
+      pdb.minAvailable: 1
+      pdb.maxUnavailable: 1
+    asserts:
+      - failedTemplate:
+          errorPattern: "/pdb': 'not' failed"
+
+  - it: requires ports when a Service is rendered
+    set:
+      ports: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "missing property 'ports'"
+
+  - it: rejects config keys that are not valid environment variable names
+    set:
+      config.bad-key: x
+    asserts:
+      - failedTemplate:
+          errorPattern: "'bad-key' does not match pattern"
+
+  - it: rejects configFiles names that are not valid ConfigMap keys
+    set:
+      configFiles.files.bad/name: x
+    asserts:
+      - failedTemplate:
+          errorPattern: "'bad/name' does not match pattern"
+
+  - it: rejects an unknown job.phase
+    set:
+      workload.type: job
+      job.phase: mid-deploy
+    asserts:
+      - failedTemplate:
+          errorPattern: "/job/phase': value must be one of 'pre-deploy', 'post-deploy'"
+
+  - it: rejects an unknown externalSecret.secretStoreRef.kind
+    set:
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.kind: BadKind
+      externalSecret.secretStoreRef.name: gcp-sm
+      externalSecret.data.DB.key: x
+    asserts:
+      - failedTemplate:
+          errorPattern: "/externalSecret/secretStoreRef/kind': value must be one of 'ClusterSecretStore', 'SecretStore'"
+
+  - it: rejects ingress on a cronjob (explicitly enabled but unsupported)
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      ingress.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "/ingress/enabled': value must be false"
+
+  - it: requires service.enabled when ingress is enabled
+    set:
+      ingress.enabled: true
+      ingress.className: nginx
+      ingress.hosts[0].host: a.example.com
+      ingress.hosts[0].paths[0].path: /
+      ingress.hosts[0].paths[0].pathType: Prefix
+      service.enabled: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "/service/enabled': value must be true"
+
+  - it: rejects externalSecret.data keys that are not valid environment variable names
+    set:
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: gcp-sm
+      externalSecret.data.bad-key.key: x
+    asserts:
+      - failedTemplate:
+          errorPattern: "'bad-key' does not match pattern"
+
+  - it: rejects a configFiles.mountPath that is not absolute
+    set:
+      configFiles.mountPath: config
+    asserts:
+      - failedTemplate:
+          errorPattern: "/configFiles/mountPath': 'config' does not match pattern"
+
+  - it: rejects a config value of a disallowed type
+    set:
+      config.APP_MODE.nested: 1
+    asserts:
+      - failedTemplate:
+          errorPattern: "/config/APP_MODE': got object, want boolean or number or string"
+
+  - it: rejects a configFiles.files value of a disallowed type
+    set:
+      configFiles:
+        files:
+          app.yaml: 5
+    asserts:
+      - failedTemplate:
+          errorPattern: "/configFiles/files/app.yaml': got number, want string or object"
+
+  - it: requires key on every externalSecret.data entry
+    set:
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: gcp-sm
+      externalSecret.data.DB.property: x
+    asserts:
+      - failedTemplate:
+          errorPattern: "/externalSecret/data/DB': missing property 'key'"
+
+  - it: fails when serviceAccount.automountToken is deleted with null (would silently mount the token)
+    set:
+      serviceAccount.automountToken: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/serviceAccount': missing property 'automountToken'"
+
+  - it: fails when job.ttlSecondsAfterFinished is deleted with null (would silently render 0)
+    set:
+      job.ttlSecondsAfterFinished: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/job': missing property 'ttlSecondsAfterFinished'"
+
+  - it: fails when securityContext is deleted with null
+    set:
+      securityContext: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "missing property 'securityContext'"
+
+  - it: rejects podLabels overriding the selector labels
+    set:
+      podLabels:
+        app.kubernetes.io/name: x
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'app.kubernetes.io/name'"

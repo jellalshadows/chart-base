@@ -1,0 +1,19 @@
+{{- if and (eq .Values.workload.type "deployment") .Values.service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "chart-base.fullname" . }}
+  labels:
+    {{- include "chart-base.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "chart-base.selectorLabels" . | nindent 4 }}
+  ports:
+    {{- range .Values.ports }}
+    - name: {{ .name }}
+      port: {{ include "chart-base.servicePort" . }}
+      targetPort: {{ .name }}
+      protocol: TCP
+    {{- end }}
+{{- end }}

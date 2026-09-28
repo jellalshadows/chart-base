@@ -1,0 +1,78 @@
+# Every deployment feature at once (lint/template/snapshot + kind e2e).
+image:
+  repository: registry.k8s.io/e2e-test-images/agnhost
+  tag: "2.66.1"
+args: ["netexec", "--http-port=8080"]
+ports:
+  - name: http
+    containerPort: 8080
+    servicePort: 80
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 64Mi
+config:
+  APP_MODE: api
+  SPRING_CONFIG_ADDITIONAL_LOCATION: "optional:file:/config/"
+  FEATURE_FLAG: true
+  MAX_POOL: 20
+configFiles:
+  files:
+    application.yaml:
+      spring:
+        datasource:
+          url: jdbc:postgresql://db:5432/sales
+          password: ${DB_PASSWORD}
+    logback-spring.xml: |
+      <configuration>
+        <root level="INFO"/>
+      </configuration>
+externalSecret:
+  enabled: true
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: fake
+  data:
+    DB_PASSWORD:
+      key: /sales/db-password
+probes:
+  startup:
+    httpGet:
+      path: /healthz
+      port: http
+    failureThreshold: 30
+    periodSeconds: 2
+  readiness:
+    httpGet:
+      path: /healthz
+      port: http
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 4
+  targetMemoryUtilizationPercentage: 80
+httpRoute:
+  enabled: true
+  parentRefs:
+    - name: platform-gw
+      namespace: gateway
+      sectionName: https
+  hostnames:
+    - sales.example.com
+ingress:
+  enabled: true
+  className: internal
+  hosts:
+    - host: sales.internal.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+serviceAccount:
+  annotations:
+    iam.gke.io/gcp-service-account: sales@acme.iam.gserviceaccount.com
+podAnnotations:
+  example.com/team: vending
+podLabels:
+  example.com/tier: backend

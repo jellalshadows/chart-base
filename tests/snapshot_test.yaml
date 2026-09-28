@@ -1,0 +1,52 @@
+suite: snapshots of the ci/ scenarios (review the diff of tests/__snapshot__/ in every PR)
+templates:
+  - templates/configmap-env.yaml
+  - templates/configmap-files.yaml
+  - templates/cronjob.yaml
+  - templates/deployment.yaml
+  - templates/externalsecret.yaml
+  - templates/hpa.yaml
+  - templates/httproute.yaml
+  - templates/ingress.yaml
+  - templates/job.yaml
+  - templates/pdb.yaml
+  - templates/service.yaml
+  - templates/serviceaccount.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+tests:
+  - it: deployment scenario
+    values:
+      - ../ci/deployment-values.yaml
+    asserts:
+      - matchSnapshot: {}
+
+  - it: worker scenario
+    values:
+      - ../ci/worker-values.yaml
+    asserts:
+      - matchSnapshot: {}
+
+  - it: cronjob scenario
+    values:
+      - ../ci/cronjob-values.yaml
+    asserts:
+      - matchSnapshot: {}
+
+  - it: job scenario
+    values:
+      - ../ci/job-values.yaml
+    asserts:
+      - matchSnapshot: {}
+
+  - it: full scenario
+    values:
+      - ../ci/full-values.yaml
+    asserts:
+      - matchSnapshot: {}

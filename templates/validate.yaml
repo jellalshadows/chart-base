@@ -1,0 +1,29 @@
+{{- /*
+Guards for rules values.schema.json cannot express. Renders nothing.
+Every message is prefixed with "chart-base[<component>]:".
+*/ -}}
+{{- $component := include "chart-base.component" . -}}
+{{- $fullname := include "chart-base.fullname" . -}}
+{{- $dns1035 := "^[a-z]([-a-z0-9]*[a-z0-9])?$" -}}
+{{- if not (regexMatch $dns1035 $component) -}}
+{{- include "chart-base.fail" (list . (printf "alias %q must be lowercase kebab-case (%s)" $component $dns1035)) -}}
+{{- end -}}
+{{- if not (regexMatch $dns1035 $fullname) -}}
+{{- include "chart-base.fail" (list . (printf "resource name %q (release-alias) must match %s" $fullname $dns1035)) -}}
+{{- end -}}
+{{- $maxLen := ternary 52 63 (eq .Values.workload.type "cronjob") -}}
+{{- if gt (len $fullname) $maxLen -}}
+{{- include "chart-base.fail" (list . (printf "resource name %q is %d chars, max is %d for workload.type %s" $fullname (len $fullname) $maxLen .Values.workload.type)) -}}
+{{- end -}}
+{{- if not (semverCompare ">=1.33.0-0" .Capabilities.KubeVersion.Version) -}}
+{{- include "chart-base.fail" (list . (printf "Kubernetes >= 1.33 is required, got %s" .Capabilities.KubeVersion.Version)) -}}
+{{- end -}}
+{{- if and .Values.autoscaling.enabled (gt (int .Values.autoscaling.minReplicas) (int .Values.autoscaling.maxReplicas)) -}}
+{{- include "chart-base.fail" (list . "autoscaling.minReplicas must be <= autoscaling.maxReplicas") -}}
+{{- end -}}
+{{- if eq (trimSuffix "/" .Values.configFiles.mountPath) "/tmp" -}}
+{{- include "chart-base.fail" (list . "configFiles.mountPath must not be /tmp (an emptyDir is mounted there)") -}}
+{{- end -}}
+{{- if and (eq .Values.workload.type "deployment") (ge (int .Values.preStopSleepSeconds) (int .Values.terminationGracePeriodSeconds)) (gt (int .Values.preStopSleepSeconds) 0) -}}
+{{- include "chart-base.fail" (list . "preStopSleepSeconds must be lower than terminationGracePeriodSeconds") -}}
+{{- end -}}

@@ -1,0 +1,78 @@
+suite: configmaps (env and files)
+templates:
+  - templates/configmap-env.yaml
+  - templates/configmap-files.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+values:
+  - values/base.yaml
+tests:
+  - it: renders no ConfigMaps when config and configFiles are empty
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders env vars as quoted strings in <fullname>-env
+    template: templates/configmap-env.yaml
+    set:
+      config:
+        APP_MODE: api
+        FEATURE_FLAG: true
+        MAX_POOL: 20
+    asserts:
+      - equal:
+          path: metadata.name
+          value: vending-chart-base-env
+      - equal:
+          path: data
+          value:
+            APP_MODE: "api"
+            FEATURE_FLAG: "true"
+            MAX_POOL: "20"
+      - notExists:
+          path: metadata.annotations
+
+  - it: never renders large numbers from values files in scientific notation
+    template: templates/configmap-env.yaml
+    values:
+      - values/base.yaml
+      - values/large-numbers.yaml
+    asserts:
+      - equal:
+          path: data
+          value:
+            MAX_REQUEST_SIZE: "10000000"
+            BIG_ID: "123456789012345"
+            RATIO: "1.5"
+
+  - it: writes a string file verbatim in <fullname>-files
+    template: templates/configmap-files.yaml
+    set:
+      configFiles.files:
+        logback-spring.xml: "<configuration>\n  <root level=\"INFO\"/>\n</configuration>\n"
+    asserts:
+      - equal:
+          path: metadata.name
+          value: vending-chart-base-files
+      - equal:
+          path: data["logback-spring.xml"]
+          value: "<configuration>\n  <root level=\"INFO\"/>\n</configuration>\n"
+
+  - it: renders a map file with toYaml and keeps ${} placeholders untouched
+    template: templates/configmap-files.yaml
+    set:
+      configFiles.files:
+        application.yaml:
+          spring:
+            datasource:
+              password: ${DB_PASSWORD}
+    asserts:
+      - equal:
+          path: data["application.yaml"]
+          value: "spring:\n  datasource:\n    password: ${DB_PASSWORD}"

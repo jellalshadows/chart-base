@@ -1,0 +1,404 @@
+suite: deployment
+templates:
+  - templates/deployment.yaml
+  - templates/configmap-env.yaml
+  - templates/configmap-files.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+values:
+  - values/base.yaml
+tests:
+  - it: renders a Deployment named <release>-<component>
+    template: templates/deployment.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: vending-chart-base
+
+  - it: renders no Deployment for cronjob or job workloads
+    template: templates/deployment.yaml
+    set:
+      workload.type: job
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: uses only name and instance as selector labels (immutable contract)
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: chart-base
+            app.kubernetes.io/instance: vending
+
+  - it: sets helm.sh/chart on the object with the real chart name
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: metadata.labels["helm.sh/chart"]
+          value: chart-base-0.0.0-test
+      - equal:
+          path: metadata.labels["app.kubernetes.io/part-of"]
+          value: vending
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: deployment
+
+  - it: never puts helm.sh/chart on the pod template (a chart bump must not restart pods)
+    template: templates/deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.metadata.labels["helm.sh/chart"]
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/version"]
+          value: "1.4.2"
+
+  - it: adds podLabels to the pod template only
+    template: templates/deployment.yaml
+    set:
+      podLabels.team: vending
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels.team
+          value: vending
+      - notExists:
+          path: metadata.labels.team
+
+  - it: sets replicas when autoscaling is disabled
+    template: templates/deployment.yaml
+    set:
+      replicas: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+
+  - it: omits replicas when autoscaling is enabled (the HPA owns them)
+    template: templates/deployment.yaml
+    set:
+      autoscaling.enabled: true
+    asserts:
+      - notExists:
+          path: spec.replicas
+
+  - it: sets progressDeadlineSeconds to fail fast inside the Helm timeout
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.progressDeadlineSeconds
+          value: 240
+
+  - it: builds the image from repository and tag
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/acme/sales:1.4.2
+
+  - it: prefers the digest over the tag
+    template: templates/deployment.yaml
+    set:
+      image.digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/acme/sales@sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+  - it: has no envFrom when there is no config and no externalSecret
+    template: templates/deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].envFrom
+
+  - it: injects config and secrets with envFrom
+    template: templates/deployment.yaml
+    set:
+      config.APP_MODE: api
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: gcp-sm
+      externalSecret.data.DB_PASSWORD.key: sales-db-password
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].envFrom
+          value:
+            - configMapRef:
+                name: vending-chart-base-env
+            - secretRef:
+                name: vending-chart-base-secrets
+
+  - it: adds no pod annotations when there is no config
+    template: templates/deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.metadata.annotations
+
+  - it: adds sha256 checksums of both ConfigMaps so a config change rolls the pods
+    template: templates/deployment.yaml
+    set:
+      config.APP_MODE: api
+      configFiles.files:
+        application.yaml: "server:\n  port: 8080\n"
+    asserts:
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/config-env"]
+          pattern: ^[a-f0-9]{64}$
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/config-files"]
+          pattern: ^[a-f0-9]{64}$
+
+  - it: keeps config checksums stable across chart-base versions (suite chart version)
+    template: templates/deployment.yaml
+    set:
+      config.APP_MODE: api
+      configFiles.files:
+        application.yaml: "server:\n  port: 8080\n"
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config-env"]
+          value: 75b7a7c324b7b1ceeee7b8e259bbac68dc693ec9adf80945c927b2a1116c4ebb
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config-files"]
+          value: da1d8cf0160d2a981d53bd025d10965d98642bcee39d3f2f6faecbad0499fe73
+
+  - it: keeps config checksums stable across chart-base versions (bumped chart version)
+    template: templates/deployment.yaml
+    chart:
+      version: 9.9.9
+    set:
+      config.APP_MODE: api
+      configFiles.files:
+        application.yaml: "server:\n  port: 8080\n"
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config-env"]
+          value: 75b7a7c324b7b1ceeee7b8e259bbac68dc693ec9adf80945c927b2a1116c4ebb
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config-files"]
+          value: da1d8cf0160d2a981d53bd025d10965d98642bcee39d3f2f6faecbad0499fe73
+
+  - it: changes the config checksum when config changes
+    template: templates/deployment.yaml
+    set:
+      config.APP_MODE: worker
+      configFiles.files:
+        application.yaml: "server:\n  port: 8080\n"
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config-env"]
+          value: 456a9ffef4bcb8f562fc0dcbe7a7b0071dc235080b6d937b85edb6dea9e01d05
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config-files"]
+          value: da1d8cf0160d2a981d53bd025d10965d98642bcee39d3f2f6faecbad0499fe73
+
+  - it: adds the Reloader annotation when an ExternalSecret is rendered
+    template: templates/deployment.yaml
+    set:
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: gcp-sm
+      externalSecret.data.DB_PASSWORD.key: sales-db-password
+    asserts:
+      - equal:
+          path: metadata.annotations["secret.reloader.stakater.com/reload"]
+          value: vending-chart-base-secrets
+
+  - it: omits the Reloader annotation when reloadOnChange is false
+    template: templates/deployment.yaml
+    set:
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: gcp-sm
+      externalSecret.data.DB_PASSWORD.key: sales-db-password
+      externalSecret.reloadOnChange: false
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  - it: applies restricted security contexts by default
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: [ALL]
+
+  - it: merges security context overrides key by key
+    template: templates/deployment.yaml
+    set:
+      podSecurityContext.runAsUser: 1000
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 1000
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+
+  - it: always mounts an emptyDir at /tmp
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tmp
+            emptyDir: {}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tmp
+            mountPath: /tmp
+
+  - it: mounts configFiles read-only at mountPath
+    template: templates/deployment.yaml
+    set:
+      configFiles.files:
+        application.yaml: "a: 1\n"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: config-files
+            mountPath: /config
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: config-files
+            configMap:
+              name: vending-chart-base-files
+
+  - it: adds a native preStop sleep
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].lifecycle.preStop.sleep.seconds
+          value: 5
+
+  - it: drops preStop when preStopSleepSeconds is 0
+    template: templates/deployment.yaml
+    set:
+      preStopSleepSeconds: 0
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].lifecycle
+
+  - it: renders probes verbatim
+    template: templates/deployment.yaml
+    set:
+      probes.readiness.httpGet.path: /actuator/health/readiness
+      probes.readiness.httpGet.port: http
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe
+          value:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+      - notExists:
+          path: spec.template.spec.containers[0].livenessProbe
+
+  - it: spreads pods across zones and hosts by default
+    template: templates/deployment.yaml
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.topologySpreadConstraints
+          count: 2
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0]
+          value:
+            maxSkew: 1
+            topologyKey: topology.kubernetes.io/zone
+            whenUnsatisfiable: ScheduleAnyway
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: chart-base
+                app.kubernetes.io/instance: vending
+            matchLabelKeys:
+              - pod-template-hash
+
+  - it: renders no topology spread with an empty list
+    template: templates/deployment.yaml
+    set:
+      topologySpreadConstraints: []
+    asserts:
+      - notExists:
+          path: spec.template.spec.topologySpreadConstraints
+
+  - it: renders a custom topology spread verbatim
+    template: templates/deployment.yaml
+    set:
+      topologySpreadConstraints:
+        - maxSkew: 2
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+    asserts:
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints
+          value:
+            - maxSkew: 2
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: DoNotSchedule
+
+  - it: uses its own ServiceAccount without mounting the token
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: vending-chart-base
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+
+  - it: falls back to the default ServiceAccount when create is false
+    template: templates/deployment.yaml
+    set:
+      serviceAccount.create: false
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: default
+
+  - it: renders imagePullSecrets, nodeSelector, tolerations and affinity
+    template: templates/deployment.yaml
+    set:
+      imagePullSecrets:
+        - name: ghcr-pull
+      nodeSelector:
+        pool: apps
+      tolerations:
+        - key: dedicated
+          operator: Exists
+      affinity:
+        podAntiAffinity: {}
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: ghcr-pull
+      - equal:
+          path: spec.template.spec.nodeSelector.pool
+          value: apps
+      - equal:
+          path: spec.template.spec.tolerations[0].key
+          value: dedicated
+      - exists:
+          path: spec.template.spec.affinity.podAntiAffinity

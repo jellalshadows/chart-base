@@ -1,0 +1,14 @@
+# Worker: Deployment without Service (e.g. a Kafka consumer).
+image:
+  repository: registry.k8s.io/e2e-test-images/agnhost
+  tag: "2.66.1"
+args: ["pause"]
+ports: []
+service:
+  enabled: false
+resources:
+  requests:
+    cpu: 10m
+    memory: 16Mi
+config:
+  APP_MODE: worker

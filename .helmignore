@@ -1,0 +1,21 @@
+# VCS and CI
+.git/
+.gitignore
+.gitattributes
+.github/
+.superpowers/
+# Tests and CI scenarios (not part of the published chart)
+tests/
+ci/
+# Docs sources and release tooling
+README.md.gotmpl
+release-please-config.json
+.release-please-manifest.json
+# Editor files
+*.swp
+*.bak
+*.tmp
+.idea/
+.vscode/
+# Build output
+dist/

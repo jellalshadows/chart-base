@@ -1,0 +1,14 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices", "customManagers:githubActionsVersions"],
+  "semanticCommits": "enabled",
+  "packageRules": [
+    {
+      "description": "CI tooling: one weekly PR, only for releases older than 7 days",
+      "matchManagers": ["github-actions", "custom.regex"],
+      "groupName": "ci tooling",
+      "minimumReleaseAge": "7 days",
+      "schedule": ["before 6am on monday"]
+    }
+  ]
+}
