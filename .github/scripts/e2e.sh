@@ -62,7 +62,7 @@ echo "== job (pre-deploy hook)"
 install job || fail "job hook failed: it must see APP_MODE, DB_PASSWORD (ESO) and /config/migrations.yaml"
 kubectl logs -n "$ns" job/job-chart-base | grep -q migrations-ok || fail "job output missing"
 pass "pre-deploy Job ran with its hook ConfigMaps and ExternalSecret"
-install job --set podAnnotations.revision=2 || fail "second deploy of a job must not hit 'field is immutable'"
+install job --set-string podAnnotations.revision=2 || fail "second deploy of a job must not hit 'field is immutable'"
 pass "the Job hook is recreated on the next deploy"
 
 echo "== full"
