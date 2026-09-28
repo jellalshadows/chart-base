@@ -1,0 +1,95 @@
+suite: guards (templates/validate.yaml)
+templates:
+  - templates/validate.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+values:
+  - values/base.yaml
+tests:
+  - it: renders nothing for valid values
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a release name that Helm accepts but DNS-1035 does not (dots)
+    release:
+      name: vending.prod
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: resource name "vending.prod-chart-base" \(release-alias\) must match'
+
+  - it: rejects resource names longer than 63 characters (fails, never truncates)
+    release:
+      name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    asserts:
+      - failedTemplate:
+          errorPattern: "is 64 chars, max is 63 for workload.type deployment"
+
+  - it: allows a 53-char name for a deployment but not for a cronjob (52 max)
+    release:
+      name: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+    asserts:
+      - failedTemplate:
+          errorPattern: "is 53 chars, max is 52 for workload.type cronjob"
+
+  - it: accepts the same 53-char name for a deployment
+    release:
+      name: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: requires Kubernetes >= 1.33 (Helm does not check a subchart kubeVersion)
+    capabilities:
+      majorVersion: 1
+      minorVersion: 32
+    asserts:
+      - failedTemplate:
+          errorPattern: "Kubernetes >= 1.33 is required"
+
+  - it: accepts newer Kubernetes versions (1.37)
+    capabilities:
+      majorVersion: 1
+      minorVersion: 37
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects autoscaling.minReplicas > maxReplicas
+    set:
+      autoscaling.enabled: true
+      autoscaling.minReplicas: 5
+      autoscaling.maxReplicas: 2
+    asserts:
+      - failedTemplate:
+          errorPattern: "autoscaling.minReplicas must be <= autoscaling.maxReplicas"
+
+  - it: rejects configFiles.mountPath /tmp
+    set:
+      configFiles.mountPath: /tmp/
+    asserts:
+      - failedTemplate:
+          errorPattern: "configFiles.mountPath must not be /tmp"
+
+  - it: rejects preStopSleepSeconds >= terminationGracePeriodSeconds
+    set:
+      preStopSleepSeconds: 30
+      terminationGracePeriodSeconds: 30
+    asserts:
+      - failedTemplate:
+          errorPattern: "preStopSleepSeconds must be lower than terminationGracePeriodSeconds"
+
+  - it: skips the preStop check when preStop is disabled
+    set:
+      preStopSleepSeconds: 0
+      terminationGracePeriodSeconds: 0
+    asserts:
+      - hasDocuments:
+          count: 0
