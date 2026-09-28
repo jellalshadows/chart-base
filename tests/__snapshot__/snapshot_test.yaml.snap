@@ -89,7 +89,6 @@ cronjob scenario:
               volumes:
                 - emptyDir: {}
                   name: tmp
-          ttlSecondsAfterFinished: 3600
       schedule: '*/30 * * * *'
       successfulJobsHistoryLimit: 3
       timeZone: Europe/Madrid

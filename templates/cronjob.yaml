@@ -22,7 +22,6 @@ spec:
       {{- with .Values.job.activeDeadlineSeconds }}
       activeDeadlineSeconds: {{ . | int64 }}
       {{- end }}
-      ttlSecondsAfterFinished: {{ .Values.job.ttlSecondsAfterFinished | int64 }}
       template:
         metadata:
           labels:

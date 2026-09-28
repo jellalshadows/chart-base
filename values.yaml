@@ -156,7 +156,7 @@ job:
   backoffLimit: 3
   # -- (int) Max seconds a Job may run. `null` = no limit (also used by cronjob runs).
   activeDeadlineSeconds: null
-  # -- Seconds a finished Job is kept (for logs) before deletion (also used by cronjob runs).
+  # -- Seconds a finished Job (workload.type job) is kept for logs before deletion. CronJob runs are retained by the cronjob history limits instead.
   ttlSecondsAfterFinished: 3600
 
 serviceAccount:

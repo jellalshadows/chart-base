@@ -39,7 +39,7 @@ tests:
           path: spec.timeZone
           value: Europe/Madrid
 
-  - it: applies the job settings to every run
+  - it: applies backoffLimit and activeDeadlineSeconds to every run but leaves retention to the history limits
     set:
       job.activeDeadlineSeconds: 600
     asserts:
@@ -49,12 +49,20 @@ tests:
       - equal:
           path: spec.jobTemplate.spec.activeDeadlineSeconds
           value: 600
-      - equal:
+      - notExists:
           path: spec.jobTemplate.spec.ttlSecondsAfterFinished
-          value: 3600
       - equal:
           path: spec.jobTemplate.spec.template.spec.restartPolicy
           value: Never
+
+  - it: keeps activeDeadlineSeconds as a large int64 when values come from a file
+    values:
+      - values/base.yaml
+      - values/large-numbers.yaml
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.activeDeadlineSeconds
+          value: 1000000
 
   - it: shares the restricted pod spec but has no preStop, spread or checksum
     set:
