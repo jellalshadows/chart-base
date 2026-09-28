@@ -1,0 +1,160 @@
+suite: values.schema.json
+templates:
+  - templates/validate.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+values:
+  - values/base.yaml
+tests:
+  - it: accepts the reserved keys global and enabled (injected by umbrellas)
+    set:
+      global.anything: true
+      enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: requires image.repository
+    set:
+      image.repository: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "/image/repository': minLength"
+
+  - it: requires image.tag or image.digest
+    set:
+      image.tag: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "/image/tag': minLength"
+
+  - it: accepts a digest without a tag
+    set:
+      image.tag: ""
+      image.digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a malformed digest
+    set:
+      image.digest: sha256:abc
+    asserts:
+      - failedTemplate:
+          errorPattern: "/image/digest'"
+
+  - it: requires resources.requests.cpu and memory
+    set:
+      resources.requests.cpu: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/resources/requests"
+
+  - it: rejects unknown keys (typos fail instead of being ignored)
+    set:
+      replica: 3
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'replica' not allowed"
+
+  - it: rejects an unknown workload.type
+    set:
+      workload.type: statefulset
+    asserts:
+      - failedTemplate:
+          errorPattern: "/workload/type'"
+
+  - it: requires cronjob.schedule for cronjobs
+    set:
+      workload.type: cronjob
+    asserts:
+      - failedTemplate:
+          errorPattern: "/cronjob/schedule': minLength"
+
+  - it: rejects httpRoute on a job (explicitly enabled but unsupported)
+    set:
+      workload.type: job
+      httpRoute.enabled: true
+      httpRoute.parentRefs[0].name: gw
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/enabled': value must be false"
+
+  - it: rejects autoscaling on a cronjob
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      autoscaling.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/enabled': value must be false"
+
+  - it: ignores service and pdb defaults on a job
+    set:
+      workload.type: job
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: requires a store name and at least one entry when externalSecret is enabled
+    set:
+      externalSecret.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "/externalSecret'"
+
+  - it: requires parentRefs when httpRoute is enabled
+    set:
+      httpRoute.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/parentRefs': minItems"
+
+  - it: requires service.enabled when httpRoute is enabled
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs[0].name: gw
+      service.enabled: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "/service/enabled': value must be true"
+
+  - it: requires className and hosts when ingress is enabled
+    set:
+      ingress.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "/ingress'"
+
+  - it: rejects minAvailable together with maxUnavailable
+    set:
+      pdb.minAvailable: 1
+      pdb.maxUnavailable: 1
+    asserts:
+      - failedTemplate:
+          errorPattern: "/pdb': 'not' failed"
+
+  - it: requires ports when a Service is rendered
+    set:
+      ports: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "missing property 'ports'"
+
+  - it: rejects config keys that are not valid environment variable names
+    set:
+      config.bad-key: x
+    asserts:
+      - failedTemplate:
+          errorPattern: "'bad-key' does not match pattern"
+
+  - it: rejects configFiles names that are not valid ConfigMap keys
+    set:
+      configFiles.files.bad/name: x
+    asserts:
+      - failedTemplate:
+          errorPattern: "'bad/name' does not match pattern"

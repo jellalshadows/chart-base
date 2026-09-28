@@ -1,0 +1,14 @@
+apiVersion: v2
+name: chart-base
+description: Generic Helm chart for any workload, consumed as an aliased dependency
+type: application
+version: 0.0.0
+kubeVersion: ">=1.33.0-0"
+home: https://github.com/jellalshadows/chart-base
+sources:
+  - https://github.com/jellalshadows/chart-base
+maintainers:
+  - name: jellalshadows
+    url: https://github.com/jellalshadows
+annotations:
+  org.opencontainers.image.licenses: Apache-2.0
