@@ -118,3 +118,95 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].env[0].name
           value: DB_PASSWORD
+
+  - it: lists the ExternalSecret Secret and every referenced Secret and ConfigMap for Reloader
+    template: templates/deployment.yaml
+    values:
+      - values/base.yaml
+      - values/env-refs.yaml
+    set:
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: gcp-sm
+      externalSecret.data.API_KEY.key: sales-api-key
+    asserts:
+      - equal:
+          path: metadata.annotations["secret.reloader.stakater.com/reload"]
+          value: sales-kafka-user,vending-chart-base-secrets,vending\.db-app
+      - equal:
+          path: metadata.annotations["configmap.reloader.stakater.com/reload"]
+          value: shared-flags
+
+  - it: lists each referenced object once even when it is referenced twice
+    template: templates/deployment.yaml
+    set:
+      env:
+        DB_USER:
+          valueFrom:
+            secretKeyRef:
+              name: db-app
+              key: username
+        DB_PASSWORD:
+          valueFrom:
+            secretKeyRef:
+              name: db-app
+              key: password
+      envFrom:
+        - secretRef:
+            name: db-app
+    asserts:
+      - equal:
+          path: metadata.annotations["secret.reloader.stakater.com/reload"]
+          value: db-app
+      - notExists:
+          path: metadata.annotations["configmap.reloader.stakater.com/reload"]
+
+  - it: never lists the chart's own ConfigMaps (they roll pods through checksums)
+    template: templates/deployment.yaml
+    set:
+      config.APP_MODE: api
+      configFiles.files:
+        application.yaml: "a: 1\n"
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  - it: renders no Reloader annotations when reloadOnChange is false
+    template: templates/deployment.yaml
+    values:
+      - values/base.yaml
+      - values/env-refs.yaml
+    set:
+      reloadOnChange: false
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  - it: never adds Reloader annotations to cronjobs (each run reads the current objects)
+    template: templates/cronjob.yaml
+    values:
+      - values/base.yaml
+      - values/env-refs.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  - it: never adds Reloader annotations to job hooks (a hook runs once per deploy)
+    template: templates/job.yaml
+    values:
+      - values/base.yaml
+      - values/env-refs.yaml
+    set:
+      workload.type: job
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: gcp-sm
+      externalSecret.data.API_KEY.key: sales-api-key
+    asserts:
+      - notExists:
+          path: metadata.annotations["secret.reloader.stakater.com/reload"]
+      - notExists:
+          path: metadata.annotations["configmap.reloader.stakater.com/reload"]
+      - exists:
+          path: metadata.annotations["helm.sh/hook"]

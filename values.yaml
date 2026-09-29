@@ -68,8 +68,11 @@ externalSecret:
   refreshInterval: 1h
   # -- Map of `ENV_VAR: {key: <remote key>, property: <optional field>}`.
   data: {}
-  # -- Add the Stakater Reloader annotation so Deployments restart when the Secret changes.
-  reloadOnChange: true
+
+# -- Restart Deployments (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is
+# updated: the ExternalSecret's Secret and every Secret/ConfigMap referenced in `env`/`envFrom`.
+# The chart's own ConfigMaps roll pods through checksum annotations instead.
+reloadOnChange: true
 
 # -- Deployment replicas. Ignored when `autoscaling.enabled`.
 replicas: 1

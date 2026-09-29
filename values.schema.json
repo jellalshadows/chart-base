@@ -15,6 +15,7 @@
     "service",
     "configFiles",
     "externalSecret",
+    "reloadOnChange",
     "probes",
     "podSecurityContext",
     "securityContext",
@@ -131,7 +132,7 @@
     "externalSecret": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "refreshInterval", "reloadOnChange", "secretStoreRef"],
+      "required": ["enabled", "refreshInterval", "secretStoreRef"],
       "properties": {
         "enabled": { "type": "boolean" },
         "secretStoreRef": {
@@ -155,10 +156,10 @@
               "property": { "type": "string" }
             }
           }
-        },
-        "reloadOnChange": { "type": "boolean" }
+        }
       }
     },
+    "reloadOnChange": { "type": "boolean" },
     "env": {
       "type": "object",
       "description": "References only: literal values belong in `config`.",

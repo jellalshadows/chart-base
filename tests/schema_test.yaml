@@ -346,3 +346,17 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "/envFrom/0/prefix'"
+
+  - it: requires reloadOnChange (a null must not silently disable restarts)
+    set:
+      reloadOnChange: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "missing property 'reloadOnChange'"
+
+  - it: rejects the pre-0.2.0 key externalSecret.reloadOnChange
+    set:
+      externalSecret.reloadOnChange: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'reloadOnChange' not allowed"
