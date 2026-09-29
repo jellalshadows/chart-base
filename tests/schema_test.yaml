@@ -287,3 +287,62 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "invalid propertyName 'app.kubernetes.io/name'"
+
+  - it: requires valueFrom in every env entry
+    set:
+      env.FOO.x: 1
+    asserts:
+      - failedTemplate:
+          errorPattern: "/env/FOO': missing property 'valueFrom'"
+
+  - it: requires exactly one source in env valueFrom
+    set:
+      env.FOO.valueFrom.fieldRef.fieldPath: metadata.name
+      env.FOO.valueFrom.secretKeyRef.name: db-app
+      env.FOO.valueFrom.secretKeyRef.key: password
+    asserts:
+      - failedTemplate:
+          errorPattern: "/env/FOO/valueFrom': 'oneOf' failed"
+
+  - it: requires name and key in secretKeyRef
+    set:
+      env.FOO.valueFrom.secretKeyRef.name: db-app
+    asserts:
+      - failedTemplate:
+          errorPattern: "/env/FOO/valueFrom/secretKeyRef': missing property 'key'"
+
+  - it: rejects env names that are not valid environment variable names
+    set:
+      env.bad-name.valueFrom.fieldRef.fieldPath: metadata.name
+    asserts:
+      - failedTemplate:
+          errorPattern: "'bad-name' does not match pattern"
+
+  - it: requires exactly one of configMapRef or secretRef in each envFrom entry
+    set:
+      envFrom:
+        - configMapRef:
+            name: a
+          secretRef:
+            name: b
+    asserts:
+      - failedTemplate:
+          errorPattern: "/envFrom/0': 'oneOf' failed"
+
+  - it: rejects an envFrom entry without configMapRef or secretRef
+    set:
+      envFrom:
+        - prefix: ONLY_
+    asserts:
+      - failedTemplate:
+          errorPattern: "/envFrom/0': 'oneOf' failed"
+
+  - it: rejects an invalid envFrom prefix
+    set:
+      envFrom:
+        - secretRef:
+            name: a
+          prefix: 1-bad
+    asserts:
+      - failedTemplate:
+          errorPattern: "/envFrom/0/prefix'"

@@ -23,6 +23,27 @@
     "preStopSleepSeconds",
     "terminationGracePeriodSeconds"
   ],
+  "definitions": {
+    "keyRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "key"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "key": { "type": "string", "minLength": 1 },
+        "optional": { "type": "boolean" }
+      }
+    },
+    "objectRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "optional": { "type": "boolean" }
+      }
+    }
+  },
   "properties": {
     "global": { "type": "object", "description": "Injected by Helm into every alias. Ignored by chart-base." },
     "enabled": { "type": "boolean", "description": "Used by umbrellas as `condition: <alias>.enabled`." },
@@ -136,6 +157,67 @@
           }
         },
         "reloadOnChange": { "type": "boolean" }
+      }
+    },
+    "env": {
+      "type": "object",
+      "description": "References only: literal values belong in `config`.",
+      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["valueFrom"],
+        "properties": {
+          "valueFrom": {
+            "type": "object",
+            "additionalProperties": false,
+            "oneOf": [
+              { "required": ["fieldRef"] },
+              { "required": ["resourceFieldRef"] },
+              { "required": ["secretKeyRef"] },
+              { "required": ["configMapKeyRef"] }
+            ],
+            "properties": {
+              "fieldRef": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["fieldPath"],
+                "properties": {
+                  "fieldPath": { "type": "string", "minLength": 1 },
+                  "apiVersion": { "type": "string" }
+                }
+              },
+              "resourceFieldRef": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["resource"],
+                "properties": {
+                  "resource": { "type": "string", "minLength": 1 },
+                  "containerName": { "type": "string" },
+                  "divisor": { "type": ["string", "number"] }
+                }
+              },
+              "secretKeyRef": { "$ref": "#/definitions/keyRef" },
+              "configMapKeyRef": { "$ref": "#/definitions/keyRef" }
+            }
+          }
+        }
+      }
+    },
+    "envFrom": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "oneOf": [
+          { "required": ["configMapRef"] },
+          { "required": ["secretRef"] }
+        ],
+        "properties": {
+          "configMapRef": { "$ref": "#/definitions/objectRef" },
+          "secretRef": { "$ref": "#/definitions/objectRef" },
+          "prefix": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }
+        }
       }
     },
     "replicas": { "type": "integer", "minimum": 0 },

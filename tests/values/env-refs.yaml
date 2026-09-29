@@ -1,0 +1,28 @@
+# One reference of every supported kind, plus external envFrom sources.
+env:
+  POD_NAME:
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.name
+  MEMORY_MB:
+    valueFrom:
+      resourceFieldRef:
+        resource: limits.memory
+        divisor: 1Mi
+  DB_PASSWORD:
+    valueFrom:
+      secretKeyRef:
+        name: vending.db-app
+        key: password
+  FLAG_X:
+    valueFrom:
+      configMapKeyRef:
+        name: shared-flags
+        key: x
+envFrom:
+  - secretRef:
+      name: sales-kafka-user
+  - configMapRef:
+      name: shared-flags
+      optional: true
+    prefix: SHARED_

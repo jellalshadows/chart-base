@@ -1,0 +1,120 @@
+suite: env references, envFrom and Reloader annotations
+templates:
+  - templates/deployment.yaml
+  - templates/configmap-env.yaml
+  - templates/configmap-files.yaml
+  - templates/cronjob.yaml
+  - templates/job.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+values:
+  - values/base.yaml
+tests:
+  - it: renders no env and no envFrom by default
+    template: templates/deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env
+      - notExists:
+          path: spec.template.spec.containers[0].envFrom
+
+  - it: renders env references sorted by name with valueFrom verbatim
+    template: templates/deployment.yaml
+    values:
+      - values/base.yaml
+      - values/env-refs.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: vending.db-app
+                  key: password
+            - name: FLAG_X
+              valueFrom:
+                configMapKeyRef:
+                  name: shared-flags
+                  key: x
+            - name: MEMORY_MB
+              valueFrom:
+                resourceFieldRef:
+                  resource: limits.memory
+                  divisor: 1Mi
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+
+  - it: injects external envFrom sources BEFORE the chart's own config and secrets
+    template: templates/deployment.yaml
+    values:
+      - values/base.yaml
+      - values/env-refs.yaml
+    set:
+      config.APP_MODE: api
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: gcp-sm
+      externalSecret.data.API_KEY.key: sales-api-key
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].envFrom
+          value:
+            - secretRef:
+                name: sales-kafka-user
+            - configMapRef:
+                name: shared-flags
+                optional: true
+              prefix: SHARED_
+            - configMapRef:
+                name: vending-chart-base-env
+            - secretRef:
+                name: vending-chart-base-secrets
+
+  - it: renders envFrom with only external sources
+    template: templates/deployment.yaml
+    set:
+      envFrom:
+        - secretRef:
+            name: sales-kafka-user
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].envFrom
+          value:
+            - secretRef:
+                name: sales-kafka-user
+
+  - it: applies env references to cronjob runs
+    template: templates/cronjob.yaml
+    values:
+      - values/base.yaml
+      - values/env-refs.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env[3].name
+          value: POD_NAME
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].envFrom[0].secretRef.name
+          value: sales-kafka-user
+
+  - it: applies env references to job hooks
+    template: templates/job.yaml
+    values:
+      - values/base.yaml
+      - values/env-refs.yaml
+    set:
+      workload.type: job
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[0].name
+          value: DB_PASSWORD
