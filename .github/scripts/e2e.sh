@@ -34,6 +34,8 @@ kubectl wait clustersecretstore/fake --for=condition=Ready --timeout=120s
 kubectl create namespace "$ns"
 kubectl label namespace "$ns" \
   pod-security.kubernetes.io/enforce=restricted pod-security.kubernetes.io/enforce-version=latest
+# An existing Secret that components reference by name (like the ones CNPG or Strimzi create).
+kubectl create secret generic e2e-shared -n "$ns" --from-literal=TOKEN=abc
 
 install() { helm upgrade --install "$1" "$chart_dir" -n "$ns" -f "$chart_dir/ci/$1-values.yaml" --wait --timeout 5m "${@:2}"; }
 
@@ -55,8 +57,8 @@ echo "== cronjob"
 install cronjob || fail "cronjob scenario failed"
 kubectl create job -n "$ns" --from=cronjob/cronjob-chart-base cronjob-manual-run
 kubectl wait -n "$ns" job/cronjob-manual-run --for=condition=Complete --timeout=180s \
-  || fail "a CronJob run must complete (restricted pod + config from the ConfigMap)"
-pass "a CronJob run completes"
+  || fail "a CronJob run must complete (restricted pod, config, env references, envFrom with prefix)"
+pass "a CronJob run sees config, env references (fieldRef, resourceFieldRef) and envFrom with prefix"
 
 echo "== job (pre-deploy hook)"
 install job || fail "job hook failed: it must see APP_MODE, DB_PASSWORD (ESO) and /config/migrations.yaml"
@@ -72,6 +74,8 @@ kubectl wait -n "$ns" externalsecret/full-chart-base-secrets --for=condition=Rea
 [ "$(kubectl get secret -n "$ns" full-chart-base-secrets -o jsonpath='{.data.DB_PASSWORD}' | base64 -d)" = s3cr3t ] \
   || fail "Secret content mismatch"
 kubectl get httproute -n "$ns" full-chart-base > /dev/null || fail "HTTPRoute not accepted by the API"
+reload="$(kubectl get deployment -n "$ns" full-chart-base -o jsonpath='{.metadata.annotations.secret\.reloader\.stakater\.com/reload}')"
+[ "$reload" = "e2e-shared,full-chart-base-secrets" ] || fail "Reloader annotation must list the referenced Secrets, got '$reload'"
 kubectl get hpa,pdb,ingress -n "$ns" -l app.kubernetes.io/instance=full
 pass "full scenario: ExternalSecret synced, HTTPRoute/HPA/PDB/Ingress accepted"
 

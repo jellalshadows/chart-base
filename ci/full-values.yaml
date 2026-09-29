@@ -29,6 +29,16 @@ configFiles:
       <configuration>
         <root level="INFO"/>
       </configuration>
+env:
+  POD_NAMESPACE:
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.namespace
+  SHARED_TOKEN:
+    valueFrom:
+      secretKeyRef:
+        name: e2e-shared
+        key: TOKEN
 externalSecret:
   enabled: true
   secretStoreRef:

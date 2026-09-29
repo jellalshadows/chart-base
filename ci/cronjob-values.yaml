@@ -4,14 +4,40 @@ workload:
 image:
   repository: registry.k8s.io/e2e-test-images/agnhost
   tag: "2.66.1"
-command: ["sh", "-c", "test \"$APP_MODE\" = cleanup && echo ok"]
+# The run checks config (ConfigMap), env references (fieldRef, resourceFieldRef) and an
+# existing Secret injected with envFrom + prefix (the e2e creates Secret e2e-shared, TOKEN=abc).
+command:
+  - sh
+  - -c
+  - >-
+    test "$APP_MODE" = cleanup &&
+    test -n "$POD_NAME" &&
+    test "$MEMORY_MB" = 64 &&
+    test "$SHARED_TOKEN" = abc &&
+    echo ok
 ports: []
 resources:
   requests:
     cpu: 10m
     memory: 16Mi
+  limits:
+    memory: 64Mi
 config:
   APP_MODE: cleanup
+env:
+  POD_NAME:
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.name
+  MEMORY_MB:
+    valueFrom:
+      resourceFieldRef:
+        resource: limits.memory
+        divisor: 1Mi
+envFrom:
+  - secretRef:
+      name: e2e-shared
+    prefix: SHARED_
 cronjob:
   schedule: "*/30 * * * *"
   timeZone: Europe/Madrid
