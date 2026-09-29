@@ -346,7 +346,8 @@ code, official docs) and local renders.
     [ADR-0033](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0033-component-level-reload-on-change.md)
 34. **Every version is signed with cosign keyless, by digest.** The publish job signs after the
     attestation (both append to the same referrers index on GHCR) and then verifies that a cosign
-    signature, not only the attestation, is there. A manual run on an already-published tag only signs it.
+    signature, not only the attestation, is there. A manual run on an already-published tag only signs it,
+    and only if that digest has this workflow's provenance attestation; otherwise it refuses.
     *Rejected:* a signing key pair (a secret to guard and rotate); legacy `.sig` signatures (deprecated);
     relying on `cosign verify` accepting the attestation (it does not filter by type).
     [ADR-0034](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0034-keyless-cosign-signatures.md)
@@ -375,7 +376,7 @@ cosign verify ghcr.io/jellalshadows/charts/chart-base:X.Y.Z \
 ```
 
   `cosign verify` alone also accepts the provenance attestation (same signer); the `jq` filter requires the
-  signature itself. Flux verifies these signatures from 2.8 on (`spec.verify.provider: cosign`; cosign v3 bundle support arrived in source-controller 1.8).
+  signature itself. Flux verifies these signatures from 2.8 on (`spec.verify.provider: cosign`; cosign v3 bundle support arrived in source-controller 1.8). Flux, like plain `cosign verify`, accepts either bundle: it proves that `release.yaml@main` vouched for the digest, not that the cosign signature in particular exists. To require the signature, use the `cosign verify ... | jq` command above.
 
 ## Rules for consumers
 

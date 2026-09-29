@@ -45,9 +45,10 @@ at the time chart-base first shipped it meant one more moving part on GHCR for a
   about the source content beyond what that workflow itself checked out at `refs/tags/<tag>`. It does not
   replace the `Chart.yaml`-version assertion or the overwrite guard (ADR-0020); it is an additional,
   independent check, and it is one more step in the `publish` job that can itself fail (an attestation
-  failure after a successful `helm push` leaves that version on GHCR without provenance, and the
-  re-publish path of ADR-0029 cannot fix it: a re-run stops at the overwrite guard, because the
-  version's manifest now answers `200`. The recovery is a new patch release).
+  failure after a successful `helm push` leaves that version on GHCR without provenance, and neither
+  recovery path can fix it: a re-run stops at the overwrite guard, because the version's manifest now
+  answers `200`, and a manual run switches to sign-only mode, which refuses to sign a digest without this
+  workflow's provenance ([ADR-0034](0034-keyless-cosign-signatures.md)). The recovery is a new patch release).
 - Nothing produces a cosign signature, so tooling that specifically expects Sigstore/cosign verification
   (rather than GitHub's own attestations API) cannot verify chart-base's provenance today.
 

@@ -276,7 +276,9 @@ The commands, with the exact identity and issuer, are in the
   `cosign verify` also accepts the attestation, which is why the README pipes the result through a `jq`
   filter that requires the signature type.
 
-Flux can enforce the signature when it fetches the chart. Flux documents cosign
+Flux can verify the signature when it fetches the chart (like plain `cosign verify`, it accepts either bundle: it
+proves that `release.yaml@main` vouched for the digest, not that the cosign signature in particular exists; to
+require the signature, use the README's `cosign verify ... | jq` command). Flux documents cosign
 verification of OCI Helm charts through a `spec.verify` block on the `HelmChart`
 ([Flux documentation](https://fluxcd.io/flux/components/source/helmcharts/#verification)). Support for the
 cosign v3 bundle format arrived in Flux 2.8 (source-controller 1.8,

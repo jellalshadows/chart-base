@@ -45,10 +45,12 @@ Conventional commits, squash-merged with the PR title as the commit message, dec
    and create the GitHub release, and the `release-please` job sets `release_created` to `true`.
 6. **Watch the run.** The `publish to ghcr.io` job then runs these steps in order: *Resolve the version from
    the tag*, checkout of `refs/tags/vX.Y.Z`, setup Helm, *Chart.yaml version must match the release*,
-   *Refuse to overwrite an existing version (GHCR tags are mutable)*, *Package (reproducible)*,
-   login, *Push to ghcr.io*, the provenance attestation ([ADR-0022](../adr/0022-provenance-with-actions-attest.md)),
-   *Digest to sign*, the cosign installation, *Sign with cosign (keyless)* and
-   *The cosign signature verifies* ([ADR-0034](../adr/0034-keyless-cosign-signatures.md)).
+   *Refuse to overwrite an existing version (GHCR tags are mutable)*, the cosign installation,
+   *Prepare the Sigstore bundle check*, *Package (reproducible)*, login, *Push to ghcr.io*, the provenance
+   attestation ([ADR-0022](../adr/0022-provenance-with-actions-attest.md)), *Digest to sign*,
+   *Sign with cosign (keyless)* and *The signature and the provenance verify*
+   ([ADR-0034](../adr/0034-keyless-cosign-signatures.md)). (*Only sign what this workflow built* runs
+   only in sign-only mode, right before the signature.)
    ```bash
    gh run list --repo jellalshadows/chart-base --workflow release.yaml --limit 3
    gh run watch <run-id> --repo jellalshadows/chart-base
@@ -91,9 +93,10 @@ Conventional commits, squash-merged with the PR title as the commit message, dec
 - **The `publish to ghcr.io` job failed before the push succeeded** (the tag and the GitHub release
   already exist, the version is not on GHCR): follow [Re-publishing or signing a tag](republish-a-tag.md). Do not
   delete the tag.
-- **The push succeeded but the attestation step failed:** the version is on GHCR without provenance and
-  cannot be re-published (the overwrite guard refuses). Ship the fix as a new patch release.
-- **The push succeeded but the job failed at `Sign with cosign (keyless)` or `The cosign signature verifies`:**
+- **The push succeeded but the attestation step failed:** the version is on GHCR without provenance. It
+  cannot be re-published (the overwrite guard refuses) and a manual run cannot sign it (sign-only mode
+  refuses a digest without this workflow's provenance). Ship the fix as a new patch release.
+- **The push succeeded but the job failed at `Sign with cosign (keyless)` or `The signature and the provenance verify`:**
   the version is on GHCR, with provenance but without a verified signature. Do not ship a new patch: run the
   manual dispatch for the same tag, which only signs it (see [Re-publishing or signing a tag](republish-a-tag.md)).
 - **The overwrite guard reported the version already exists** (`refusing to overwrite`): never overwrite
