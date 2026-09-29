@@ -132,19 +132,22 @@ orders:
   env:                                      # references only: literal values belong in `config`
     DB_PASSWORD:                            # Secret created by CloudNativePG, referenced by name
       valueFrom: {secretKeyRef: {name: orders-db-app, key: password}}
+    KAFKA_PASSWORD:                         # Secret created by Strimzi for a KafkaUser
+      valueFrom: {secretKeyRef: {name: orders-kafka-user, key: password}}
     OTEL_SERVICE_NAME:                      # downward API
       valueFrom: {fieldRef: {fieldPath: "metadata.labels['app.kubernetes.io/name']"}}
     K8S_POD_NAME:
       valueFrom: {fieldRef: {fieldPath: metadata.name}}
     GOMEMLIMIT_MB:                          # resourceFieldRef (e.g. to size a runtime's heap)
       valueFrom: {resourceFieldRef: {resource: limits.memory, divisor: 1Mi}}
-  envFrom:                                  # an existing Secret injected whole
-    - secretRef: {name: orders-kafka-user}  # created by Strimzi for a KafkaUser
-      prefix: KAFKA_
+  envFrom:                                  # an existing ConfigMap injected whole
+    - configMapRef: {name: platform-endpoints}  # a ConfigMap shared by the platform
+      prefix: PLATFORM_
 ```
 
-`reloadOnChange` (default `true`) lists `orders-db-app` and `orders-kafka-user` in the Deployment's
-Reloader annotation, so a rotated password restarts the pods. External `envFrom` sources are injected
+`reloadOnChange` (default `true`) lists `orders-db-app` and `orders-kafka-user` (Secrets) and
+`platform-endpoints` (a ConfigMap) in the Deployment's Reloader annotations, so a rotated password or an
+edited ConfigMap restarts the pods. External `envFrom` sources are injected
 before the chart's own ConfigMap/Secret, and `env` wins over every `envFrom` source.
 
 ### Worker (e.g. a Kafka consumer)
@@ -387,8 +390,10 @@ code, official docs) and local renders.
     *Rejected:* "Re-run failed jobs" (it re-runs the old workflow with the same broken steps).
     [ADR-0029](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0029-publishing-built-for-recovery.md)
 30. **`env` takes references only.** `valueFrom` with `fieldRef`, `resourceFieldRef`, `secretKeyRef` or
-    `configMapKeyRef`; literal values keep a single home in `config`, and a literal in `env` fails with a
-    message pointing to `config`. *Rejected:* literals in `env` (two places for the same setting).
+    `configMapKeyRef`; literal values keep a single home in `config`. `env.FOO: bar` and a Kubernetes-style
+    list (`- name: FOO` / `value: bar`) fail with a message that points to `config`; `FOO: {value: bar}` is
+    a schema error (`missing property 'valueFrom'`). *Rejected:* literals in `env` (two places for the
+    same setting).
     [ADR-0030](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0030-env-takes-references-only.md)
 31. **Existing Secrets are referenced by name, never by value.** Secrets created inside the cluster by
     operators (CloudNativePG `<cluster>-app`, Strimzi `KafkaUser`) are consumed where they live; secrets
@@ -404,8 +409,9 @@ code, official docs) and local renders.
     Reloader annotations list the ExternalSecret's Secret and every referenced Secret and ConfigMap,
     regex-quoted because Reloader matches each entry as an anchored regular expression. Moved from
     `externalSecret.reloadOnChange` in 0.2.0 (breaking). *Rejected:* one flag per source; Reloader's
-    `auto` mode (it also watches the chart's own ConfigMaps and would restart pods a second time after
-    the checksum rollout).
+    `auto` mode (the list of what is watched should be explicit, rendered and testable; `auto` would also
+    watch the chart's own ConfigMaps, which need extra exclusions to avoid a second restart after the
+    checksum rollout).
     [ADR-0033](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0033-component-level-reload-on-change.md)
 
 ## Versioning and releases

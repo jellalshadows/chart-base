@@ -39,8 +39,18 @@ The chart cannot check at render time that a referenced object exists. A missing
 (`helm upgrade --wait`, `--rollback-on-failure` on Helm 4 or `--atomic` on Helm 3) sees the failure. A
 tool that does not wait does not.
 
+Other workloads behave differently:
+
+- **CronJob:** `helm --wait` does not wait for runs, so the release succeeds. The run's pod stays in
+  `CreateContainerConfigError` and its Job stays active, because `job.activeDeadlineSeconds` defaults to
+  `null` (`values.yaml`). With the default `concurrencyPolicy: Forbid`, later runs are skipped while that
+  Job is still active, and the only trace is a Kubernetes event on the CronJob. For a CronJob that
+  references external objects, set `job.activeDeadlineSeconds` so a stuck run is ended and reported as
+  failed.
+- **Job hook:** Helm waits for the hook Job until `--timeout` and then fails the operation.
+
 Referenced objects are watched by Reloader as well, so a rotation performed by the operator restarts the
-pods (ADR-0033).
+Deployment's pods (ADR-0033). CronJob runs and Job hooks read the current objects each time they start.
 
 ## Consequences
 

@@ -59,3 +59,4 @@ what it can see: the duplicates between `env`, `config` and `externalSecret.data
 - `templates/_pod.tpl`, `templates/validate.yaml`
 - `values.yaml` (`env`, `envFrom`), `values.schema.json` (`envFrom`)
 - `tests/env_test.yaml`, `tests/validate_test.yaml`
+- [Kubernetes API: Pod, Container `envFrom` (last source wins, `env` takes precedence)](https://kubernetes.io/docs/reference/kubernetes-api/core/pod-v1/)

@@ -43,9 +43,10 @@ A single required check, `ci-ok`, depends on all the jobs. chart-testing (`ct`) 
 **Where it lives.**
 
 - Suites in `tests/*_test.yaml`, roughly one per area (`deployment`, `cronjob`, `job`, `configmap`,
-  `externalsecret`, `exposure`, `scaling`, `service`, `serviceaccount`, `hooks`, `validate`, `schema`,
+  `env` (references, `envFrom`, Reloader annotations), `externalsecret`, `exposure`, `scaling`, `service`, `serviceaccount`, `hooks`, `validate`, `schema`,
   `snapshot`). Each suite names the templates it renders.
-- Shared values in `tests/values/`: `base.yaml` (the minimum valid values every suite starts from) and
+- Shared values in `tests/values/`: `base.yaml` (the minimum valid values every suite starts from),
+  `env-refs.yaml` (one reference of every kind plus `envFrom` sources, for the `env` suite) and
   `large-numbers.yaml` (numbers, loaded as a values file on purpose, see the
   [pitfalls](development.md#pitfalls)).
 - Snapshots in `tests/__snapshot__/`, from `tests/snapshot_test.yaml`: one per `ci/` scenario. A

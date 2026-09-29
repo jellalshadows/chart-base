@@ -53,6 +53,11 @@ strategy also works with these annotations but changes the workload behind the G
 - Cost: referencing the chart's own `<fullname>-env` ConfigMap through `configMapKeyRef` would list it
   and restart the pods twice, once through the checksum and once through Reloader. Use `config` for the
   chart's own values.
+- Since 0.2.0, ADR-0006's "Reloader is deliberately not used for ConfigMaps" applies to the chart's own
+  ConfigMaps only (`<fullname>-env`, `<fullname>-files`, rolled by checksums). ConfigMaps referenced by
+  name are listed in the Reloader annotation, because nothing in the deploy changes when they do.
+- Follow-up: any future feature that mounts a ConfigMap or Secret as a volume (roadmap 0.7.0 volumes,
+  0.9.0 ESO file mounts) must feed `templates/_reloader.tpl`, or the mounted object will not be watched.
 - Cost: an upgrade from 0.1.x that set `externalSecret.reloadOnChange` must rename the key. The old
   key fails validation before anything reaches the cluster.
 
@@ -65,8 +70,14 @@ behavior, with no case where a caller wants some sources watched and others not.
 
 ### Reloader's `reloader.stakater.com/auto` mode
 
-It also watches the chart's own ConfigMaps, so a config change would restart the pods a second time
-after the checksum rollout. Rejected.
+Reloader watches everything a workload references, without a list. Rejected, because chart-base wants
+an explicit, rendered and testable list of exactly what is watched: the annotation is visible in
+`helm template` and pinned by `tests/env_test.yaml`. There is also a side effect: `auto` also watches the
+chart's own ConfigMaps, so a config change would restart the pods a second time after the checksum
+rollout, unless the chart's ConfigMaps are excluded with Reloader's exclude annotations
+(`configmaps.exclude.reloader.stakater.com/reload`, present in Reloader v1.4.22,
+`internal/pkg/options/flags.go`). That double restart alone would not have ruled `auto` out; the
+explicit list does.
 
 ## References
 
@@ -75,3 +86,4 @@ after the checksum rollout. Rejected.
 - `tests/env_test.yaml`, `tests/schema_test.yaml`
 - [Upgrade guide](../upgrading.md)
 - [Stakater Reloader](https://github.com/stakater/Reloader)
+- [Reloader v1.4.22, `pkg/common/common.go` (comma split and anchored regular expression)](https://github.com/stakater/Reloader/blob/v1.4.22/pkg/common/common.go#L284-L300)

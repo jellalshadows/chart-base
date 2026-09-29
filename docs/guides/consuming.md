@@ -232,11 +232,16 @@ These are practices for the umbrella, not features of chart-base.
 Some Secrets are created inside the cluster by an operator, not synced from a secret manager: the
 `<cluster>-app` Secret of a CloudNativePG cluster, the Secret of a Strimzi `KafkaUser`. Reference them by
 name, in `env` (one key) or `envFrom` (the whole Secret), instead of copying them through
-`externalSecret`. The values never appear in your values file, and rotating the Secret restarts the pods
-through Reloader. See the
+`externalSecret`. The values never appear in your values file, and rotating the Secret restarts a
+Deployment's pods through Reloader (a CronJob run or a Job hook reads the current Secret when it starts).
+See the
 [README recipe](https://github.com/jellalshadows/chart-base/blob/main/README.md#operator-created-secrets-and-pod-metadata-cloudnativepg-strimzi-opentelemetry)
 and [ADR-0031](../adr/0031-existing-secrets-referenced-by-name.md). A reference to an object that does
-not exist is not caught at render time: the pod stays in `CreateContainerConfigError`.
+not exist is not caught at render time: the pod stays in `CreateContainerConfigError`. A Deployment
+rollout then fails within `progressDeadlineSeconds`. A CronJob is different: `helm --wait` does not wait
+for its runs, the stuck run's Job stays active (`job.activeDeadlineSeconds` defaults to `null`) and, with
+the default `concurrencyPolicy: Forbid`, later runs are skipped. Set `job.activeDeadlineSeconds` on
+CronJobs that reference external objects. A Job hook makes Helm wait until `--timeout`.
 
 ## Upgrading chart-base
 

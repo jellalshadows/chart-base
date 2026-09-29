@@ -93,6 +93,7 @@ responsibility so that each one can be developed and tested on its own:
 | `_names.tpl` | The component name (the alias), `<release>-<component>` and the `fail` helper that prefixes errors with the component. |
 | `_labels.tpl` | Selector labels (frozen from 1.0.0), the labels shared by pods and objects, and `helm.sh/chart`. |
 | `_pod.tpl` | The image reference, the ServiceAccount name and the pod spec shared by Deployment, CronJob and Job. |
+| `_reloader.tpl` | The Reloader annotations for objects that change outside the deploy: the ExternalSecret's Secret and every Secret or ConfigMap referenced in `env` or `envFrom` ([ADR-0033](../adr/0033-component-level-reload-on-change.md)). |
 | `_service.tpl` | The port a Service exposes for a `ports` entry. |
 | `_hooks.tpl` | The Helm hook annotations of `workload.type: job` and of its support resources ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)). |
 

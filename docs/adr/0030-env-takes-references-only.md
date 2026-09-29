@@ -38,10 +38,16 @@ annotations (ADR-0033) are computed from them; an `env` list passed through unto
 - `templates/_pod.tpl` renders the entries as the container's `env`, sorted by name (Go templates
   iterate a map in key order), with `valueFrom` copied verbatim. With no `env`, no `env` key is
   rendered. The same pod spec serves the Deployment, the CronJob and the Job hook.
-- A literal value fails with `env.<NAME> is a literal value: literal values belong in config; env only
-  takes valueFrom references` (`templates/validate.yaml`, prefixed with `chart-base[<component>]:`). The
-  schema deliberately lets a scalar through to that guard, so the message points to `config` instead of
-  being a JSON-schema type error.
+- Each wrong shape fails with a message that says what to do (`templates/validate.yaml`, prefixed with
+  `chart-base[<component>]:`, and the JSON schema):
+  - `env.FOO: bar` (a scalar) fails with `env.FOO is a literal value: literal values belong in config; env
+    only takes valueFrom references`. The schema deliberately lets a scalar through to that guard, so the
+    message points to `config` instead of being a JSON-schema type error.
+  - A Kubernetes-style list (`- name: FOO` / `value: bar`) fails with `env is a map of NAME: {valueFrom:
+    ...}, not a Kubernetes env list: literal values belong in config, references in env as a map`. The
+    schema accepts an array for `env` only so that this guard, and not a type error, is what the user sees.
+  - `FOO: {value: bar}` (a map without `valueFrom`) is a schema error: `missing property 'valueFrom'` and
+    `additional properties 'value' not allowed`.
 - `env` wins over every `envFrom` source: that is Kubernetes semantics, and ADR-0032 builds on it.
 
 The name pattern is the classic C identifier rule. It is deliberately stricter than recent Kubernetes
@@ -57,7 +63,7 @@ cannot be used as a variable.
   ConfigMaps (ADR-0033).
 - The downward API and `resourceFieldRef` work without wrapper scripts in the image.
 - Cost: a Kubernetes user who pastes `- name: FOO` / `value: bar` finds that literals are refused. The
-  error message names `config`, which is the fix.
+  error message names `config` and says `env` is a map, which is the fix.
 - Cost: `resourceFieldRef.resource` and `fieldRef.fieldPath` are only checked for being non-empty; the
   API server validates the actual path when the pod is created.
 - Cost: the strict name pattern rejects names that some clusters would accept.
