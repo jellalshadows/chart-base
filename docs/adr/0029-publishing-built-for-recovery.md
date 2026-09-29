@@ -14,7 +14,7 @@ nothing has actually reached `ghcr.io` yet.
 
 release-please will not help recover from this: its entire model is "propose the next version from commits
 that have not been released yet", and a tag that already exists means, from its perspective, that version
-*was* released — it will never propose or re-tag it again (Spec §14, A6). GitHub's generic "Re-run failed
+*was* released — it will never propose or re-tag it again. GitHub's generic "Re-run failed
 jobs" does not help either: it re-executes the same job with the workflow file exactly as it was *at the
 time that run started*. If the failure came from a bug in the publish steps themselves — the very thing a
 fix would target — re-running reproduces the identical failure, not a corrected one. Deleting and recreating
@@ -48,7 +48,10 @@ workflow itself provides: no overwrite guard, no reproducible packaging, no prov
   merge the fix to `main`, then trigger `workflow_dispatch` with the failed `tag` — running the *fixed*
   workflow against the *original* tagged commit, not the broken one that failed the first time.
 - The overwrite guard still applies during a manual re-publish, so recovery can never silently push over a
-  version that a previous, partially-successful attempt already got onto GHCR.
+  version that a previous, partially-successful attempt already got onto GHCR. The flip side: a failure
+  *after* a successful `helm push` (for example the provenance attestation step) cannot be recovered this
+  way, because the version is already on GHCR and the guard refuses to touch it; that version stays
+  without provenance and the fix is a new patch release.
 - Trade-off: a free-text `workflow_dispatch` `tag` input has to trust the operator to type a real, existing
   tag. The "Resolve the version from the tag" step's regex (`^v[0-9]+\.[0-9]+\.[0-9]+$`) only checks the
   *shape* of the input: a value that is not `vX.Y.Z` fails right there, but a well-formed tag that does not
@@ -78,6 +81,5 @@ leaving the republished version with no way for a consumer to verify it came fro
 
 - `.github/workflows/release.yaml` (`workflow_dispatch.inputs.tag`, `publish.if`, `env.TAG`, the "Push to
   ghcr.io" step)
-- Design spec §9.1, §14 (A6), §14.1 (A15)
 - `../../README.md#versioning-and-releases`
 - [Re-publishing a tag runbook](../runbooks/republish-a-tag.md)

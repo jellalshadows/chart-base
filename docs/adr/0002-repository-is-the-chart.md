@@ -20,8 +20,8 @@ CI files (`.git/`, `.gitignore`, `.gitattributes`, `.github/`, `.superpowers/`),
 scenario directories (`tests/`, `ci/`), the documentation sources and release tooling
 (`docs/`, `README.md.gotmpl`, `release-please-config.json`, `.release-please-manifest.json`),
 editor files (`*.swp`, `*.bak`, `*.tmp`, `.idea/`, `.vscode/`) and `dist/`. The package keeps
-`README.md`, `CHANGELOG.md` and `LICENSE` — the three files a consumer can inspect with
-`helm show readme`/`helm show chart` without cloning the repository.
+`README.md`, `CHANGELOG.md`, `LICENSE` and `.helmignore` itself; a consumer can read the README with
+`helm show readme` and `Chart.yaml` with `helm show chart` without cloning the repository.
 
 release-please tracks exactly one package, `.` (the repository root), in
 `release-please-config.json`. Its `exclude-paths` — `.github`, `tests`, `ci`, `docs` — keeps commits
@@ -38,8 +38,8 @@ Release PR, so a docs-only or CI-only commit never triggers a release. The alias
 - `.helmignore` excludes from the packaged `.tgz`: `.git/`, `.gitignore`, `.gitattributes`,
   `.github/`, `.superpowers/`, `tests/`, `ci/`, `docs/`, `README.md.gotmpl`,
   `release-please-config.json`, `.release-please-manifest.json`, editor files (`*.swp`, `*.bak`,
-  `*.tmp`, `.idea/`, `.vscode/`) and `dist/`. The package keeps `README.md`, `CHANGELOG.md` and
-  `LICENSE`.
+  `*.tmp`, `.idea/`, `.vscode/`) and `dist/`. The package keeps `README.md`, `CHANGELOG.md`,
+  `LICENSE` and `.helmignore` itself.
 - `release-please-config.json` tracks a single package (`"."`) with
   `"exclude-paths": [".github", "tests", "ci", "docs"]`, so commits touching only those paths never
   produce a Release PR or a release.
@@ -55,7 +55,7 @@ Release PR, so a docs-only or CI-only commit never triggers a release. The alias
   is no runnable example chart in the repository to `helm template` directly.
 - Docs and CI changes are release-neutral: a maintainer can improve documentation or CI without
   cutting a chart version, but must also remember that `docs/` and CI changes never bump the
-  version even when they are user-facing (e.g. a README recipe fix).
+  version even when they are user-facing (e.g. a correction to a guide under `docs/`).
 
 ## Alternatives considered
 
@@ -70,8 +70,9 @@ for no gain.
 
 An example umbrella chart in the repository drifts from the real schema the moment a key is added,
 renamed or made required, unless someone remembers to update it in the same PR — and CI already
-builds an equivalent throwaway umbrella on the fly (`.github/scripts/alias-contract.sh`) that cannot
-drift because it is generated from the current schema at test time.
+builds an equivalent throwaway umbrella on the fly (`.github/scripts/alias-contract.sh`) from the
+current chart files. Its values are hard-coded in the script, so when a schema change makes them
+stale the script fails CI instead of the drift going unnoticed.
 
 ## References
 

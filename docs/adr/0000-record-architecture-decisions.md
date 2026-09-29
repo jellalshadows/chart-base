@@ -21,7 +21,8 @@ Every design decision has an architecture decision record (ADR) in `docs/adr/`, 
   summary links to it. Numbers are never reused. ADR-0000 is this record.
 - **Format.** The template below, a lightweight [MADR](https://adr.github.io/madr/): status, date, the
   release that introduced the decision, context, decision, consequences, alternatives considered and
-  references.
+  references. Every ADR restates the facts it uses; where a record mentions "the design spec" or its
+  addenda (A1-A15), it points to the pre-0.1.0 design notes, which are not published.
 - **Immutability.** An accepted ADR is not rewritten. When a later release changes the decision, a new
   ADR records the change and the earlier one gets `Amended by ADR-NNNN` or `Superseded by ADR-NNNN` on
   its status line. Typos and broken links are fixed in place.

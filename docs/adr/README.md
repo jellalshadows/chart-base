@@ -5,6 +5,9 @@ decision, its consequences and every alternative that was considered. ADR *N* ex
 of the [README's design decisions](../../README.md#design-decisions). How the records are written and
 maintained is itself a decision: [ADR-0000](0000-record-architecture-decisions.md).
 
+References to "the design spec" and its addenda (A1-A15) point to the pre-0.1.0 design notes, which are
+not published; each record restates every fact it uses.
+
 | ADR | Decision | Status | Since |
 |---|---|---|---|
 | [0000](0000-record-architecture-decisions.md) | Record architecture decisions | Accepted | docs backfill |

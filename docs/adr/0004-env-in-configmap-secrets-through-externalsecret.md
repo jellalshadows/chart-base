@@ -21,10 +21,9 @@ optional `property`), rendered into an `external-secrets.io/v1` `ExternalSecret`
 Secrets Operator (ESO) resolves into a real Kubernetes `Secret`. The chart itself, and the umbrella's
 `values.yaml`, never see the secret's plaintext.
 
-Plain configuration goes through `config`, rendered into a ConfigMap. Values coming from a
-`values.yaml` file are parsed by Helm as YAML, and YAML has no distinct integer type wide enough to
-avoid float64 for large numbers: a key like `10000000` is read as a float64 and `toString` renders it
-as `1e+07`, corrupting the value. `templates/configmap-env.yaml` avoids this by rendering string
+Plain configuration goes through `config`, rendered into a ConfigMap. Helm decodes a values file
+into generic JSON-like Go types, where every number is a float64: a value like `10000000` reaches
+the template as a float64 and `toString` renders it as `1e+07`, corrupting the value. `templates/configmap-env.yaml` avoids this by rendering string
 values with `quote` and every other type with `toJson | quote` instead of `toString`.
 
 ## Decision

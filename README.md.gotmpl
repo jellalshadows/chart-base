@@ -197,7 +197,8 @@ code, official docs) and local renders.
    (`"on"`, `"1.10"`, `"0755"`). *Rejected:* strings only (no per-environment merge).
    [ADR-0005](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0005-configfiles-string-or-map.md)
 6. **Config changes roll pods through a checksum; Secret rotation through Reloader.** Config changes
-   happen inside the deploy, so Helm sees a broken config and rolls back; Secrets change outside the
+   happen inside the deploy, so Helm reports a broken config as a failed release, and rolls back when
+   run with `--rollback-on-failure` (Helm 4) or `--atomic` (Helm 3); Secrets change outside the
    deploy, when ESO syncs. *Rejected:* Reloader for everything (Helm would report success before the
    restart, and the next deploy of the domain would fail on someone else's broken component).
    [ADR-0006](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0006-checksum-for-config-reloader-for-secrets.md)
@@ -248,21 +249,22 @@ code, official docs) and local renders.
 19. **Helm 4 first, Helm 3.22 still tested.** Helm 3 only receives security fixes until 2027-02-10.
     *Rejected:* Helm 3 only.
     [ADR-0019](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0019-helm-4-first-helm-3-tested.md)
-20. **release-please v5 and publishing in the same workflow, with an overwrite guard.** Tags created by
-    `GITHUB_TOKEN` do not trigger other workflows, and GHCR tags are mutable while `Chart.lock` stores no
-    digest. *Rejected:* a PAT plus `workflow_run` with a "latest tag" heuristic.
+20. **release-please v5 and publishing in the same workflow, with an overwrite guard.** One job publishes,
+    in the run that creates the tag, and it takes the tag from release-please (no "latest tag" guess); the
+    release App's tags would trigger tag workflows, so no tag-triggered workflow may publish. GHCR tags are
+    mutable while `Chart.lock` stores no digest, so the job refuses to overwrite a version. *Rejected:* a PAT plus `workflow_run` with a "latest tag" heuristic.
     [ADR-0020](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0020-release-please-and-publish-in-one-workflow.md)
 21. **release-please uses a GitHub App token.** CI runs on the Release PR automatically; tokens live 1h.
     *Rejected:* `GITHUB_TOKEN` plus manual approval; a PAT.
     [ADR-0021](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0021-github-app-token-for-release-please.md)
 22. **Provenance with `actions/attest`, no cosign yet.** Verifiable with `gh`; fewer moving parts on GHCR.
-    *Rejected:* cosign (comes later as a `feat:` if it's requested).
+    *Rejected:* cosign for now (signing is planned on the roadmap).
     [ADR-0022](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0022-provenance-with-actions-attest.md)
 23. **No chart-testing (`ct`).** Its last release predates Helm 4 and its version-bump check conflicts with
     release-please. Plain Helm and kind instead. *Rejected:* `ct lint`/`ct install`.
     [ADR-0023](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0023-no-chart-testing.md)
 24. **Renovate.** It updates action SHAs and the tool versions declared as `*_VERSION` workflow env vars
-    (Helm, helm-unittest, kubeconform, helm-docs, actionlint, Gateway API, the ESO chart). The `helm lint`
+    (Helm, helm-unittest, kubeconform, helm-docs, actionlint, lychee, Gateway API, the ESO chart). The `helm lint`
     matrix and the kind versions/node image digests are bumped by hand.
     *Rejected:* Dependabot (only `uses:` refs); doing it all by hand.
     [ADR-0024](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0024-renovate.md)
@@ -312,7 +314,7 @@ gh attestation verify oci://ghcr.io/jellalshadows/charts/chart-base:X.Y.Z --repo
   version renders all aliases) and `helm package` drops one version.
 - **Aliases are lowercase kebab-case** (`front-web`), and `<release>-<alias>` must fit in 63 characters
   (52 for CronJobs). Renaming an alias deletes and recreates its objects.
-- **Toggle components with a real boolean**: `sales.enabled: false`. A string `"false"` is ignored.
+- **Toggle components with a real boolean**: `sales.enabled: false`. A string `"false"` is not a boolean: Helm warns, keeps the component, and the schema rejects the value.
 - **Install [Stakater Reloader](https://github.com/stakater/Reloader)** with `reloadStrategy: annotations`
   for Secret rotation to reach the pods.
 - **HTTPRoute** needs a Gateway whose listener allows routes from the application namespace

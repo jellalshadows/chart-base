@@ -62,13 +62,13 @@ The Kubernetes patch versions in `validate-manifests.sh` calls in the `lint` job
 
 ## Verification
 
-- The next Monday run opens (or updates) the `ci tooling` pull request, and its diff only changes SHAs, comments and `*_VERSION` values.
+- If an update is available and Renovate is active on the repository, the next Monday run opens (or updates) the `ci tooling` pull request, and its diff only changes SHAs, comments and `*_VERSION` values.
 - `gh pr list --repo jellalshadows/chart-base --search "in:title deps"` shows Renovate pull requests (or none, when everything is current).
 
 ## If something goes wrong
 
 - **No Renovate pull requests at all:** check that the Renovate app is installed on the repository (repository *Settings* -> *GitHub Apps*), then read the job logs of the repository in the Mend developer portal (developer.mend.io). Also confirm that `.github/renovate.json` is valid JSON.
-- **An update you expected does not appear:** the Dependency Dashboard issue (part of `config:best-practices`) lists pending, rate-limited and awaiting-schedule updates (and `minimumReleaseAge` holds back releases younger than 7 days).
+- **An update you expected does not appear:** the Dependency Dashboard issue (part of `config:best-practices`; it appears only after Renovate's first run, and none exists in this repository yet) lists pending, rate-limited and awaiting-schedule updates (and `minimumReleaseAge` holds back releases younger than 7 days).
 - **A tool is not updated:** its `# renovate:` comment must be on the line directly above the `*_VERSION` variable, with a valid `datasource` and `depName`.
 - **A Renovate bump breaks CI:** do not merge; close it or fix the cause in the PR.
 

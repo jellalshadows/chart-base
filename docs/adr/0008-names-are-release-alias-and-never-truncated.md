@@ -34,9 +34,11 @@ message naming the resource and both the actual and the maximum length.
 Because `helm lint`'s template rendering always substitutes a fixed placeholder release name,
 `test-release` (`pkg/chart/v2/lint/rules/template.go` in Helm's own source, `ReleaseOptions{Name:
 "test-release", ...}`), a name-length guard tied to a real, longer release name would never trigger
-under `helm lint` alone — CI additionally renders with `helm template` against the real scenario
-values (`ci/*-values.yaml`), which use realistic release/alias combinations, to actually exercise the
-length guard.
+under `helm lint` alone. The unit tests in `tests/validate_test.yaml` are what cover the guards:
+they set the release name explicitly, so the boundaries are tested at 52 and 53 characters for a
+CronJob and at 63 and 64 characters for the other workload types. (CI also renders every
+`ci/*-values.yaml` scenario with `helm template vending`, but a release name of that length stays far
+below both limits, so those renders do not exercise the guard.)
 
 ## Decision
 
@@ -52,9 +54,9 @@ length guard.
   starting with a letter), failing otherwise.
 - Renaming an alias changes `fullname` for every one of its resources: Kubernetes treats it as
   deleting the old objects and creating new ones, there is no rename-in-place.
-- `helm lint`'s own template rendering always uses release name `test-release`, so length guards are
-  additionally exercised in CI with `helm template <umbrella>` against the `ci/*-values.yaml`
-  scenarios, using realistic release names, not `helm lint` alone.
+- `helm lint`'s own template rendering always uses release name `test-release`, so the length guards
+  are covered by the unit tests in `tests/validate_test.yaml` (`helm unittest`), which use long
+  release names on purpose, not by `helm lint`.
 
 ## Consequences
 
@@ -81,6 +83,7 @@ to prevent.
 
 - `templates/_names.tpl`
 - `templates/validate.yaml`
+- `tests/validate_test.yaml`
 - `ci/full-values.yaml` (and the other `ci/*-values.yaml` scenarios)
 - [Kubernetes: CronJob](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/)
-- [helm/helm `pkg/chart/v2/lint/rules/template.go`](https://github.com/helm/helm/blob/main/pkg/chart/v2/lint/rules/template.go)
+- [helm/helm `pkg/chart/v2/lint/rules/template.go`](https://github.com/helm/helm/blob/v4.3.0/pkg/chart/v2/lint/rules/template.go)

@@ -38,7 +38,9 @@ suffix (`-env`, `-files`, `-secrets`)
 
 ## The umbrella `Chart.yaml`
 
-This is the quick start's file, one dependency per component:
+This is the quick start's file, one dependency per component. `<chart-base version>` is a placeholder:
+the current version is in the [README quick start](../../README.md#quick-start) and in the
+[CHANGELOG](../../CHANGELOG.md).
 
 ```yaml
 # vending/Chart.yaml
@@ -47,12 +49,12 @@ name: vending
 version: 0.1.0
 dependencies:
   - name: chart-base
-    version: 0.1.0
+    version: <chart-base version>
     repository: oci://ghcr.io/jellalshadows/charts
     alias: sales
     condition: sales.enabled
   - name: chart-base
-    version: 0.1.0
+    version: <chart-base version>
     repository: oci://ghcr.io/jellalshadows/charts
     alias: machines
     condition: machines.enabled
@@ -62,7 +64,7 @@ dependencies:
 |---|---|
 | `apiVersion: v2`, `name`, `version` | An ordinary Helm 3/4 chart. The umbrella has its own version, independent of chart-base's. |
 | `name: chart-base` | The chart to pull. The same name is repeated once per component. |
-| `version: 0.1.0` | An exact chart-base version. It must be **identical in every entry** (see [Rules](#rules)). |
+| `version: <chart-base version>` | An exact chart-base version. It must be **identical in every entry** (see [Rules](#rules)). |
 | `repository: oci://ghcr.io/jellalshadows/charts` | The OCI registry that holds the chart, public on GHCR ([ADR-0003](../adr/0003-oci-on-ghcr.md)). It must be the same URL in every entry. With OCI there is no `helm repo add`. |
 | `alias: sales` | The name of the component. Helm renames the subchart to the alias, so the alias becomes the key for the component's values and the `<alias>` part of every object name. |
 | `condition: sales.enabled` | Helm reads this path in the umbrella's values and drops the whole component when it is `false`. |
@@ -167,13 +169,17 @@ Hook resources are not part of the release, so `helm uninstall` does not delete 
 ## Failure behavior
 
 What fails **before the cluster is touched**, at `helm template`, `helm lint` and `helm install` /
-`helm upgrade` alike:
+`helm upgrade` alike (rendering and schema validation are local):
 
 - A value that breaks the schema: an unknown key, a wrong type, a missing required key, a feature
   that does not apply to the workload type. The error names the alias.
 - A guard that spans several keys or names, for example a name that is not a DNS-1035 label, a name longer than 63
   characters (52 for a CronJob), a Kubernetes version below 1.33, `autoscaling.minReplicas` greater
   than `maxReplicas`.
+
+What fails **at install or upgrade**, when Helm talks to the cluster (rendering does not need the CRD,
+so `helm template` and `helm lint` do not catch it):
+
 - A kind whose CRD is not installed (HTTPRoute, ExternalSecret): Helm cannot build the object, so the
   release fails cleanly. chart-base does not skip such objects
   ([ADR-0012](../adr/0012-no-capabilities-gating.md)).
@@ -183,12 +189,15 @@ What fails **at rollout**, in the cluster:
 - A Deployment that cannot become healthy (crash loop, an image that never pulls, a probe that never
   passes). chart-base sets `progressDeadlineSeconds: 240`, so after 240 seconds the Deployment
   controller marks the rollout failed with `ProgressDeadlineExceeded`. That is shorter than Helm's
-  default `--timeout` of 5 minutes, so the operator sees the Deployment's own reason instead of only a
-  generic Helm timeout ([ADR-0017](../adr/0017-progress-deadline-240s.md)).
-- Helm only waits for ordinary resources like a Deployment when you pass `--wait` or `--atomic`.
-  Without one of them, `helm upgrade` returns once the manifests are applied and nothing turns a
-  stuck rollout into a failed release. Use `--wait` (or `--atomic`, which rolls back on failure) in
-  the pipeline that deploys the umbrella.
+  default `--timeout` of 5 minutes. Helm 4.3's status watcher then stops at the failed Deployment and
+  reports `status: Failed, message: Progress deadline exceeded`; Helm 3's legacy wait keeps waiting
+  until `--timeout`. Neither shows the pod's own reason: find it with `kubectl describe` and the
+  events ([ADR-0017](../adr/0017-progress-deadline-240s.md)).
+- Helm only waits for ordinary resources like a Deployment when you pass `--wait`,
+  `--rollback-on-failure` (Helm 4) or `--atomic` (Helm 3). Without one of them, `helm upgrade` returns
+  once the manifests are applied and nothing turns a stuck rollout into a failed release. Use `--wait`
+  (or `--rollback-on-failure` / `--atomic`, which also roll back on failure) in the pipeline that
+  deploys the umbrella.
 - A `pre-deploy` Job that fails: Helm waits for hooks of kind Job and fails the release, so a broken
   migration stops the deploy before the other resources of the release are updated
   ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)).

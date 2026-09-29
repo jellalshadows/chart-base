@@ -25,14 +25,16 @@
    `release.yaml` current on the ref you select, so the fix must be on `main` before step 4.
 3. **Check that the version is really not published** (optional, the guard also checks it):
    ```bash
-   DOCKER_CONFIG=<empty-directory> helm pull oci://ghcr.io/jellalshadows/charts/chart-base --version X.Y.Z
+   mkdir -p /tmp/empty-docker-config
+   DOCKER_CONFIG=/tmp/empty-docker-config helm pull oci://ghcr.io/jellalshadows/charts/chart-base --version X.Y.Z
    ```
    Expected: an error saying the version was not found. If the pull works, the version is already published:
    stop and go to "Verification".
 4. **Run the workflow manually with the tag.**
    ```bash
-   gh workflow run release.yaml --ref main -f tag=vX.Y.Z
-   gh run list --repo jellalshadows/chart-base --workflow release.yaml --limit 1
+   gh workflow run release.yaml --repo jellalshadows/chart-base --ref main -f tag=vX.Y.Z
+   sleep 10   # give GitHub a moment to register the new run
+   gh run list --repo jellalshadows/chart-base --workflow release.yaml --event workflow_dispatch --limit 1
    gh run watch <run-id> --repo jellalshadows/chart-base
    ```
    Expected: a `workflow_dispatch` run that finishes `completed  success`.
@@ -42,6 +44,8 @@
 - The `release-please` job also runs first, as on every run. For a tag that was already released it has nothing to release, and the `publish` job's `!cancelled()` condition means the re-publish does not depend on its output. (As on any run, it may update an open Release PR if releasable commits are pending.)
 - The `publish to ghcr.io` job runs because `inputs.tag != ''`. It checks out `refs/tags/vX.Y.Z`, so it
   publishes exactly the tagged content, but with the workflow file of the ref you selected (`main`).
+- The provenance attestation of a re-published version records the dispatched ref and commit (for
+  example `main`), not the tag's commit, because the workflow run belongs to the selected ref.
 - The overwrite guard runs on this attempt too. If the version was published after all (a previous attempt
   got further than it looked), the guard fails the job and nothing is overwritten.
 - A manual `workflow_dispatch` runs the workflow file of the ref you select: always pass `--ref main`.
@@ -60,6 +64,9 @@ package page.
 - **The run fails at "Chart.yaml version must match the release":** the tag exists but its `Chart.yaml`
   has a different version. The tagged content is inconsistent: do not move the tag; fix forward with a new release.
 - **The guard fails with `already exists in ghcr.io`:** the version is published. Verify it as above; do not overwrite.
+- **The push succeeded but the attestation step failed:** the version is on GHCR without provenance, and
+  this runbook cannot fix it: a re-run stops at the overwrite guard (`200`, "refusing to overwrite").
+  Do not overwrite; ship a new patch release through [Cutting a release](release.md).
 - **The tagged content itself is broken** (a bad chart, not a failed publish): fix forward. Merge a `fix:`
   and release a new patch version through [Cutting a release](release.md).
 

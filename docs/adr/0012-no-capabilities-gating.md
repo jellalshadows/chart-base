@@ -80,5 +80,5 @@ turning a fail-fast error into a silent gap.
 - `templates/httproute.yaml`
 - `templates/externalsecret.yaml`
 - [Helm: Charts](https://helm.sh/docs/topics/charts/)
-- [Gateway API: HTTPRoute](https://gateway-api.sigs.k8s.io/api-types/httproute/)
+- [Gateway API: HTTPRoute](https://gateway-api.sigs.k8s.io/reference/api-types/httproute/)
 - [External Secrets Operator: ExternalSecret](https://external-secrets.io/latest/api/externalsecret/)

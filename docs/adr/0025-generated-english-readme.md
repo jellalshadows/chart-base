@@ -7,7 +7,7 @@
 ## Context
 
 The README is the first thing a consumer reads before writing a domain umbrella against chart-base, and its
-"Values" table is a direct restatement of `values.yaml`'s ~20 top-level keys and their defaults. A
+"Values" table is a direct restatement of `values.yaml`'s 31 top-level keys and their defaults. A
 hand-maintained copy of that table drifts the moment a key is added, renamed or given a new default without
 someone remembering to also edit the README — a gap that is invisible until a consumer trusts a stale
 default. helm-docs solves this structurally: it builds the values table straight from the `# --` comments
@@ -17,9 +17,9 @@ template, `README.md.gotmpl`, so the generated document is always a projection o
 Because `docs/` itself is excluded from the packaged chart (`.helmignore`) but `README.md` is not, the
 README is read in at least three different places with three different filesystem layouts: on GitHub (where
 relative links to `docs/adr/...` work fine), inside the unpacked `.tgz` a consumer's tooling might inspect
-(where `docs/` simply is not there), and on GHCR's own rendered view of the OCI artifact. A relative link
-into `docs/` would 404 in the second and third cases; only an absolute GitHub URL resolves identically
-everywhere the README travels.
+(where `docs/` simply is not there), and in anything that renders the packaged README (`helm show readme`, chart registries such as
+Artifact Hub). A relative link into `docs/` would 404 in the second and third cases; only an absolute
+GitHub URL resolves identically everywhere the README travels.
 
 A version badge was considered and rejected for a related reason: `Chart.yaml`'s version only reflects what
 was last *tagged*, while a Release PR sits open, unmerged, with a newer version proposed — a badge would
@@ -39,7 +39,7 @@ in prose.
 - All prose is in English.
 - Every entry in the "Design decisions" section links to its ADR with an absolute GitHub URL, e.g.
   `https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0007-jobs-as-helm-hooks.md`, so the link
-  resolves the same way whether the README is read on GitHub, inside the packaged `.tgz`, or on GHCR.
+  resolves the same way whether the README is read on GitHub, inside the packaged `.tgz`, or through `helm show readme`.
 - The `chart-base` version quoted in the quick start's `Chart.yaml` snippet (`version: 0.1.0 #
   x-release-please-version`) carries the `# x-release-please-version` marker. `release-please-config.json`'s
   `extra-files: ["README.md", "README.md.gotmpl"]` makes release-please bump that line in both files on
@@ -48,8 +48,8 @@ in prose.
 
 ## Consequences
 
-- The values table, and any code sample quoting a version, cannot drift from what `values.yaml`/`Chart.yaml`
-  actually declare — CI fails the PR the moment they disagree.
+- The values table, and the version quoted in the README quick start, cannot drift from what
+  `values.yaml`/`Chart.yaml` actually declare — CI fails the PR the moment they disagree.
 - Trade-off: nobody can fix a typo directly in `README.md`, even a trivial one — every change to its prose
   goes through `README.md.gotmpl` plus a `helm-docs` run, adding one extra step to what would otherwise be a
   one-line edit.
@@ -67,7 +67,7 @@ to catch it — nothing short of generation-plus-CI-check keeps prose and `value
 ### Spanish
 
 English reaches a wider, international audience of Helm chart consumers and matches every other document in
-this repository; the design spec that predates the chart is the sole, external exception.
+this repository; the pre-0.1.0 design notes, which are not published, are the sole exception.
 
 ## References
 
@@ -75,5 +75,4 @@ this repository; the design spec that predates the chart is the sole, external e
 - `values.yaml` (`# --` comments)
 - `.github/workflows/ci.yaml` (`docs` job)
 - `release-please-config.json` (`extra-files`)
-- Design spec §10
 - [helm-docs](https://github.com/norwoodj/helm-docs)

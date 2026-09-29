@@ -22,8 +22,8 @@ server to accept the object; if a consumer's `podLabels` collided with `app.kube
 `app.kubernetes.io/instance`, the template appends `podLabels` after the base labels, so the pod
 template would carry the consumer's value while `spec.selector` still asks for the chart's own. The
 selector would no longer match the pod template on the very first install and the API server would reject
-the Deployment, with its own generic error. The branch's final review before 0.1.0 caught this and
-pushed the check earlier, into the schema itself (Spec §14.1, A14).
+the Deployment, with its own generic error. The final review before 0.1.0 caught this and
+pushed the check earlier, into the schema itself.
 
 ## Decision
 
@@ -64,4 +64,3 @@ no effect at all — a worse outcome than failing loudly, because nothing signal
 - `values.schema.json` (`podLabels.propertyNames`)
 - `templates/_labels.tpl` (`chart-base.selectorLabels`, `chart-base.podLabels`)
 - `templates/deployment.yaml` (`spec.selector.matchLabels`)
-- Design spec §14.1 (A14)

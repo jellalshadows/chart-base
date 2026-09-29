@@ -57,9 +57,9 @@ no controller's annotation vocabulary baked into the chart's defaults.
   the chart trades convenience for staying controller-neutral.
 - A route or Ingress that a consumer enabled but that never gets traffic because the Gateway's
   `allowedRoutes` does not permit the application's namespace fails silently from chart-base's point of
-  view — the `HTTPRoute` object is created and reports as accepted-by-the-controller, but nothing
-  guarantees the platform side actually attached it; this is a cross-team coordination point the chart
-  cannot detect on its own.
+  view — the `HTTPRoute` object is created, but the controller does not accept it: the parent
+  reference in its status reports `Accepted=False` with reason `NotAllowedByListeners`, which is the
+  signal to look for. This is a cross-team coordination point the chart cannot detect on its own.
 
 ## Alternatives considered
 
@@ -78,7 +78,7 @@ new consumers would be defaulting into a project with no further maintenance.
 - `values.schema.json` (`httpRoute`, `ingress`)
 - `.github/workflows/ci.yaml` (`GATEWAY_API_VERSION`), `.github/scripts/e2e.sh`
 - [README: Rules for consumers](../../README.md#rules-for-consumers)
-- [Gateway API: HTTPRoute](https://gateway-api.sigs.k8s.io/api-types/httproute/)
-- [Gateway API: Gateway](https://gateway-api.sigs.k8s.io/api-types/gateway/)
+- [Gateway API: HTTPRoute](https://gateway-api.sigs.k8s.io/reference/api-types/httproute/)
+- [Gateway API: Gateway](https://gateway-api.sigs.k8s.io/reference/api-types/gateway/)
 - [Kubernetes: Ingress](https://kubernetes.io/docs/concepts/services-networking/ingress/)
 - [github.com/kubernetes/ingress-nginx](https://github.com/kubernetes/ingress-nginx)

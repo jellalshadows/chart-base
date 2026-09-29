@@ -10,14 +10,14 @@ chart-base has to pick a primary Helm version to develop and release against, wh
 by consumers who have not yet moved off Helm 3. Helm 3 continues to receive security fixes only until
 2027-02-10; after that date a consumer still on Helm 3 gets no further patches at all, which makes Helm
 3 a version chart-base can still support for now but should not treat as its primary target going
-forward. Helm 4 is where new capabilities land (it is what the design already relies on for
-`if`/`then` schema conditionals without the draft-07 compatibility concession Helm 3 needs, ADR-0011),
-so it is the version everything is authored and released against; Helm 3.22.0 stays in CI specifically
+forward. Helm 4 is where new capabilities land, so it is the version everything is authored and released
+against (nothing in the chart requires it: the draft-07 schema of ADR-0011 works on every Helm 3 and
+Helm 4 release); Helm 3.22.0 stays in CI specifically
 to catch a regression that would otherwise only surface for a consumer still on it.
 
 `azure/setup-helm`, the action CI uses to install Helm, resolves an unpinned `latest` version to
-whatever it currently ships as its default — which can silently fall back to as low as `3.18.4` if the
-action has not been updated for the newest release yet. A workflow that relies on `latest` for "the
+whatever the latest Helm release is, and when it cannot fetch that answer it falls back to a
+version built into the action (`v3.18.4` in `v5.0.1`) with only a warning in the log. A workflow that relies on `latest` for "the
 current Helm" can end up testing a materially older Helm than intended, with no visible change to the
 workflow file itself.
 
@@ -50,18 +50,17 @@ workflow file itself.
   in a real cluster install (rather than in linting, static validation, or the alias contract) would not
   be caught for Helm 3 specifically.
 - Maintaining a two-version matrix in the `lint` job is recurring cost: every change to that job's steps
-  has to keep working on both Helm versions, and Renovate does not track the Helm 3 entry in the matrix
-  automatically (it is pinned by hand, kept intentionally equal in form to `HELM_VERSION` but not
-  bumped by the same automation).
+  has to keep working on both Helm versions, and Renovate does not track the matrix
+  (`matrix.helm: [v3.22.0, v4.3.0]`) at all: both entries are pinned by hand, and the 4.x entry must
+  be kept equal to `HELM_VERSION`, which Renovate does bump.
 
 ## Alternatives considered
 
 ### Helm 3 only
 
-Would miss every capability and behavior chart-base already depends on being available only from
-Helm ≥ 3.18.5/4.x (draft-07 `if`/`then` schema validation, ADR-0011) or wants as its primary target
-going forward, and would keep developing against a major version that stops receiving even security
-fixes on 2027-02-10 with no plan to move off it.
+Would keep developing and releasing against a major version that stops receiving even security
+fixes on 2027-02-10 with no plan to move off it, and would leave chart-base's primary target one
+major version behind the Helm that consumers are moving to.
 
 ### Helm 4 only (drop Helm 3 entirely)
 
@@ -73,3 +72,4 @@ install correctly; Helm 4 is a target, not a hard dependency, in this decision).
 ## References
 
 - `.github/workflows/ci.yaml` (`HELM_VERSION`, `lint` job's `matrix.helm`, `azure/setup-helm` steps)
+- `.github/workflows/release.yaml` (publishes with `HELM_VERSION: v4.3.0`)

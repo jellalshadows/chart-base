@@ -17,11 +17,11 @@ These apply to every release.
 
 ## Releases
 
-Each row is one squash-merged `feat:` PR, which is a minor release while the chart is pre-1.0.
+Each numbered release row is one squash-merged `feat:` PR, which is a minor release while the chart is pre-1.0. The docs backfill row is a `docs:` PR that makes no release, and the signing row changes only the publish job, with no contract change.
 
 | Release | Scope | Contract (summary) | Tested in the e2e with | Status |
 |---|---|---|---|---|
-| Docs backfill (no release) | ADRs for every 0.1.0 decision, this roadmap, guides and runbooks, and a link check in CI. Excluded from the chart package and from release-please. | `docs/` | n/a | In progress |
+| Docs backfill (no release) | ADRs for every 0.1.0 decision, this roadmap, guides and runbooks, and a link check in CI. Excluded from the chart package and from release-please. | `docs/` | n/a | Done |
 | 0.2.0 | Environment references, `envFrom` and component-level `reloadOnChange` (`feat!`) | `env` (map, references only through `valueFrom`: fieldRef/resourceFieldRef/secretKeyRef/configMapKeyRef; literals stay in `config`), `envFrom` to existing ConfigMaps/Secrets (rendered before the chart's own, so explicit config wins), a duplicate guard against `config`/`externalSecret.data`; **`externalSecret.reloadOnChange` becomes a component-level `reloadOnChange`** (breaking), covering the ESO Secret plus referenced Secrets and ConfigMaps through Reloader. Existing Secrets (for example those created by CNPG or Strimzi) may be referenced by name only. | A shared Secret is created; the CronJob run verifies fieldRef, resourceFieldRef, prefixed `envFrom` and `config` | Planned |
 | Signing (CI only) | Sign the OCI chart with cosign keyless | Signature by digest in the `publish` job, no contract change; verification documented (`cosign verify`) | n/a | Planned |
 | 0.3.0 | Rollout and pod runtime knobs | `strategy`, `minReadySeconds`, `revisionHistoryLimit`, `cronjob.startingDeadlineSeconds`/`suspend`, `priorityClassName`, `runtimeClassName`, `dnsConfig`, `hostAliases`, `lifecycle`, `enableServiceLinks` | A PriorityClass created in the e2e | Planned |
@@ -62,7 +62,7 @@ Rejected features, with the reason:
 - **`nameOverride` and `fullnameOverride`.** See [ADR-0009](adr/0009-no-name-overrides.md).
 - **Gating on `.Capabilities`.** See [ADR-0012](adr/0012-no-capabilities-gating.md).
 - **Resource presets.** See [ADR-0014](adr/0014-resource-requests-required.md).
-- **`diagnosticMode`.** Rejected together with the three items above.
+- **`diagnosticMode`.** `kubectl debug` already covers diagnosis.
 
 Only with real demand, and only after 1.0: VPA, Argo Rollouts, KEDA ScaledJob, TLS/TCP/UDP Routes and ListenerSet.
 

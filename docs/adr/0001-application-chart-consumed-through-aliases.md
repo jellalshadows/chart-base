@@ -28,7 +28,7 @@ deploy and roll back together. A broken value for one component can block the re
 other component in the same domain. This trade-off is accepted, not avoided, and chart-base's
 answer is to fail as early as possible — at `helm template`/`helm lint` validation time, before
 anything reaches the cluster — rather than at apply time, so a broken component never gets a chance
-to affect the others' rollout (Spec §1.1, §5).
+to affect the others' rollout.
 
 The alias behavior is not exercised by a committed example: `.github/scripts/alias-contract.sh`
 builds a throwaway umbrella chart in CI with three aliases, one of them hyphenated

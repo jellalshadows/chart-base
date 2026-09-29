@@ -14,7 +14,7 @@ and push the package once a release is decided.
 
 The obvious design is a second workflow triggered `on: push: tags`. With the default `GITHUB_TOKEN` that
 cannot work: GitHub does not run new workflows for events produced by a workflow's own `GITHUB_TOKEN`
-(with the exceptions of `workflow_dispatch` and `repository_dispatch`), so a tag created that way would
+(with the exceptions of `workflow_dispatch` and `repository_dispatch`, and of `pull_request` events, whose runs need approval), so a tag created that way would
 never fire a tag-triggered publisher. chart-base does not use the default token for release-please but a
 GitHub App token (ADR-0021), and tags created with an App token *do* trigger workflows. That would make a
 tag-triggered publisher possible, but also dangerous: a second workflow that publishes on tags would run in
@@ -57,7 +57,7 @@ the build step needs a deterministic timestamp rather than "whenever CI happened
   `HEAD` on the version's OCI manifest with that token: `404` means "not published yet, continue"; `200` fails the job ("already exists in
   ghcr.io; refusing to overwrite"); any other code also fails. On chart-base's very first publish (0.1.0),
   this guard observed `404` and let the release through, confirming the 404/200 logic against the real
-  registry (Spec §14.2).
+  registry.
 
 ## Consequences
 
@@ -82,7 +82,7 @@ A `workflow_run` workflow triggered after `release-please` finishes would need i
 *what* to publish, since it does not share the same run's context. The natural shortcut — "publish whatever
 the latest tag is" — is a heuristic: if any other push landed on `main` between the tag being created and
 the publisher's run starting, it can resolve to the wrong tag and re-publish the current state of `main`
-under an old version number (the republishing bug of the previous design, Spec §9.1). The PAT half of the
+under an old version number (the republishing bug of an earlier design of this pipeline). The PAT half of the
 option adds a long-lived credential tied to a person (ADR-0021). A single `publish` job that receives
 `tag_name` from the `release-please` job through `needs` has no such guess to make.
 
@@ -90,6 +90,5 @@ option adds a long-lived credential tied to a person (ADR-0021). A single `publi
 
 - `.github/workflows/release.yaml`
 - `release-please-config.json`, `.release-please-manifest.json`
-- Design spec §9.1, §9.2, §14.2
 - [GitHub: Events that trigger workflows — `GITHUB_TOKEN`](https://docs.github.com/en/actions/reference/events-that-trigger-workflows)
 - [release-please](https://github.com/googleapis/release-please)

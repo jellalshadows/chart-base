@@ -19,18 +19,18 @@ JVM property alone) and directory locations must end with `/`. The README's HTTP
 A file's content can be handed to chart-base two ways: as a plain string, or as a YAML/JSON-shaped
 map that Helm can merge. A string has to be written back out byte for byte — no re-encoding step may
 change even a single character, because the file is meant to be exactly what the author wrote. Helm's
-`toJson` escapes characters like `<` as `<` for safe embedding in JSON contexts, which would
+`toJson` escapes characters like `<` as `\u003c` (six characters) for safe embedding in JSON contexts, which would
 corrupt a file such as an XML config or anything containing HTML-sensitive characters; `quote` does
 not have this problem, so string values are rendered with `quote`.
 
 A map value, on the other hand, is rendered with `toYaml`: this lets an umbrella override a nested
 key by re-declaring only that key in its own `values.yaml` — Helm's values merge is a deep merge of
-maps, and setting a key to `null` deletes it from the merged result. The cost is that `toYaml` goes
-through Go's YAML encoder, which follows YAML 1.1 scalar resolution rules: unquoted `on`/`yes`
-resolve to the boolean `true`, `1.10` resolves to the float `1.1` (a trailing zero is not
-significant), and `0755` resolves to the decimal integer `493` (a leading zero is octal in YAML
-1.1). A value meant to stay a string must be quoted in the umbrella's `values.yaml` to survive the
-round trip.
+maps, and setting a key to `null` deletes it from the merged result. The cost comes from parsing the values file, not from `toYaml`: Helm's parser applies YAML 1.1
+scalar resolution rules to unquoted scalars, so `on`/`yes` become the boolean `true`, `1.10`
+becomes the float `1.1` (a trailing zero is not significant), and `0755` becomes the decimal
+integer `493` (a leading zero is octal in YAML 1.1). By the time `toYaml` runs the value has
+already changed type, and `toYaml` only serialises it. A value meant to stay a string must be
+quoted in the umbrella's `values.yaml`.
 
 ## Decision
 

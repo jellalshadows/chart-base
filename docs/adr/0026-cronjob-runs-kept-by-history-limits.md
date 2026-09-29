@@ -20,8 +20,9 @@ bookkeeping entirely. The chart's original design carried that same TTL over ont
 but a CronJob's `jobTemplate` is a different mechanism from a hook: setting a TTL there races against, and
 effectively defeats, the history limits that are supposed to keep failed runs around. A 1-hour TTL deletes a
 3 a.m. failure long before anyone at 9 a.m. would look for it — at which point `failedJobsHistoryLimit`
-never gets the chance to do its job, because there is nothing left for it to keep. The branch's final review
-before 0.1.0 shipped caught this and corrected the plan's original wording (Spec §14.1, A12).
+never gets the chance to do its job, because there is nothing left for it to keep. The final review
+before 0.1.0 caught this, and the earlier design, which gave CronJob runs the same TTL as hook Jobs, was
+corrected.
 
 ## Decision
 
@@ -58,5 +59,4 @@ gets a chance to apply, since the run it would have kept is already gone.
 - `templates/cronjob.yaml`
 - `values.yaml` (`cronjob.successfulJobsHistoryLimit`, `cronjob.failedJobsHistoryLimit`, `job.backoffLimit`,
   `job.activeDeadlineSeconds`)
-- Design spec §14.1 (A12)
 - [Kubernetes: CronJob — Jobs history limits](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/#jobs-history-limits)

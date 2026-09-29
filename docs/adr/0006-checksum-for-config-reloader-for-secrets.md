@@ -14,8 +14,8 @@ needs two different answers because config and secrets change through two differ
 rest of the release, so a config change is applied in the very same `helm upgrade`/`helm template`
 invocation that changes anything else about the component. chart-base forces that change to reach
 the pods immediately by hashing the rendered ConfigMaps into pod template annotations: if the caller
-waits for the rollout (`helm upgrade --wait`/`--atomic`, or a tool like helmfile that waits by
-default), a config value that breaks the app surfaces as that same invocation failing, with the
+waits for the rollout (`helm upgrade --wait`, `--rollback-on-failure` on Helm 4 or `--atomic` on
+Helm 3, or a tool like helmfile configured with `wait: true`), a config value that breaks the app surfaces as that same invocation failing, with the
 release's own logs to point at, rather than as a mysterious failure days later.
 
 A Secret backed by `externalSecret` is different: its content is written by the External Secrets
@@ -38,8 +38,10 @@ environment variable Reloader injects itself) creates a diff the GitOps tool did
 - When `externalSecret.enabled` and `externalSecret.reloadOnChange` (default `true`) are both set,
   the **Deployment** — not the Job or CronJob — carries the annotation
   `secret.reloader.stakater.com/reload: <fullname>-secrets` (`templates/deployment.yaml`). The
-  cluster must run Stakater Reloader with `reloadStrategy: annotations` for this annotation to have
-  any effect; without Reloader installed, it is inert.
+  cluster must run Stakater Reloader for this annotation to have any effect; without Reloader
+  installed, it is inert. Reloader's `reloadStrategy: annotations` is the recommended setting for
+  GitOps-managed clusters, because its default `env-vars` strategy also works with this annotation
+  but changes the workload behind the GitOps tool's back.
 - Reloader is deliberately **not** used for ConfigMaps. Doing so would mean a broken config no
   longer causes the same `helm upgrade` invocation to fail: the Deployment object itself would not
   have changed (its config is read from the ConfigMap by the pod, not baked into the template), so
@@ -50,11 +52,11 @@ environment variable Reloader injects itself) creates a diff the GitOps tool did
 ## Consequences
 
 - A config change and its consequences (a broken pod, a bad rollout) are visible in the same
-  operation that made the change, for anyone who deploys with `--wait`/`--atomic` or an equivalent
-  tool.
+  operation that made the change, for anyone who deploys with `--wait` (or `--rollback-on-failure` on Helm 4,
+  `--atomic` on Helm 3) or an equivalent tool.
 - Secret rotation reaches running pods without a Helm operation at all, which is the point of using
-  ESO, but it depends entirely on Reloader being installed and configured with the annotation
-  strategy — a platform-level requirement outside this chart's control (README "Rules for
+  ESO, but it depends entirely on Reloader being installed (ideally with the `annotations`
+  strategy) — a platform-level requirement outside this chart's control (README "Rules for
   consumers").
 - Trade-off / cost: two different reload mechanisms exist side by side for what looks, from the
   umbrella author's point of view, like "my env vars changed." Anyone debugging a stuck rollout has

@@ -17,7 +17,8 @@ Conventional commits, squash-merged with the PR title as the commit message, dec
 | --- | --- |
 | `fix:` | patch |
 | `feat:` and `feat!:` | minor (never major before 1.0) |
-| `docs:`, `chore:`, `ci:`, `test:` | no release |
+| `perf:`, `revert:` | patch (release-please's default changelog sections include them) |
+| `docs:`, `chore:`, `ci:`, `test:`, `refactor:` | no release |
 | any commit that only touches an excluded path (`.github`, `tests`, `ci`, `docs`) | no release |
 
 ## Steps
@@ -76,8 +77,11 @@ Conventional commits, squash-merged with the PR title as the commit message, dec
 
 ## If something goes wrong
 
-- **The `publish to ghcr.io` job failed** (the tag and the GitHub release already exist): follow
-  [Re-publishing a tag](republish-a-tag.md). Do not delete the tag.
+- **The `publish to ghcr.io` job failed before the push succeeded** (the tag and the GitHub release
+  already exist, the version is not on GHCR): follow [Re-publishing a tag](republish-a-tag.md). Do not
+  delete the tag.
+- **The push succeeded but the attestation step failed:** the version is on GHCR without provenance and
+  cannot be re-published (the overwrite guard refuses). Ship the fix as a new patch release.
 - **The overwrite guard reported the version already exists** (`refusing to overwrite`): never overwrite
   it. GHCR tags are mutable and consumers pin only a version string. Ship the fix as a new patch release.
 - **No Release PR appears:** every commit since the last release is non-releasable (`docs:`, `chore:`,
@@ -85,7 +89,7 @@ Conventional commits, squash-merged with the PR title as the commit message, dec
   `feat:` change and the PR appears.
 - **The `release-please` job itself failed:** read its log. An error creating the token points at the App
   credentials: see [Rotating the release GitHub App key](rotate-release-app-key.md).
-- **The Release PR has no CI checks:** it should not happen, because the PR is created with the App token. Check that the `actions/create-github-app-token` step of the latest `release-please` job used the App and not `GITHUB_TOKEN`.
+- **The Release PR has no CI checks:** it should not happen, because the PR is created with the App token. Confirm that the `release-please` job passes `steps.app-token.outputs.token` to the release-please action, and that the Release PR's author is the App's bot account and not `github-actions[bot]`.
 
 ## Related
 

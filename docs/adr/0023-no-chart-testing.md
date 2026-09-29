@@ -7,8 +7,9 @@
 ## Context
 
 `chart-testing` (`ct`) is the community-standard tool for CI on a Helm chart: `ct lint` and `ct install`
-auto-discover changed charts in a repository and run `helm lint`/a real install against them, and its
-`list-changed` step commonly doubles as a "did you bump the version" gate before merge.
+auto-discover changed charts in a repository and run `helm lint`/a real install against them, and
+`ct lint`'s version-increment check (`check-version-increment`) is a "did you bump the version" gate
+before merge.
 
 That last part actively conflicts with how chart-base is versioned: `Chart.yaml`'s version is bumped
 exclusively by release-please, from conventional commits, *after* a PR merges — never by the PR author
@@ -53,7 +54,7 @@ explicit stance on Helm 4 at all, a real risk to depend on for a chart that targ
 ### `ct lint` / `ct install`
 
 Its last release predates Helm 4's GA by about a month and takes no explicit position on Helm 4 support, a
-poor fit for a Helm-4-first chart; its version-bump ("list-changed") check is designed around exactly the
+poor fit for a Helm-4-first chart; its version-bump check (`check-version-increment`) is designed around exactly the
 workflow chart-base does not use — a version bumped by the PR author before merge — and would either be
 redundant or would actively fail correct PRs.
 
@@ -61,6 +62,5 @@ redundant or would actively fail correct PRs.
 
 - `.github/workflows/ci.yaml` (`lint`, `e2e` jobs)
 - `.github/scripts/alias-contract.sh`, `.github/scripts/validate-manifests.sh`, `.github/scripts/e2e.sh`
-- Design spec §8.2
 - [chart-testing releases](https://github.com/helm/chart-testing/releases)
 - [Helm v4.0.0](https://github.com/helm/helm/releases/tag/v4.0.0)

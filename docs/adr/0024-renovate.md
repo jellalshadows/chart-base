@@ -6,8 +6,7 @@
 
 ## Context
 
-Workflow hygiene pins every `uses:` action reference to a commit SHA rather than a floating tag (Spec
-§8.3), which is the safe default against a tag being moved after the fact — but it also means nothing
+Workflow hygiene pins every `uses:` action reference to a commit SHA rather than a floating tag, which is the safe default against a tag being moved after the fact — but it also means nothing
 updates those pins unless something watches upstream releases and rewrites them; hand-maintaining SHA pins
 across two workflow files rots quickly.
 
@@ -70,6 +69,5 @@ until something breaks because of it.
 - `.github/renovate.json`
 - `.github/workflows/ci.yaml`, `.github/workflows/release.yaml` (`# renovate:` comments; the "Not tracked by
   Renovate" comments in the `lint` and `e2e` jobs)
-- Design spec §8.3
 - [Renovate: `config:best-practices`](https://docs.renovatebot.com/presets-config/)
 - [Renovate: `customManagers:githubActionsVersions`](https://docs.renovatebot.com/presets-customManagers/)

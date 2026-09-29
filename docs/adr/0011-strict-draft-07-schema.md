@@ -10,17 +10,17 @@ chart-base is consumed only as an aliased dependency of a domain umbrella (ADR-0
 validates a component's values before Helm builds Kubernetes objects out of them. `values.schema.json`
 is the only layer that can catch a mistake at render time, before `helm template`/`helm lint`/
 `helm install` ever reaches the cluster (the guards that the schema itself cannot express are a second
-layer, ADR-0012's sibling concern). A schema is only as useful as what it rejects: JSON Schema's
+layer, the `fail` guards in `templates/validate.yaml`, described below). A schema is only as useful as what it rejects: JSON Schema's
 `additionalProperties: false` on an object is what makes an unknown key fail instead of being ignored.
 Without it, a typo like `service.typ` or a misremembered `imagePulSecrets` never reaches a template —
 the value is simply dropped, the chart renders its default, and the consumer gets no error at all.
 
 Helm's built-in schema validation is bounded by the JSON Schema draft its bundled library understands.
-Helm releases up to 3.18.4 validate with a library limited to drafts 04/06/07; only Helm ≥ 3.18.5 and
-Helm 4.x add support for `if`/`then` conditionals under later drafts. Draft-07 is the newest draft every
-supported Helm release understands (the `lint` matrix tests down to Helm 3.22.0, alongside Helm 4.3.0),
-and it already includes `if`/`then` — the conditionals in §5.1 of the design (cronjob's schedule,
-externalSecret's data, httpRoute's parentRefs, and so on) all depend on it.
+Helm releases up to 3.18.4 validate with a library that stops at draft-07 (it knows drafts
+04/06/07); newer releases also accept newer drafts. Draft-07 already includes `if`/`then`, so it
+works on every Helm 3 and Helm 4 release — the conditionals in the schema (cronjob's schedule,
+externalSecret's data, httpRoute's parentRefs, and so on) all depend on it, and no consumer is cut
+off. The `lint` matrix tests Helm 3.22.0 and Helm 4.3.0.
 
 Two keys need special-casing rather than rejection. Helm always injects a `global` object into every
 subchart's values, whether or not the umbrella sets one. And an umbrella that wants to switch a
@@ -60,8 +60,8 @@ whether chart-base wants them or not, but no template in this chart reads either
 
 - A typo under any fixed-shape object fails fast, with the error naming the component, instead of
   silently rendering a default nobody asked for.
-- draft-07 keeps the schema working on every Helm 3 release chart-base still tests (3.22.0) as well as
-  Helm 4, with no loss of conditional validation.
+- draft-07 keeps the schema working on every Helm 3 and Helm 4 release, including consumers still on
+  Helm 3.18.4 or older, with no loss of conditional validation.
 - Trade-off: a hand-written schema is one more file to keep in sync. Adding a key to a fixed-shape
   object means editing `values.yaml`, `values.schema.json` and usually a template; forgetting the
   schema edit means the key is either rejected outright (if its parent object has
@@ -74,9 +74,10 @@ whether chart-base wants them or not, but no template in this chart reads either
 
 ### JSON Schema draft 2020-12
 
-Gives access to newer keywords, but Helm releases before 3.18.5 cannot validate it at all (their
-bundled library only understands 04/06/07), which would break the chart for a supported Helm 3 version
-the `lint` matrix still tests.
+Gives access to newer keywords, but Helm releases up to 3.18.4 cannot validate it (their bundled
+library stops at draft-07), which would break the chart for any consumer still on one of those
+releases. Newer Helm releases would accept it, so the cost is the older consumers, not the primary
+Helm version.
 
 ### A permissive schema (no `additionalProperties: false`)
 

@@ -9,10 +9,10 @@
 release-please needs write access to open and keep updating the Release PR (its branch, its title, the
 `CHANGELOG.md` and `Chart.yaml` commits) and, later, to create the tag and the GitHub Release. That access
 has to come from some token, and the choice of token has a real, day-to-day consequence: GitHub's own
-documentation on workflow triggers states that, "with the exception of `workflow_dispatch` and
-`repository_dispatch`, other `GITHUB_TOKEN`-triggered events do not create workflow runs at all", and that
-a `pull_request` opened or updated by a workflow's own `GITHUB_TOKEN` produces runs that "require approval"
-from someone with write access before they execute at all.
+documentation on workflow triggers states that a `pull_request` created or updated by a workflow using
+`GITHUB_TOKEN` creates workflow runs that "require approval" (a user with write access can approve them
+from the pull request page), and that, "with the exception of `workflow_dispatch` and
+`repository_dispatch`, other `GITHUB_TOKEN`-triggered events do not create workflow runs at all".
 
 For chart-base that would mean every update release-please makes to the Release PR — which happens
 repeatedly as more commits land on `main` — needs a human to click "approve workflow run" before `ci-ok`
@@ -52,7 +52,7 @@ account changes or is removed from the repository — an availability risk for a
 - Tokens are short-lived (1 hour) and scoped to exactly three permissions, reducing what a compromised CI
   run could do with them compared with a broadly-scoped, long-lived credential.
 - Trade-off: this trades a token-management problem for an App-management one — the App has to be created
-  once (Spec §9.4), installed on exactly this repository, and its private key rotated on a schedule or on
+  once, installed on exactly this repository, and its private key rotated on a schedule or on
   suspicion of a leak; a plain `GITHUB_TOKEN` would never need any of that upkeep, and it now falls entirely
   on a single maintainer to keep current.
 - A compromised App private key is more damaging than a compromised ephemeral `GITHUB_TOKEN`: the private
@@ -79,5 +79,4 @@ chart meant to outlive any one maintainer's tenure should not depend on.
 - `.github/workflows/release.yaml` (`release-please` job)
 - [actions/create-github-app-token](https://github.com/actions/create-github-app-token)
 - [GitHub: Events that trigger workflows](https://docs.github.com/en/actions/reference/events-that-trigger-workflows)
-- Design spec §9.2
 - [Key rotation runbook](../runbooks/rotate-release-app-key.md)

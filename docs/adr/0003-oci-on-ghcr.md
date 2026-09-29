@@ -13,7 +13,7 @@ resolve an `oci://` reference directly. GitHub ships GHCR (`ghcr.io`) as an OCI 
 every GitHub account and repository, at no extra cost for public packages, and `Chart.yaml`'s
 `sources` field is exactly what Helm needs to link a pushed chart back to its repository.
 
-Helm's OCI push path (`pkg/registry/util.go`, function `generateChartOCIAnnotations`) builds the
+Helm's OCI push path (`pkg/registry/chart.go`, function `generateChartOCIAnnotations`) builds the
 image manifest's annotations from the chart's `Metadata`: `Description` becomes
 `org.opencontainers.image.description`, `Name` becomes `.title`, `Version` becomes `.version`,
 `Home` becomes `.url`, and — when `meta.Sources` is non-empty — `meta.Sources[0]` becomes
@@ -68,4 +68,4 @@ version (3.8+) already has.
 - `Chart.yaml`
 - `.github/workflows/release.yaml`
 - [Helm: Use OCI-based registries](https://helm.sh/docs/topics/registries/)
-- [helm/helm `pkg/registry/util.go`, `generateChartOCIAnnotations`](https://github.com/helm/helm/blob/main/pkg/registry/util.go)
+- [helm/helm `pkg/registry/chart.go`, `generateChartOCIAnnotations`](https://github.com/helm/helm/blob/v4.3.0/pkg/registry/chart.go)

@@ -32,7 +32,7 @@ applied to every object, ConfigMaps included, in `templates/configmap-env.yaml` 
 `templates/configmap-files.yaml`) — so hashing the whole object meant that bumping the chart version
 changed the ConfigMap's `helm.sh/chart` label, which changed the checksum, which changed the pod
 template, which rolled every pod with a `config` or `configFiles` entry across the whole domain, with
-no real configuration change behind it. This was found during the final review of the first release
+no real configuration change behind it. This was found during the final review before 0.1.0
 and fixed by narrowing the hash to only the ConfigMap's `data` field.
 
 ## Decision
@@ -73,7 +73,7 @@ pod, everywhere, for no functional reason.
 
 ### Hashing the whole rendered ConfigMap object
 
-What this repository's first release actually shipped and then fixed: hashing the entire object
+What the chart did until the final review before 0.1.0; no published version hashes the whole object. Hashing the entire object
 (including its `helm.sh/chart`-bearing metadata) meant a chart-base version bump changed the
 checksum on every component with `config` or `configFiles` set, rolling their pods with no real
 configuration change.

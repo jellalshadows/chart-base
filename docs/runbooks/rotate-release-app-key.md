@@ -40,8 +40,9 @@ For a routine rotation keep the order below so releases are never interrupted.
    Expected: `Set Actions secret RELEASE_APP_PRIVATE_KEY for jellalshadows/chart-base`.
 4. **Prove the new key works.** Run the workflow without the `tag` input, so `publish` is skipped:
    ```bash
-   gh workflow run release.yaml --ref main
-   gh run list --repo jellalshadows/chart-base --workflow release.yaml --limit 1
+   gh workflow run release.yaml --repo jellalshadows/chart-base --ref main
+   sleep 10   # give GitHub a moment to register the new run
+   gh run list --repo jellalshadows/chart-base --workflow release.yaml --event workflow_dispatch --limit 1
    gh run watch <run-id> --repo jellalshadows/chart-base
    ```
    Expected: the `release-please` job succeeds, its `actions/create-github-app-token` step is green, and
