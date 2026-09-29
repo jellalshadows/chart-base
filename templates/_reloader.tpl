@@ -13,8 +13,10 @@ regex-quoted (a "." would otherwise match any character). Renders nothing when t
 {{- $secrets = append $secrets (printf "%s-secrets" (include "chart-base.fullname" .)) -}}
 {{- end -}}
 {{- range $_, $ref := .Values.env -}}
+{{- if kindIs "map" $ref -}}
 {{- with $ref.valueFrom.secretKeyRef }}{{ $secrets = append $secrets .name }}{{ end -}}
 {{- with $ref.valueFrom.configMapKeyRef }}{{ $configMaps = append $configMaps .name }}{{ end -}}
+{{- end -}}
 {{- end -}}
 {{- range .Values.envFrom -}}
 {{- with .secretRef }}{{ $secrets = append $secrets .name }}{{ end -}}

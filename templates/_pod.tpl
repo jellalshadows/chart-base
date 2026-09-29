@@ -59,9 +59,12 @@ containers:
     {{- with $.Values.env }}
     env:
       {{- range $name, $ref := . }}
-      - name: {{ $name }}
+      {{- /* Literal values (not maps) are rejected by templates/validate.yaml; never render them here. */}}
+      {{- if kindIs "map" $ref }}
+      - name: {{ $name | quote }}
         valueFrom:
           {{- toYaml $ref.valueFrom | nindent 10 }}
+      {{- end }}
       {{- end }}
     {{- end }}
     {{- if or $.Values.envFrom $.Values.config $.Values.externalSecret.enabled }}

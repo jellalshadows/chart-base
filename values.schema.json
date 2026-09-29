@@ -161,7 +161,7 @@
     },
     "reloadOnChange": { "type": "boolean" },
     "env": {
-      "type": "object",
+      "type": ["object", "array"],
       "description": "References only: literal values belong in `config`.",
       "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
       "additionalProperties": {

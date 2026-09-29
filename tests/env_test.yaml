@@ -1,5 +1,6 @@
 suite: env references, envFrom and Reloader annotations
 templates:
+  - templates/validate.yaml
   - templates/deployment.yaml
   - templates/configmap-env.yaml
   - templates/configmap-files.yaml
@@ -210,3 +211,37 @@ tests:
           path: metadata.annotations["configmap.reloader.stakater.com/reload"]
       - exists:
           path: metadata.annotations["helm.sh/hook"]
+
+  - it: regex-quotes ConfigMap names in the Reloader annotation and adds no secret annotation
+    template: templates/deployment.yaml
+    set:
+      envFrom:
+        - configMapRef:
+            name: shared.flags
+    asserts:
+      - equal:
+          path: metadata.annotations["configmap.reloader.stakater.com/reload"]
+          value: shared\.flags
+      - notExists:
+          path: metadata.annotations["secret.reloader.stakater.com/reload"]
+
+  - it: quotes env names so YAML-special words stay strings
+    template: templates/deployment.yaml
+    set:
+      env.NULL.valueFrom.fieldRef.fieldPath: metadata.name
+      env.TRUE.valueFrom.fieldRef.fieldPath: metadata.namespace
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[0].name
+          value: "NULL"
+      - equal:
+          path: spec.template.spec.containers[0].env[1].name
+          value: "TRUE"
+
+  - it: reports the literal-value guard whichever template Helm renders first
+    template: templates/validate.yaml
+    set:
+      env.FOO: bar
+    asserts:
+      - failedTemplate:
+          errorPattern: "env.FOO is a literal value"
