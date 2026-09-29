@@ -5,7 +5,7 @@
 ## Prerequisites
 
 - Write access to `jellalshadows/chart-base` (to review and merge the Release PR).
-- [`gh`](https://cli.github.com/) authenticated, and `helm` to pull the package.
+- [`gh`](https://github.com/cli/cli) authenticated, and `helm` to pull the package.
 - Nothing is published from a laptop: the `Release` workflow does everything ([ADR-0020](../adr/0020-release-please-and-publish-in-one-workflow.md)).
 
 ## How the version is decided
