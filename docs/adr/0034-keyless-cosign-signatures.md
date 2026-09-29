@@ -54,8 +54,9 @@ the images of Pods, not Helm charts, so they are not consumers of this signature
 - A consumer can verify both who built a version (`gh attestation verify`) and who signed it (`cosign
   verify`), with the identity of the workflow and no key to manage.
 - Flux 2.8 and later can verify these bundles: `HelmChart` `spec.verify.provider: cosign` with keyless
-  `matchOIDCIdentity` (see [Consuming](../guides/consuming.md#verifying-what-you-deploy)). Older Flux
-  reads only the legacy `.sig` tag and would not find them.
+  `matchOIDCIdentity` (see [Consuming](../guides/consuming.md#verifying-what-you-deploy)). Support for
+  the cosign v3 bundle format came with source-controller 1.8 (Flux 2.8), in [PR #1961](https://github.com/fluxcd/source-controller/pull/1961). Flux 2.7 and
+  older cannot read cosign v3 bundles ([issue #1923](https://github.com/fluxcd/source-controller/issues/1923)); they read only the legacy `.sig` tag.
 - Each signature is a public Rekor entry that names the repository and the workflow.
 - Signing the same digest twice adds a second signature. It is harmless: verification accepts either.
 - The publish path gains a third-party action and a downloaded binary, both pinned and tracked by Renovate.
@@ -95,3 +96,6 @@ release, because the overwrite guard refuses to touch a published version.
 - [HelmChart verification](https://fluxcd.io/flux/components/source/helmcharts/#verification) (Flux
   documentation) and [the Flux 2.8 announcement](https://fluxcd.io/blog/2026/02/flux-v2.8.0/), which lists
   support for Cosign v3
+- source-controller [PR #1961](https://github.com/fluxcd/source-controller/pull/1961), "Discover cosign v3 NewBundleFormat for verification" (merged 2026-01-29,
+  first released in source-controller v1.8.0), and [issue #1923](https://github.com/fluxcd/source-controller/issues/1923), "Unable to verify signature from cosign
+  v3.x" (a maintainer says cosign v3 came after Flux 2.7 and support would come in 2.8)

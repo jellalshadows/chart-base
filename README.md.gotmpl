@@ -375,7 +375,7 @@ cosign verify ghcr.io/jellalshadows/charts/chart-base:X.Y.Z \
 ```
 
   `cosign verify` alone also accepts the provenance attestation (same signer); the `jq` filter requires the
-  signature itself. Flux verifies these signatures from 2.8 on (`spec.verify.provider: cosign`).
+  signature itself. Flux verifies these signatures from 2.8 on (`spec.verify.provider: cosign`; cosign v3 bundle support arrived in source-controller 1.8).
 
 ## Rules for consumers
 

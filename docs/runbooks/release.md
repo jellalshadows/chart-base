@@ -77,7 +77,10 @@ Conventional commits, squash-merged with the PR title as the commit message, dec
    Expected: the verification succeeds and names `release.yaml` as the signer workflow.
 3. **Verify the signature** (the command from the [README](../../README.md#versioning-and-releases)):
    ```bash
-   cosign verify ghcr.io/jellalshadows/charts/chart-base:X.Y.Z      --certificate-identity https://github.com/jellalshadows/chart-base/.github/workflows/release.yaml@refs/heads/main      --certificate-oidc-issuer https://token.actions.githubusercontent.com --output json      | jq -e 'any(.[]; .critical.type == "https://sigstore.dev/cosign/sign/v1")'
+   cosign verify ghcr.io/jellalshadows/charts/chart-base:X.Y.Z \
+     --certificate-identity https://github.com/jellalshadows/chart-base/.github/workflows/release.yaml@refs/heads/main \
+     --certificate-oidc-issuer https://token.actions.githubusercontent.com --output json \
+     | jq -e 'any(.[]; .critical.type == "https://sigstore.dev/cosign/sign/v1")'
    ```
    Expected: `true`, and exit code 0. `cosign verify` alone also succeeds for a version that only has the
    provenance attestation (same signer, same digest), so the `jq` filter is what requires the signature itself.
