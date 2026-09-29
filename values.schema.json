@@ -165,7 +165,7 @@
       "description": "References only: literal values belong in `config`.",
       "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
       "additionalProperties": {
-        "type": "object",
+        "type": ["object", "string", "number", "boolean"],
         "additionalProperties": false,
         "required": ["valueFrom"],
         "properties": {
