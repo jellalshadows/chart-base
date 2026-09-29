@@ -180,8 +180,8 @@ Each of these has already broken something. The reason is the important part.
   chart-base, instead of setting these numbers inline.
 - **`quote` versus `toJson` for file contents.** `config` renders strings with `quote` and every other
   value with `toJson`, because a ConfigMap only holds strings. `configFiles` content is written with
-  `quote` only: it keeps the file exactly as written, while `toJson` would escape characters such as `<`
-  as `<`.
+  `quote` only: it keeps the file exactly as written, while `toJson` would escape `<`, `>` and `&`
+  as `\u003c`, `\u003e` and `\u0026`.
 - **helm-unittest renders only the templates listed in the suite** (`templates:` at the top of the
   file). A helper or a template that is not listed is not rendered, and a test cannot assert on it. Schema
   errors and guards are reported by whichever listed template is rendered: the schema and guard suites list
