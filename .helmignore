@@ -7,7 +7,8 @@
 # Tests and CI scenarios (not part of the published chart)
 tests/
 ci/
-# Docs sources and release tooling
+# Docs sources, long-form docs and release tooling (the package keeps README.md, CHANGELOG.md, LICENSE)
+docs/
 README.md.gotmpl
 release-please-config.json
 .release-please-manifest.json

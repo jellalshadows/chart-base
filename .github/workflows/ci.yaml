@@ -20,6 +20,8 @@ env:
   HELM_DOCS_VERSION: v1.14.2
   # renovate: datasource=github-releases depName=rhysd/actionlint
   ACTIONLINT_VERSION: v1.7.12
+  # renovate: datasource=github-releases depName=lycheeverse/lychee extractVersion=^lychee-(?<version>.+)$
+  LYCHEE_VERSION: v0.24.2
   # renovate: datasource=github-releases depName=kubernetes-sigs/gateway-api
   GATEWAY_API_VERSION: v1.6.2
   # renovate: datasource=helm depName=external-secrets registryUrl=https://charts.external-secrets.io
@@ -116,7 +118,7 @@ jobs:
         run: .github/scripts/e2e.sh .
 
   docs:
-    name: README is up to date
+    name: docs (README up to date, links resolve)
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -138,6 +140,24 @@ jobs:
         run: |
           helm-docs --chart-search-root . --template-files README.md.gotmpl
           git diff --exit-code README.md || { echo "::error::README.md is stale: run helm-docs and commit it"; exit 1; }
+      - name: Install lychee
+        run: |
+          cd "$RUNNER_TEMP"
+          asset=lychee-x86_64-unknown-linux-gnu.tar.gz
+          base="https://github.com/lycheeverse/lychee/releases/download/lychee-${LYCHEE_VERSION}"
+          curl -fsSLO "${base}/${asset}"
+          curl -fsSLO "${base}/${asset}.sha256"
+          sha256sum -c "${asset}.sha256"
+          tar -xzf "$asset" --strip-components=1 lychee-x86_64-unknown-linux-gnu/lychee
+          sudo install lychee /usr/local/bin/lychee
+      - name: Every Markdown link and anchor resolves
+        # Offline: only files and anchors are checked (no flaky network). Links to this repository's
+        # GitHub URLs (the README uses them so they also work inside the packaged chart) are checked
+        # against the checkout.
+        run: >-
+          lychee --offline --include-fragments --no-progress
+          --remap "https://github.com/jellalshadows/chart-base/(blob|tree)/main/ file://${GITHUB_WORKSPACE}/"
+          './**/*.md'
 
   pr-title:
     name: PR title is a conventional commit

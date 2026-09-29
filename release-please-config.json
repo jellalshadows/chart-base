@@ -8,7 +8,8 @@
       "bump-patch-for-minor-pre-major": false,
       "include-component-in-tag": false,
       "include-v-in-tag": true,
-      "exclude-paths": [".github", "tests", "ci"]
+      "exclude-paths": [".github", "tests", "ci", "docs"],
+      "extra-files": ["README.md", "README.md.gotmpl"]
     }
   }
 }
