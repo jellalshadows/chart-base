@@ -16,6 +16,7 @@
   In `ci.yaml`: `HELM_VERSION`, `HELM_UNITTEST_VERSION`, `KUBECONFORM_VERSION`, `HELM_DOCS_VERSION`,
   `ACTIONLINT_VERSION`, `LYCHEE_VERSION`, `GATEWAY_API_VERSION` and `ESO_CHART_VERSION`
   (the External Secrets Operator chart and the Gateway API CRDs used by the e2e). `release.yaml` tracks `HELM_VERSION` and `COSIGN_VERSION` (the cosign binary, installed by the `sigstore/cosign-installer` action, which Renovate pins like every other action).
+  The `release-signing` job of `ci.yaml` reads `COSIGN_VERSION` from `release.yaml` (there is one place to bump), so a cosign bump is exercised by the CI of the Renovate pull request: it runs the signing steps against an already-signed release ([testing guide](../guides/testing.md#release-signing-checks)).
 - **Cadence:** one `ci tooling` group (`packageRules`, for the `github-actions` and `custom.regex` managers): one pull request, only for releases older than 7 days (`minimumReleaseAge`), scheduled `before 6am on monday`.
 
 ## What Renovate does not manage

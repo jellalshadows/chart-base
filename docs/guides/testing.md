@@ -16,6 +16,7 @@ Contents:
 - [End-to-end on kind](#end-to-end-on-kind)
 - [Documentation checks](#documentation-checks)
 - [Workflow checks](#workflow-checks)
+- [Release signing checks](#release-signing-checks)
 - [Mutation testing as a review practice](#mutation-testing-as-a-review-practice)
 - [Definition of done for a feature](#definition-of-done-for-a-feature)
 
@@ -30,6 +31,7 @@ Contents:
 | End-to-end | The manifests really install and run in a cluster | No (needs kind) | `e2e` |
 | Documentation | The README is not stale; every link and anchor resolves | Yes | `docs` |
 | Workflows | The workflow files are sound; the PR title is a conventional commit | Yes (actionlint) | `workflows`, `pr-title` |
+| Release signing | The signing steps of `release.yaml` verify a real signed release, and refuse a wrong identity, a missing bundle type and a bad digest | Yes (needs network; cosign, jq, yq, curl) | `release signing checks (cosign)` |
 
 A single required check, `ci-ok`, depends on all the jobs. chart-testing (`ct`) is deliberately not used
 ([ADR-0023](../adr/0023-no-chart-testing.md)).
@@ -236,6 +238,44 @@ checked by this command. Both checks run in the `docs` job.
 Workflow hygiene follows one rule set: `permissions: {}` at workflow level and only what a job needs,
 actions pinned by commit SHA with a version comment, `persist-credentials: false`, and tool versions in
 `*_VERSION` variables with a `# renovate:` comment ([ADR-0024](../adr/0024-renovate.md)).
+
+## Release signing checks
+
+**What it proves.** That the signing logic of `.github/workflows/release.yaml` works, before a release
+depends on it. A signing failure after the push cannot be undone, because published versions are never
+overwritten, so the steps are exercised in every pull request instead. The script extracts the real `run:`
+blocks of these steps with yq (by step name) and runs them, so it tests the workflow as written and not a
+copy:
+
+- `Prepare the Sigstore bundle check` creates the `require-bundles.sh` helper. Against a real signed
+  release it must accept the provenance and signature bundles, reject a bundle type that does not exist
+  (so the type filter is not vacuous) and reject a different signer identity.
+- The digest extraction of the overwrite guard (`Refuse to overwrite an existing version`) returns the
+  right digest from the real manifest headers of the published tag.
+- `Digest to sign` picks the existing digest, prefers the pushed one, and refuses to continue with no
+  digest or a malformed one.
+
+A missing or renamed step fails the script with a message that names it.
+
+**Where it lives.** `.github/scripts/release-signing.sh <repository root>`. The fixture is chart-base
+0.2.0, pinned by digest: it is already signed and attested, and a published version never changes. The
+script uses anonymous registry access (it sets an empty `DOCKER_CONFIG`), so a local Docker credential
+store does not interfere.
+
+**Run locally.** Needs network access and `cosign`, `jq`, `yq` (mikefarah, v4) and `curl` on `PATH`:
+
+```bash
+export PATH=/path/to/tools:$PATH
+.github/scripts/release-signing.sh .
+```
+
+Every case prints `ok - ...`; the first failure prints `FAIL: ...` and stops.
+
+**In CI.** The `release signing checks (cosign)` job (`release-signing`). It installs the cosign version
+that `release.yaml` declares in `COSIGN_VERSION`, read from that file, so there is one place to bump and a
+cosign update from Renovate is exercised in its own pull request. The job **signs nothing** and needs
+only `contents: read`. What it cannot prove is the signing itself, which needs the release workflow's
+OIDC identity and runs only in a real release.
 
 ## Mutation testing as a review practice
 
