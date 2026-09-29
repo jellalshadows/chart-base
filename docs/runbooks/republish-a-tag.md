@@ -1,11 +1,22 @@
-# Re-publishing a tag
+# Re-publishing or signing a tag
 
-**When to use:** the tag `vX.Y.Z` and its GitHub release exist, but the `publish to ghcr.io` job failed, so the version is not on GHCR.
+**When to use:** the tag `vX.Y.Z` and its GitHub release exist and one of these is true:
+
+- The `publish to ghcr.io` job failed before the push, so the version is not on GHCR (**publish** mode).
+- The version is on GHCR but has no verified cosign signature: the job failed at the signing steps, or the
+  version was published before signing existed (0.1.0 and 0.2.0) (**sign-only** mode).
+
+The mode is not an input: the overwrite guard decides it from what GHCR answers for the version
+(see "What the run does").
 
 ## Prerequisites
 
 - Permission to run workflows on `jellalshadows/chart-base` (write access) and `gh` authenticated.
 - The tag must already exist and its `Chart.yaml` version must equal the tag without the `v`.
+- **Before a sign-only run, check the provenance.** A sign-only run signs whatever digest the version tag
+  currently points to on GHCR, and nothing compares it with the provenance attestation. Run
+  `gh attestation verify` (the command in the [README](../../README.md#versioning-and-releases)) and confirm
+  that this digest was built by `release.yaml`. If it fails, do not sign: the tag may have been overwritten.
 - Why this runbook exists: release-please treats an existing tag as "released" and will never re-tag it, and
   "Re-run failed jobs" re-executes the workflow file as it was when the run started
   ([ADR-0029](../adr/0029-publishing-built-for-recovery.md)).
@@ -23,13 +34,14 @@
    go to step 4. If the failing step is broken (a bug in `release.yaml`), fix it on `main` through a
    normal pull request first (`fix:` or `ci:` as appropriate) and merge it. The re-publish uses the
    `release.yaml` current on the ref you select, so the fix must be on `main` before step 4.
-3. **Check that the version is really not published** (optional, the guard also checks it):
+3. **Check whether the version is published** (optional, the guard also checks it):
    ```bash
    mkdir -p /tmp/empty-docker-config
    DOCKER_CONFIG=/tmp/empty-docker-config helm pull oci://ghcr.io/jellalshadows/charts/chart-base --version X.Y.Z
    ```
-   Expected: an error saying the version was not found. If the pull works, the version is already published:
-   stop and go to "Verification".
+   An error saying the version was not found means publish mode: go to step 4. If the pull works, the version
+   is published: to sign it, check the provenance as described in Prerequisites and go to step 4 (sign-only
+   mode); if it is already signed (see "Verification"), stop.
 4. **Run the workflow manually with the tag.**
    ```bash
    gh workflow run release.yaml --repo jellalshadows/chart-base --ref main -f tag=vX.Y.Z
@@ -37,7 +49,8 @@
    gh run list --repo jellalshadows/chart-base --workflow release.yaml --event workflow_dispatch --limit 1
    gh run watch <run-id> --repo jellalshadows/chart-base
    ```
-   Expected: a `workflow_dispatch` run that finishes `completed  success`.
+   Expected: a `workflow_dispatch` run that finishes `completed  success`. In sign-only mode the guard step
+   prints `nothing is pushed, it is only signed`.
 
 ## What the run does
 
@@ -46,15 +59,22 @@
   publishes exactly the tagged content, but with the workflow file of the ref you selected (`main`).
 - The provenance attestation of a re-published version records the dispatched ref and commit (for
   example `main`), not the tag's commit, because the workflow run belongs to the selected ref.
-- The overwrite guard runs on this attempt too. If the version was published after all (a previous attempt
-  got further than it looked), the guard fails the job and nothing is overwritten.
+- The overwrite guard runs on this attempt too and sets the mode by what GHCR answers for the version:
+  - `404` (not published): **publish** mode. Package, push, provenance attestation, signature and its
+    verification, as on a normal release.
+  - `200` on a manual run: **sign-only** mode. Nothing is packaged, pushed or attested. The digest from the
+    guard's `Docker-Content-Digest` header is signed with cosign keyless and the signature is then verified.
+    This is the recovery for a failure at the signing steps, and the backfill of versions published before
+    signing existed.
+  - `200` on an automatic (push) run still fails with `refusing to overwrite`. Nothing ever overwrites.
+- Signing a version twice only adds another signature to the digest; verification accepts either.
 - A manual `workflow_dispatch` runs the workflow file of the ref you select: always pass `--ref main`.
 
 ## Verification
 
 Same as [Cutting a release](release.md#verification): an anonymous `helm pull` of `X.Y.Z`,
-`gh attestation verify` (the command in the [README](../../README.md#versioning-and-releases)), and the
-package page.
+`gh attestation verify` and `cosign verify | jq -e` (the commands in the
+[README](../../README.md#versioning-and-releases)), and the package page.
 
 ## If something goes wrong
 
@@ -63,10 +83,16 @@ package page.
   Check `git ls-remote --tags https://github.com/jellalshadows/chart-base` for the exact name.
 - **The run fails at "Chart.yaml version must match the release":** the tag exists but its `Chart.yaml`
   has a different version. The tagged content is inconsistent: do not move the tag; fix forward with a new release.
-- **The guard fails with `already exists in ghcr.io`:** the version is published. Verify it as above; do not overwrite.
+- **The guard fails with `already exists in ghcr.io`:** this was an automatic run (the automatic path never
+  overwrites). The version is published: verify it as above, and
+  to sign it dispatch the workflow manually with the tag.
+- **A sign-only run fails at `Sign with cosign (keyless)` or `The cosign signature verifies`:** read the log.
+  A failure to obtain the OIDC token points at the job's `id-token: write` permission; a verification
+  failure names the identity and the signature types it found. Fix it on `main` and dispatch again.
 - **The push succeeded but the attestation step failed:** the version is on GHCR without provenance, and
   this runbook cannot fix it: a re-run stops at the overwrite guard (`200`, "refusing to overwrite").
-  Do not overwrite; ship a new patch release through [Cutting a release](release.md).
+  Do not overwrite; ship a new patch release through [Cutting a release](release.md). (A failure at the
+  signing steps is different: the sign-only run above recovers it.)
 - **The tagged content itself is broken** (a bad chart, not a failed publish): fix forward. Merge a `fix:`
   and release a new patch version through [Cutting a release](release.md).
 
@@ -81,5 +107,6 @@ package page.
 
 - [ADR-0029: publishing is built for recovery](../adr/0029-publishing-built-for-recovery.md)
 - [ADR-0020: release-please and publish in one workflow](../adr/0020-release-please-and-publish-in-one-workflow.md)
+- [ADR-0034: keyless cosign signatures by digest](../adr/0034-keyless-cosign-signatures.md)
 - [ADR-0022: provenance with actions/attest](../adr/0022-provenance-with-actions-attest.md)
 - [Cutting a release](release.md)

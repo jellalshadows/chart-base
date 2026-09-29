@@ -15,7 +15,7 @@
 - **Tool versions:** the `*_VERSION` environment variables that have a `# renovate:` comment directly above them.
   In `ci.yaml`: `HELM_VERSION`, `HELM_UNITTEST_VERSION`, `KUBECONFORM_VERSION`, `HELM_DOCS_VERSION`,
   `ACTIONLINT_VERSION`, `LYCHEE_VERSION`, `GATEWAY_API_VERSION` and `ESO_CHART_VERSION`
-  (the External Secrets Operator chart and the Gateway API CRDs used by the e2e). `release.yaml` tracks `HELM_VERSION` too.
+  (the External Secrets Operator chart and the Gateway API CRDs used by the e2e). `release.yaml` tracks `HELM_VERSION` and `COSIGN_VERSION` (the cosign binary, installed by the `sigstore/cosign-installer` action, which Renovate pins like every other action).
 - **Cadence:** one `ci tooling` group (`packageRules`, for the `github-actions` and `custom.regex` managers): one pull request, only for releases older than 7 days (`minimumReleaseAge`), scheduled `before 6am on monday`.
 
 ## What Renovate does not manage
@@ -34,7 +34,7 @@ Nothing pings you about these; check them by hand from time to time.
    gh pr checks <number> --repo jellalshadows/chart-base
    ```
 3. A Helm bump touches both `ci.yaml` and `release.yaml` (both declare `HELM_VERSION` with a `# renovate:` comment). Confirm both changed to the same version, and that the `lint` matrix 4.x entry matches it (see above).
-4. Read the release notes of anything that runs in the release path (Helm, `actions/attest`, `actions/create-github-app-token`, `release-please-action`): a broken release is harder to recover than a broken CI ([re-publish runbook](republish-a-tag.md)).
+4. Read the release notes of anything that runs in the release path (Helm, cosign and `sigstore/cosign-installer`, `actions/attest`, `actions/create-github-app-token`, `release-please-action`): a broken release is harder to recover than a broken CI ([re-publish runbook](republish-a-tag.md)).
 5. Squash-merge it. The title is already a conventional commit (semantic commits), typically `chore(deps): ...`, so it does not cause a release.
 
 ## Bumping kind by hand

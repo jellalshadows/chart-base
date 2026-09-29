@@ -32,18 +32,19 @@ not published; each record restates every fact it uses.
 | [0019](0019-helm-4-first-helm-3-tested.md) | Helm 4 first, Helm 3.22 still tested | Accepted | 0.1.0 |
 | [0020](0020-release-please-and-publish-in-one-workflow.md) | release-please and publishing in one workflow | Accepted | 0.1.0 |
 | [0021](0021-github-app-token-for-release-please.md) | A GitHub App token for release-please | Accepted | 0.1.0 |
-| [0022](0022-provenance-with-actions-attest.md) | Provenance with `actions/attest` | Accepted | 0.1.0 |
+| [0022](0022-provenance-with-actions-attest.md) | Provenance with `actions/attest` | Amended by 0034 | 0.1.0 |
 | [0023](0023-no-chart-testing.md) | No chart-testing (`ct`) | Accepted | 0.1.0 |
 | [0024](0024-renovate.md) | Renovate for actions and tool versions | Accepted | 0.1.0 |
 | [0025](0025-generated-english-readme.md) | Generated README, in English | Accepted | 0.1.0 |
 | [0026](0026-cronjob-runs-kept-by-history-limits.md) | CronJob runs are kept by the history limits | Accepted | 0.1.0 |
 | [0027](0027-required-keys-in-the-schema.md) | Keys the templates rely on are `required` | Accepted | 0.1.0 |
 | [0028](0028-podlabels-cannot-override-selector-labels.md) | `podLabels` cannot override the selector labels | Accepted | 0.1.0 |
-| [0029](0029-publishing-built-for-recovery.md) | Publishing is built for recovery | Accepted | 0.1.0 |
+| [0029](0029-publishing-built-for-recovery.md) | Publishing is built for recovery | Amended by 0034 | 0.1.0 |
 | [0030](0030-env-takes-references-only.md) | `env` takes references only | Accepted | 0.2.0 |
 | [0031](0031-existing-secrets-referenced-by-name.md) | Existing Secrets are referenced by name | Accepted | 0.2.0 |
 | [0032](0032-external-envfrom-first-env-wins.md) | External `envFrom` sources first, `env` wins | Accepted | 0.2.0 |
 | [0033](0033-component-level-reload-on-change.md) | Component-level `reloadOnChange` | Accepted | 0.2.0 |
+| [0034](0034-keyless-cosign-signatures.md) | Keyless cosign signatures by digest | Accepted | after 0.2.0 (ci) |
 
 ## Adding a record
 

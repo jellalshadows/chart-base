@@ -13,6 +13,7 @@ Contents:
 - [Failure behavior](#failure-behavior)
 - [Recommendations for umbrella authors](#recommendations-for-umbrella-authors)
 - [Upgrading chart-base](#upgrading-chart-base)
+- [Verifying what you deploy](#verifying-what-you-deploy)
 
 ## The model
 
@@ -259,3 +260,46 @@ for what to change in your values after each breaking release.
   ([ADR-0010](../adr/0010-chart-version-never-restarts-pods.md)). Pods restart only when their own
   content changes.
 - The pod selector labels are frozen from 1.0.0 on.
+
+## Verifying what you deploy
+
+Every published version has a provenance attestation and, from the signing step on, a cosign signature
+([ADR-0022](../adr/0022-provenance-with-actions-attest.md),
+[ADR-0034](../adr/0034-keyless-cosign-signatures.md)). Versions published before signing existed (0.1.0 and
+0.2.0) get theirs through a manual sign-only run, so check that a version is signed before you rely on it.
+The commands, with the exact identity and issuer, are in the
+[README](../../README.md#versioning-and-releases):
+
+- `gh attestation verify` proves which workflow built the digest.
+- `cosign verify ... | jq -e ...` proves that the `release.yaml` workflow on `main` signed it. Plain
+  `cosign verify` also accepts the attestation, which is why the README pipes the result through a `jq`
+  filter that requires the signature type.
+
+Flux can enforce the signature when it fetches the chart. From Flux 2.8 on (its announcement lists support for
+Cosign v3), a `HelmChart` from an OCI repository takes a `spec.verify` block. The field names below are those of
+the [Flux documentation](https://fluxcd.io/flux/components/source/helmcharts/#verification); the Flux docs
+did not state a minimum version when this guide was written, so check the version you run:
+
+```yaml
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmChart
+metadata:
+  name: chart-base
+spec:
+  interval: 5m0s
+  chart: chart-base
+  version: <chart-base version>
+  sourceRef:
+    kind: HelmRepository   # a HelmRepository with type: oci and url: oci://ghcr.io/jellalshadows/charts
+    name: chart-base
+  verify:
+    provider: cosign
+    matchOIDCIdentity:
+      - issuer: ^https://token\.actions\.githubusercontent\.com$
+        subject: ^https://github\.com/jellalshadows/chart-base/\.github/workflows/release\.yaml@refs/heads/main$
+```
+
+Older Flux reads only legacy `.sig` signatures, which chart-base does not publish
+([ADR-0034](../adr/0034-keyless-cosign-signatures.md)). A `HelmRelease` that uses a `chartRef` to this
+`HelmChart`, or a chart spec of its own, needs the same verification; this guide does not cover those
+variants.

@@ -1,6 +1,6 @@
 # ADR-0022: Provenance with `actions/attest`
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0034](0034-keyless-cosign-signatures.md) (signing)
 - **Date:** 2026-09-27
 - **Since:** 0.1.0
 

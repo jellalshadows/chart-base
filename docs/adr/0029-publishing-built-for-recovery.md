@@ -1,6 +1,6 @@
 # ADR-0029: Publishing is built for recovery
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0034](0034-keyless-cosign-signatures.md) (sign-only manual runs)
 - **Date:** 2026-09-28
 - **Since:** 0.1.0
 

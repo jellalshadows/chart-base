@@ -356,14 +356,14 @@ code, official docs) and local renders.
 21. **release-please uses a GitHub App token.** CI runs on the Release PR automatically; tokens live 1h.
     *Rejected:* `GITHUB_TOKEN` plus manual approval; a PAT.
     [ADR-0021](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0021-github-app-token-for-release-please.md)
-22. **Provenance with `actions/attest`, no cosign yet.** Verifiable with `gh`; fewer moving parts on GHCR.
-    *Rejected:* cosign for now (signing is planned on the roadmap).
+22. **Provenance with `actions/attest`.** Every version carries a SLSA provenance attestation, verifiable
+    with `gh`; since the signing step, a cosign signature too (decision 34). *Rejected:* no provenance.
     [ADR-0022](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0022-provenance-with-actions-attest.md)
 23. **No chart-testing (`ct`).** Its last release predates Helm 4 and its version-bump check conflicts with
     release-please. Plain Helm and kind instead. *Rejected:* `ct lint`/`ct install`.
     [ADR-0023](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0023-no-chart-testing.md)
 24. **Renovate.** It updates action SHAs and the tool versions declared as `*_VERSION` workflow env vars
-    (Helm, helm-unittest, kubeconform, helm-docs, actionlint, lychee, Gateway API, the ESO chart). The `helm lint`
+    (Helm, helm-unittest, kubeconform, helm-docs, actionlint, lychee, cosign, Gateway API, the ESO chart). The `helm lint`
     matrix and the kind versions/node image digests are bumped by hand.
     *Rejected:* Dependabot (only `uses:` refs); doing it all by hand.
     [ADR-0024](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0024-renovate.md)
@@ -413,6 +413,12 @@ code, official docs) and local renders.
     watch the chart's own ConfigMaps, which need extra exclusions to avoid a second restart after the
     checksum rollout).
     [ADR-0033](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0033-component-level-reload-on-change.md)
+34. **Every version is signed with cosign keyless, by digest.** The publish job signs after the
+    attestation (both append to the same referrers index on GHCR) and then verifies that a cosign
+    signature, not only the attestation, is there. A manual run on an already-published tag only signs it.
+    *Rejected:* a signing key pair (a secret to guard and rotate); legacy `.sig` signatures (deprecated);
+    relying on `cosign verify` accepting the attestation (it does not filter by type).
+    [ADR-0034](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0034-keyless-cosign-signatures.md)
 
 ## Versioning and releases
 
@@ -425,12 +431,20 @@ code, official docs) and local renders.
 - An existing version is never overwritten: the publish job fails if the tag already exists.
 - Every breaking release (`feat!`) has migration steps in the [upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md).
 - How a release is cut, re-published or recovered: [release runbooks](https://github.com/jellalshadows/chart-base/blob/main/docs/README.md#runbooks).
-- Verify where a version was built:
+- Verify where a version was built (provenance) and who signed it (cosign signature):
 
 ```bash
 gh attestation verify oci://ghcr.io/jellalshadows/charts/chart-base:X.Y.Z --repo jellalshadows/chart-base \
   --signer-workflow jellalshadows/chart-base/.github/workflows/release.yaml
+
+cosign verify ghcr.io/jellalshadows/charts/chart-base:X.Y.Z \
+  --certificate-identity https://github.com/jellalshadows/chart-base/.github/workflows/release.yaml@refs/heads/main \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com --output json \
+  | jq -e 'any(.[]; .critical.type == "https://sigstore.dev/cosign/sign/v1")'
 ```
+
+  `cosign verify` alone also accepts the provenance attestation (same signer); the `jq` filter requires the
+  signature itself. Flux verifies these signatures from 2.8 on (`spec.verify.provider: cosign`).
 
 ## Rules for consumers
 
