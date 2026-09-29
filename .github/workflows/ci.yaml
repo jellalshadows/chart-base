@@ -195,6 +195,7 @@ jobs:
   release-signing:
     name: release signing checks (cosign)
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:

@@ -43,7 +43,8 @@ run_block() { bash -e -o pipefail -c "$1"; }
 # 1. The helper is created by the real "Prepare" step.
 export RUNNER_TEMP="$work/runner"
 mkdir -p "$RUNNER_TEMP"
-run_block "$(step_run 'Prepare the Sigstore bundle check')" > /dev/null
+prepare="$(step_run 'Prepare the Sigstore bundle check')"
+run_block "$prepare" > /dev/null
 helper="${RUNNER_TEMP}/require-bundles.sh"
 [ -x "$helper" ] || fail "${helper} was not created as an executable"
 pass "prepare step creates an executable require-bundles.sh"
@@ -66,16 +67,18 @@ if SIGNER_IDENTITY=https://github.com/jellalshadows/chart-base/.github/workflows
   "$helper" "$REF" "$PROVENANCE" "$SIGNATURE" > "$out" 2>&1; then
   fail "a different signer identity was accepted"
 fi
+grep -q 'failed to verify certificate identity' "$out" || { cat "$out" >&2; fail "identity mismatch not reported as such"; }
 pass "a different signer identity is rejected"
 
 # 5. The guard's digest extraction, on real HEAD headers of the published tag.
-token="$(curl -fsS "https://ghcr.io/token?scope=repository:jellalshadows/charts/chart-base:pull" | jq -r .token)"
+token="$(curl -fsS --retry 3 --retry-connrefused "https://ghcr.io/token?scope=repository:jellalshadows/charts/chart-base:pull" | jq -r .token)"
 headers="$work/manifest-headers.txt"
-curl -fsS -o /dev/null -D "$headers" -I \
+curl -fsS --retry 3 --retry-connrefused -o /dev/null -D "$headers" -I \
   -H "Authorization: Bearer ${token}" \
   -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
   https://ghcr.io/v2/jellalshadows/charts/chart-base/manifests/0.2.0
-awk_line="$(step_run 'Refuse to overwrite an existing version (GHCR tags are mutable)' | { grep 'docker-content-digest' || true; })"
+guard="$(step_run 'Refuse to overwrite an existing version (GHCR tags are mutable)')"
+awk_line="$(grep 'docker-content-digest' <<< "$guard" || true)"
 [ -n "$awk_line" ] || fail "no docker-content-digest extraction found in the guard step"
 extracted="$(headers="$headers" bash -e -o pipefail -c "${awk_line}"$'\n''printf %s "$digest"')"
 [ "$extracted" = "$digest" ] || fail "guard extracted '${extracted}', expected ${digest}"
