@@ -27,7 +27,9 @@ keeps them current, see [ADR-0024](../adr/0024-renovate.md)). At the time of wri
 | kubeconform | 0.8.0 | Validating rendered manifests |
 | lychee | 0.24.2 | Checking Markdown links |
 | actionlint | 1.7.12 | Linting workflows |
-| yq (mikefarah, v4) | any v4 | Required by `alias-contract.sh` |
+| yq (mikefarah, v4) | any v4 | Required by `alias-contract.sh` and `release-signing.sh` |
+| cosign | 3.1.3 (`COSIGN_VERSION` in `release.yaml`) | Required by `release-signing.sh` |
+| jq | any 1.x | Required by `release-signing.sh` |
 
 **No Docker is needed locally.** The unit tests, lint, kubeconform, the alias contract and the
 documentation checks run with plain binaries. Only the end-to-end test needs Docker (it runs kind), and
@@ -36,7 +38,7 @@ it runs in CI ([testing guide](testing.md#end-to-end-on-kind)).
 Tool setup, without touching your global Helm configuration:
 
 ```bash
-# Put the standalone binaries (helm-docs, kubeconform, lychee, actionlint, yq) in a directory on PATH.
+# Put the standalone binaries (helm-docs, kubeconform, lychee, actionlint, yq, cosign, jq) in a directory on PATH.
 mkdir -p "$HOME/.local/bin"
 export PATH="$HOME/.local/bin:$PATH"
 
@@ -74,7 +76,7 @@ Everything at the top level of the repository, and why it is there:
 | `docs/` | This documentation: ADRs, roadmap, guides and runbooks. Not part of the package, and never triggers a release ([ADR-0000](../adr/0000-record-architecture-decisions.md)). |
 | `.github/workflows/ci.yaml` | The checks that run on every pull request. |
 | `.github/workflows/release.yaml` | Release and publishing ([ADR-0020](../adr/0020-release-please-and-publish-in-one-workflow.md)). |
-| `.github/scripts/` | `validate-manifests.sh`, `alias-contract.sh` and `e2e.sh`, called by `ci.yaml`. |
+| `.github/scripts/` | `validate-manifests.sh`, `alias-contract.sh`, `release-signing.sh` and `e2e.sh`, called by `ci.yaml`. |
 | `.github/renovate.json` | Renovate configuration ([ADR-0024](../adr/0024-renovate.md)). |
 | `release-please-config.json`, `.release-please-manifest.json` | release-please configuration and current version. |
 | `.helmignore` | What `helm package` leaves out of the published archive: tests, CI files, `docs/`, the README template and the release tooling. |

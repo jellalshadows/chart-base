@@ -407,7 +407,7 @@ helm lint --strict . -f ci/full-values.yaml
 CI (`.github/workflows/ci.yaml`) runs the unit tests, `helm lint`/`helm template` + kubeconform on
 Helm 3.22 and 4.3, the alias contract (`.github/scripts/alias-contract.sh`), a real install on kind
 (Kubernetes 1.33 and 1.37) in a namespace that enforces Pod Security `restricted`, this README drift
-check, the documentation link check, the PR title check and workflow linting (actionlint + zizmor).
+check, the documentation link check, the PR title check, workflow linting (actionlint + zizmor) and the release signing checks.
 The [development guide](https://github.com/jellalshadows/chart-base/blob/main/docs/guides/development.md) and the [testing guide](https://github.com/jellalshadows/chart-base/blob/main/docs/guides/testing.md)
 explain the TDD loop, every test layer and the local tool setup.
 
