@@ -31,7 +31,7 @@ the features that were rejected, with the reason.
 | Runbook | When |
 |---|---|
 | [Cutting a release](runbooks/release.md) | Every release: from merged pull requests to a verified package on GHCR |
-| [Re-publishing a tag](runbooks/republish-a-tag.md) | A release was tagged but its publish job failed |
+| [Re-publishing or signing a tag](runbooks/republish-a-tag.md) | A release was tagged but its publish job failed, or a published version has no cosign signature |
 | [Rotating the release GitHub App key](runbooks/rotate-release-app-key.md) | A scheduled rotation, or a key that may have leaked |
 | [Renovate](runbooks/renovate.md) | Reviewing dependency pull requests, tracking a new tool, debugging Renovate |
 
