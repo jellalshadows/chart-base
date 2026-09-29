@@ -24,8 +24,9 @@ waiting a few days and reviewing everything at once.
 
 ## Decision
 
-- `.github/renovate.json` extends `config:best-practices` ("best practices from the Renovate maintainers")
-  and `customManagers:githubActionsVersions`, whose own description is "Update `_VERSION` environment
+- `.github/renovate.json` extends `config:best-practices` ("best practices from the Renovate maintainers"),
+  which pins every GitHub Action to a commit SHA and keeps the version as a trailing comment
+  (`uses: owner/action@<sha> # vX.Y.Z`, the form used in both workflows), and `customManagers:githubActionsVersions`, whose own description is "Update `_VERSION` environment
   variables in GitHub Action files" — the exact mechanism the `*_VERSION` vars above rely on.
 - A single `packageRules` entry applies to `matchManagers: ["github-actions", "custom.regex"]`:
   `groupName: "ci tooling"`, `minimumReleaseAge: "7 days"`, `schedule: ["before 6am on monday"]` — every

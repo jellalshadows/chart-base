@@ -51,8 +51,9 @@ workflow itself provides: no overwrite guard, no reproducible packaging, no prov
   version that a previous, partially-successful attempt already got onto GHCR.
 - Trade-off: a free-text `workflow_dispatch` `tag` input has to trust the operator to type a real, existing
   tag. The "Resolve the version from the tag" step's regex (`^v[0-9]+\.[0-9]+\.[0-9]+$`) only checks the
-  *shape* of the input, not that the tag exists or ever had a real release behind it — a mistyped tag simply
-  fails later, at the `Chart.yaml`-version-match step, rather than being rejected up front.
+  *shape* of the input: a value that is not `vX.Y.Z` fails right there, but a well-formed tag that does not
+  exist fails one step later, at the checkout of `refs/tags/<tag>`. Only an existing tag whose `Chart.yaml`
+  version differs from the tag reaches the "Chart.yaml version must match the release" step.
 
 ## Alternatives considered
 
