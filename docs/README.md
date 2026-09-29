@@ -14,6 +14,10 @@ of the README.
 [`roadmap.md`](roadmap.md): the planned releases up to 1.0, the principles every release follows, and
 the features that were rejected, with the reason.
 
+## Upgrade guide
+
+[`upgrading.md`](upgrading.md): what to change in your values for every breaking release.
+
 ## Guides
 
 | Guide | For |

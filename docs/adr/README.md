@@ -14,9 +14,9 @@ not published; each record restates every fact it uses.
 | [0001](0001-application-chart-consumed-through-aliases.md) | Application chart consumed through aliases | Accepted | 0.1.0 |
 | [0002](0002-repository-is-the-chart.md) | The repository is the chart | Accepted | 0.1.0 |
 | [0003](0003-oci-on-ghcr.md) | OCI on GHCR, public and free | Accepted | 0.1.0 |
-| [0004](0004-env-in-configmap-secrets-through-externalsecret.md) | Env vars in a ConfigMap, secrets through ExternalSecret | Accepted | 0.1.0 |
+| [0004](0004-env-in-configmap-secrets-through-externalsecret.md) | Env vars in a ConfigMap, secrets through ExternalSecret | Amended by 0030, 0031 | 0.1.0 |
 | [0005](0005-configfiles-string-or-map.md) | `configFiles` accepts a string or a map | Accepted | 0.1.0 |
-| [0006](0006-checksum-for-config-reloader-for-secrets.md) | Checksums for config, Reloader for Secrets | Accepted | 0.1.0 |
+| [0006](0006-checksum-for-config-reloader-for-secrets.md) | Checksums for config, Reloader for Secrets | Amended by 0033 | 0.1.0 |
 | [0007](0007-jobs-as-helm-hooks.md) | `workload.type: job` is a Helm hook | Accepted | 0.1.0 |
 | [0008](0008-names-are-release-alias-and-never-truncated.md) | Names are `<release>-<alias>` and never truncated | Accepted | 0.1.0 |
 | [0009](0009-no-name-overrides.md) | No `nameOverride`/`fullnameOverride` | Accepted | 0.1.0 |
@@ -40,6 +40,10 @@ not published; each record restates every fact it uses.
 | [0027](0027-required-keys-in-the-schema.md) | Keys the templates rely on are `required` | Accepted | 0.1.0 |
 | [0028](0028-podlabels-cannot-override-selector-labels.md) | `podLabels` cannot override the selector labels | Accepted | 0.1.0 |
 | [0029](0029-publishing-built-for-recovery.md) | Publishing is built for recovery | Accepted | 0.1.0 |
+| [0030](0030-env-takes-references-only.md) | `env` takes references only | Accepted | 0.2.0 |
+| [0031](0031-existing-secrets-referenced-by-name.md) | Existing Secrets are referenced by name | Accepted | 0.2.0 |
+| [0032](0032-external-envfrom-first-env-wins.md) | External `envFrom` sources first, `env` wins | Accepted | 0.2.0 |
+| [0033](0033-component-level-reload-on-change.md) | Component-level `reloadOnChange` | Accepted | 0.2.0 |
 
 ## Adding a record
 

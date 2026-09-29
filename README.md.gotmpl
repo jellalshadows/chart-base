@@ -121,6 +121,32 @@ and **overrides** it; it must arrive as an environment variable, and directories
 ([Spring Boot docs](https://docs.spring.io/spring-boot/reference/features/external-config.html)).
 Never put secret values in `configFiles`: use `${VAR}` placeholders fed by `externalSecret`.
 
+### Operator-created Secrets and pod metadata (CloudNativePG, Strimzi, OpenTelemetry)
+
+```yaml
+orders:
+  image: {repository: ghcr.io/acme/orders, tag: "3.1.0"}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 1Gi}
+  env:                                      # references only: literal values belong in `config`
+    DB_PASSWORD:                            # Secret created by CloudNativePG, referenced by name
+      valueFrom: {secretKeyRef: {name: orders-db-app, key: password}}
+    OTEL_SERVICE_NAME:                      # downward API
+      valueFrom: {fieldRef: {fieldPath: "metadata.labels['app.kubernetes.io/name']"}}
+    K8S_POD_NAME:
+      valueFrom: {fieldRef: {fieldPath: metadata.name}}
+    GOMEMLIMIT_MB:                          # resourceFieldRef (e.g. to size a runtime's heap)
+      valueFrom: {resourceFieldRef: {resource: limits.memory, divisor: 1Mi}}
+  envFrom:                                  # an existing Secret injected whole
+    - secretRef: {name: orders-kafka-user}  # created by Strimzi for a KafkaUser
+      prefix: KAFKA_
+```
+
+`reloadOnChange` (default `true`) lists `orders-db-app` and `orders-kafka-user` in the Deployment's
+Reloader annotation, so a rotated password restarts the pods. External `envFrom` sources are injected
+before the chart's own ConfigMap/Secret, and `env` wins over every `envFrom` source.
+
 ### Worker (e.g. a Kafka consumer)
 
 ```yaml
@@ -198,8 +224,9 @@ code, official docs) and local renders.
    [ADR-0005](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0005-configfiles-string-or-map.md)
 6. **Config changes roll pods through a checksum; Secret rotation through Reloader.** Config changes
    happen inside the deploy, so Helm reports a broken config as a failed release, and rolls back when
-   run with `--rollback-on-failure` (Helm 4) or `--atomic` (Helm 3); Secrets change outside the
-   deploy, when ESO syncs. *Rejected:* Reloader for everything (Helm would report success before the
+   run with `--rollback-on-failure` (Helm 4) or `--atomic` (Helm 3); Secrets, and any Secret or
+   ConfigMap the component references (decision 33), change outside the deploy, when ESO or an
+   operator updates them. *Rejected:* Reloader for everything (Helm would report success before the
    restart, and the next deploy of the domain would fail on someone else's broken component).
    [ADR-0006](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0006-checksum-for-config-reloader-for-secrets.md)
 7. **`workload.type: job` is a Helm hook (`job.phase`).** A Job pod template is immutable, so a plain
@@ -290,6 +317,27 @@ code, official docs) and local renders.
     current workflow, and the overwrite guard still refuses a version that already exists.
     *Rejected:* "Re-run failed jobs" (it re-runs the old workflow with the same broken steps).
     [ADR-0029](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0029-publishing-built-for-recovery.md)
+30. **`env` takes references only.** `valueFrom` with `fieldRef`, `resourceFieldRef`, `secretKeyRef` or
+    `configMapKeyRef`; literal values keep a single home in `config`, and a literal in `env` fails with a
+    message pointing to `config`. *Rejected:* literals in `env` (two places for the same setting).
+    [ADR-0030](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0030-env-takes-references-only.md)
+31. **Existing Secrets are referenced by name, never by value.** Secrets created inside the cluster by
+    operators (CloudNativePG `<cluster>-app`, Strimzi `KafkaUser`) are consumed where they live; secrets
+    from a secret manager still go through ExternalSecret. *Rejected:* routing in-cluster Secrets through
+    ESO's Kubernetes provider (copying a Secret out of the cluster and back into it).
+    [ADR-0031](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0031-existing-secrets-referenced-by-name.md)
+32. **External `envFrom` sources come first; `env` wins over everything.** The component's explicit
+    `config`/`externalSecret` values are never overridden by a bulk import, and an `env` key that
+    duplicates a `config` or `externalSecret.data` key fails. *Rejected:* external sources last (an
+    imported ConfigMap could silently override `config`).
+    [ADR-0032](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0032-external-envfrom-first-env-wins.md)
+33. **`reloadOnChange` is per component and covers everything that changes outside the deploy.** The
+    Reloader annotations list the ExternalSecret's Secret and every referenced Secret and ConfigMap,
+    regex-quoted because Reloader matches each entry as an anchored regular expression. Moved from
+    `externalSecret.reloadOnChange` in 0.2.0 (breaking). *Rejected:* one flag per source; Reloader's
+    `auto` mode (it also watches the chart's own ConfigMaps and would restart pods a second time after
+    the checksum rollout).
+    [ADR-0033](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0033-component-level-reload-on-change.md)
 
 ## Versioning and releases
 
@@ -300,6 +348,7 @@ code, official docs) and local renders.
 - Before 1.0: `fix:` → patch, `feat:` → minor, `feat!:` → minor. 1.0.0 will be declared on purpose,
   and from then on the selector labels are frozen forever.
 - An existing version is never overwritten: the publish job fails if the tag already exists.
+- Every breaking release (`feat!`) has migration steps in the [upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md).
 - How a release is cut, re-published or recovered: [release runbooks](https://github.com/jellalshadows/chart-base/blob/main/docs/README.md#runbooks).
 - Verify where a version was built:
 
@@ -316,7 +365,7 @@ gh attestation verify oci://ghcr.io/jellalshadows/charts/chart-base:X.Y.Z --repo
   (52 for CronJobs). Renaming an alias deletes and recreates its objects.
 - **Toggle components with a real boolean**: `sales.enabled: false`. A string `"false"` is not a boolean: Helm warns, keeps the component, and the schema rejects the value.
 - **Install [Stakater Reloader](https://github.com/stakater/Reloader)** with `reloadStrategy: annotations`
-  for Secret rotation to reach the pods.
+  so that Secret rotation and changes to referenced Secrets/ConfigMaps reach the pods.
 - **HTTPRoute** needs a Gateway whose listener allows routes from the application namespace
   (`allowedRoutes`); the default only allows the Gateway's own namespace.
 - **Turning on `autoscaling` for a running component** removes `spec.replicas`: Kubernetes scales it to 1
@@ -347,6 +396,7 @@ The [`docs/`](https://github.com/jellalshadows/chart-base/tree/main/docs) direct
 
 - [Architecture decision records](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/README.md): one ADR per design decision above.
 - [Roadmap to 1.0](https://github.com/jellalshadows/chart-base/blob/main/docs/roadmap.md): the planned releases, the rejected features and why.
+- [Upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md): what to change in your values for each breaking release.
 - Guides: [consuming chart-base from a domain umbrella](https://github.com/jellalshadows/chart-base/blob/main/docs/guides/consuming.md),
   [development](https://github.com/jellalshadows/chart-base/blob/main/docs/guides/development.md), [testing](https://github.com/jellalshadows/chart-base/blob/main/docs/guides/testing.md).
 - Runbooks: [cutting a release](https://github.com/jellalshadows/chart-base/blob/main/docs/runbooks/release.md),
