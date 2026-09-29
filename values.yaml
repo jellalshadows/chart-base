@@ -39,6 +39,16 @@ resources: {}
 # -- Environment variables. Rendered into ConfigMap `<fullname>-env` and injected with `envFrom`.
 config: {}
 
+# -- Environment variables from REFERENCES only (literal values belong in `config`): a map of
+# `NAME: {valueFrom: {<source>: ...}}` where the source is one of `fieldRef`, `resourceFieldRef`, `secretKeyRef` or `configMapKeyRef`.
+# Rendered as container `env`, which wins over every `envFrom` source.
+env: {}
+
+# -- Existing ConfigMaps/Secrets injected whole, e.g. `[{secretRef: {name: sales-kafka-user}}]` or
+# `[{configMapRef: {name: shared, optional: true}, prefix: SHARED_}]`. Injected BEFORE the chart's own
+# `-env`/`-secrets`, so the component's explicit `config`/`externalSecret` win on duplicate keys.
+envFrom: []
+
 configFiles:
   # -- Directory where `configFiles.files` are mounted read-only. Must not be `/tmp`.
   mountPath: /config
@@ -58,8 +68,11 @@ externalSecret:
   refreshInterval: 1h
   # -- Map of `ENV_VAR: {key: <remote key>, property: <optional field>}`.
   data: {}
-  # -- Add the Stakater Reloader annotation so Deployments restart when the Secret changes.
-  reloadOnChange: true
+
+# -- Restart Deployments (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is
+# updated: the ExternalSecret's Secret and every Secret/ConfigMap referenced in `env`/`envFrom`.
+# The chart's own ConfigMaps roll pods through checksum annotations instead.
+reloadOnChange: true
 
 # -- Deployment replicas. Ignored when `autoscaling.enabled`.
 replicas: 1

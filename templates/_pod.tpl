@@ -56,8 +56,23 @@ containers:
         protocol: TCP
       {{- end }}
     {{- end }}
-    {{- if or $.Values.config $.Values.externalSecret.enabled }}
+    {{- with $.Values.env }}
+    env:
+      {{- range $name, $ref := . }}
+      {{- /* Literal values (not maps) are rejected by templates/validate.yaml; never render them here. */}}
+      {{- if kindIs "map" $ref }}
+      - name: {{ $name | quote }}
+        valueFrom:
+          {{- toYaml $ref.valueFrom | nindent 10 }}
+      {{- end }}
+      {{- end }}
+    {{- end }}
+    {{- if or $.Values.envFrom $.Values.config $.Values.externalSecret.enabled }}
     envFrom:
+      {{- /* External sources first: the component's explicit config/secrets win on duplicate keys. */}}
+      {{- with $.Values.envFrom }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
       {{- if $.Values.config }}
       - configMapRef:
           name: {{ $fullname }}-env

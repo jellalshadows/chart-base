@@ -6,9 +6,9 @@ metadata:
   name: {{ $fullname }}
   labels:
     {{- include "chart-base.labels" . | nindent 4 }}
-  {{- if and .Values.externalSecret.enabled .Values.externalSecret.reloadOnChange }}
+  {{- with include "chart-base.reloaderAnnotations" . | trim }}
   annotations:
-    secret.reloader.stakater.com/reload: {{ printf "%s-secrets" $fullname | quote }}
+    {{- . | nindent 4 }}
   {{- end }}
 spec:
   {{- if not .Values.autoscaling.enabled }}

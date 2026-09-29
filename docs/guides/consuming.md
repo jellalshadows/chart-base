@@ -147,12 +147,16 @@ component that is already serving traffic.
 **Install [Stakater Reloader](https://github.com/stakater/Reloader) with
 `reloadStrategy: annotations`.**
 Config changes roll the pods through a checksum annotation, inside the deploy. Secret rotation cannot
-work that way: the chart never sees the content of the Secret that External Secrets Operator syncs. With
-`externalSecret.enabled` and `reloadOnChange: true` (the default) chart-base only adds the Reloader
-annotation to the Deployment; without Reloader running in the cluster the annotation does nothing.
-Reloader's `annotations` strategy is the one that avoids drift between the cluster and what GitOps
-tools render ([ADR-0006](../adr/0006-checksum-for-config-reloader-for-secrets.md)). The setting belongs
-to Reloader's own installation, not to chart-base.
+work that way: the chart never sees the content of the Secret that External Secrets Operator syncs, nor
+of a Secret or ConfigMap that an operator or another team maintains. With `reloadOnChange: true` (the
+default) chart-base adds Reloader annotations to the Deployment that list the ExternalSecret's Secret
+(when `externalSecret.enabled`) and every Secret and ConfigMap referenced in `env` or `envFrom`, so
+Secret rotation **and** changes to referenced Secrets and ConfigMaps reach the pods. Without Reloader
+running in the cluster the annotations do nothing. Reloader's `annotations` strategy is the one that
+avoids drift between the cluster and what GitOps tools render
+([ADR-0006](../adr/0006-checksum-for-config-reloader-for-secrets.md),
+[ADR-0033](../adr/0033-component-level-reload-on-change.md)). The setting belongs to Reloader's own
+installation, not to chart-base.
 
 **A Gateway whose listener allows routes from the application namespace.**
 An HTTPRoute is accepted only if the listener it attaches to allows it. By default a Gateway
@@ -223,10 +227,27 @@ These are practices for the umbrella, not features of chart-base.
    `helm lint --strict` and `helm template` with it, so a problem in a component that is off in some
    environments is still found.
 
+## Secrets created by operators
+
+Some Secrets are created inside the cluster by an operator, not synced from a secret manager: the
+`<cluster>-app` Secret of a CloudNativePG cluster, the Secret of a Strimzi `KafkaUser`. Reference them by
+name, in `env` (one key) or `envFrom` (the whole Secret), instead of copying them through
+`externalSecret`. The values never appear in your values file, and rotating the Secret restarts a
+Deployment's pods through Reloader (a CronJob run or a Job hook reads the current Secret when it starts).
+See the
+[README recipe](https://github.com/jellalshadows/chart-base/blob/main/README.md#operator-created-secrets-and-pod-metadata-cloudnativepg-strimzi-opentelemetry)
+and [ADR-0031](../adr/0031-existing-secrets-referenced-by-name.md). A reference to an object that does
+not exist is not caught at render time: the pod stays in `CreateContainerConfigError`. A Deployment
+rollout then fails within `progressDeadlineSeconds`. A CronJob is different: `helm --wait` does not wait
+for its runs, the stuck run's Job stays active (`job.activeDeadlineSeconds` defaults to `null`) and, with
+the default `concurrencyPolicy: Forbid`, later runs are skipped. Set `job.activeDeadlineSeconds` on
+CronJobs that reference external objects. A Job hook makes Helm wait until `--timeout`.
+
 ## Upgrading chart-base
 
 Read [`CHANGELOG.md`](../../CHANGELOG.md) for every version between the current one and the target,
-which release-please writes from the conventional commits.
+which release-please writes from the conventional commits, and the [upgrade guide](../upgrading.md)
+for what to change in your values after each breaking release.
 
 - Before 1.0, a breaking change is marked `feat!:` and bumps the **minor** version, and a `feat:`
   also bumps the minor. So a `0.x` minor bump can break your values: read it before you bump.

@@ -55,6 +55,10 @@ worker:
   resources: {requests: {cpu: 10m, memory: 32Mi}}
   service: {enabled: false}
   ports: []
+  env:                  # references and existing objects work under an alias
+    POD_NAME: {valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+  envFrom:
+    - configMapRef: {name: platform-endpoints, optional: true}
 nightly-cleanup:        # hyphenated alias: values key, condition path and resource names
   enabled: true
   workload: {type: cronjob}
@@ -81,6 +85,13 @@ pass "resources are named <release>-<alias>"
 
 echo "$names" | grep -qx "Service/vending-worker" && fail "worker must not have a Service"
 pass "worker (service.enabled=false) renders no Service"
+
+worker_container='select(.kind == "Deployment" and .metadata.name == "vending-worker") | .spec.template.spec.containers[0]'
+[ "$(echo "$rendered" | yq -N "$worker_container | .env[0].name" -)" = "POD_NAME" ] || fail "worker must render the env reference"
+[ "$(echo "$rendered" | yq -N "$worker_container | .envFrom[0].configMapRef.name" -)" = "platform-endpoints" ] || fail "worker must render the envFrom ConfigMap"
+[ "$(echo "$rendered" | yq -N 'select(.kind == "Deployment" and .metadata.name == "vending-worker") | .metadata.annotations["configmap.reloader.stakater.com/reload"]' -)" = "platform-endpoints" ] || fail "worker must list the referenced ConfigMap for Reloader"
+echo "$rendered" | yq -N 'select(.kind == "Deployment" and .metadata.name == "vending-api") | .metadata.annotations' - | grep -q reloader && fail "api references nothing and must have no Reloader annotation"
+pass "env/envFrom work under an alias and stay inside it (Reloader lists only the worker's ConfigMap)"
 
 chart_label="$(echo "$rendered" | yq -N 'select(.kind == "Deployment" and .metadata.name == "vending-api") | .metadata.labels["helm.sh/chart"]' -)"
 [[ "$chart_label" == chart-base-* ]] || fail "helm.sh/chart must be chart-base-<version>, got '$chart_label'"

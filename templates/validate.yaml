@@ -27,3 +27,15 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if and (eq .Values.workload.type "deployment") (ge (int .Values.preStopSleepSeconds) (int .Values.terminationGracePeriodSeconds)) (gt (int .Values.preStopSleepSeconds) 0) -}}
 {{- include "chart-base.fail" (list . "preStopSleepSeconds must be lower than terminationGracePeriodSeconds") -}}
 {{- end -}}
+
+{{- if kindIs "slice" .Values.env -}}
+{{- include "chart-base.fail" (list . "env is a map of NAME: {valueFrom: ...}, not a Kubernetes env list: literal values belong in config, references in env as a map") -}}
+{{- end -}}
+{{- range $name, $ref := .Values.env -}}
+{{- if not (kindIs "map" $ref) -}}
+{{- include "chart-base.fail" (list $ (printf "env.%s is a literal value: literal values belong in config; env only takes valueFrom references" $name)) -}}
+{{- end -}}
+{{- if or (hasKey (default dict $.Values.config) $name) (hasKey (default dict $.Values.externalSecret.data) $name) -}}
+{{- include "chart-base.fail" (list $ (printf "env.%s duplicates a key of config or externalSecret.data: literal values belong in config, secrets in externalSecret, references in env" $name)) -}}
+{{- end -}}
+{{- end -}}

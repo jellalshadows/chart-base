@@ -1,6 +1,6 @@
 # ADR-0006: Checksums for config, Reloader for Secrets
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0033](0033-component-level-reload-on-change.md) (0.2.0)
 - **Date:** 2026-09-27
 - **Since:** 0.1.0
 

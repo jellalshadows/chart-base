@@ -110,3 +110,54 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: rejects a literal value in env with a pointer to config
+    set:
+      env.FOO: bar
+    asserts:
+      - failedTemplate:
+          errorPattern: "env.FOO is a literal value: literal values belong in config"
+
+  - it: rejects an env key that duplicates a config key
+    set:
+      config.APP_MODE: api
+      env.APP_MODE.valueFrom.fieldRef.fieldPath: metadata.name
+    asserts:
+      - failedTemplate:
+          errorPattern: "env.APP_MODE duplicates a key of config or externalSecret.data"
+
+  - it: rejects an env key that duplicates an externalSecret.data key
+    set:
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: gcp-sm
+      externalSecret.data.DB_PASSWORD.key: sales-db-password
+      env.DB_PASSWORD.valueFrom.secretKeyRef.name: db-app
+      env.DB_PASSWORD.valueFrom.secretKeyRef.key: password
+    asserts:
+      - failedTemplate:
+          errorPattern: "env.DB_PASSWORD duplicates a key of config or externalSecret.data"
+
+  - it: does not crash on env when config is null (null deletes the default map)
+    set:
+      config: null
+      env.POD_NAME.valueFrom.fieldRef.fieldPath: metadata.name
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: does not crash on env when externalSecret.data is null
+    set:
+      externalSecret.data: null
+      env.POD_NAME.valueFrom.fieldRef.fieldPath: metadata.name
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a Kubernetes-style env list with a pointer to config
+    set:
+      env:
+        - name: FOO
+          value: bar
+    asserts:
+      - failedTemplate:
+          errorPattern: 'env is a map of NAME: \{valueFrom: \.\.\.\}, not a Kubernetes env list: literal values belong in config, references in env as a map'

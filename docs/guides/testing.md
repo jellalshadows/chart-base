@@ -43,9 +43,10 @@ A single required check, `ci-ok`, depends on all the jobs. chart-testing (`ct`) 
 **Where it lives.**
 
 - Suites in `tests/*_test.yaml`, roughly one per area (`deployment`, `cronjob`, `job`, `configmap`,
-  `externalsecret`, `exposure`, `scaling`, `service`, `serviceaccount`, `hooks`, `validate`, `schema`,
+  `env` (references, `envFrom`, Reloader annotations), `externalsecret`, `exposure`, `scaling`, `service`, `serviceaccount`, `hooks`, `validate`, `schema`,
   `snapshot`). Each suite names the templates it renders.
-- Shared values in `tests/values/`: `base.yaml` (the minimum valid values every suite starts from) and
+- Shared values in `tests/values/`: `base.yaml` (the minimum valid values every suite starts from),
+  `env-refs.yaml` (one reference of every kind plus `envFrom` sources, for the `env` suite) and
   `large-numbers.yaml` (numbers, loaded as a values file on purpose, see the
   [pitfalls](development.md#pitfalls)).
 - Snapshots in `tests/__snapshot__/`, from `tests/snapshot_test.yaml`: one per `ci/` scenario. A
@@ -172,6 +173,8 @@ The prerequisites the script installs:
 3. A namespace `vending` labelled `pod-security.kubernetes.io/enforce=restricted`. Every pod of every
    scenario must therefore satisfy Pod Security `restricted`, which validates the secure defaults
    ([ADR-0013](../adr/0013-secure-by-default.md)).
+4. A Secret `e2e-shared` (key `TOKEN`) in that namespace, created by hand like the ones an operator
+   would create. The `cronjob` and `full` scenarios reference it by name.
 
 The image is the Kubernetes end-to-end test image `registry.k8s.io/e2e-test-images/agnhost:2.66.1`
 (see `ci/*-values.yaml`). It runs as a non-root arbitrary UID with a read-only filesystem, serves HTTP on
@@ -185,9 +188,9 @@ Each scenario is installed with `helm upgrade --install ... --wait --timeout 5m`
 |---|---|
 | `deployment` | The Deployment becomes Ready in the restricted namespace. A second upgrade with `--set config.APP_MODE=api-v2` creates a new ReplicaSet: a config change rolls the pods (the checksum annotation). |
 | `worker` | The worker becomes Ready and there is no Service named for it. |
-| `cronjob` | A Job created manually from the CronJob (`kubectl create job --from=cronjob/...`) completes within 180 seconds: a restricted pod that reads its config from the ConfigMap. |
+| `cronjob` | A Job created manually from the CronJob (`kubectl create job --from=cronjob/...`) completes within 180 seconds: a restricted pod that reads its config from the ConfigMap, its `env` references (`fieldRef`, `resourceFieldRef`) and the `e2e-shared` Secret injected with `envFrom` and a prefix. |
 | `job` | The `pre-deploy` hook Job succeeds and its log contains `migrations-ok`: it saw `APP_MODE`, `DB_PASSWORD` (from the ExternalSecret) and `/config/migrations.yaml`, all created as hooks before it ran. A second deploy with `--set-string podAnnotations.revision=2` succeeds, so the Job hook is recreated instead of hitting `field is immutable` ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)). |
-| `full` | The ExternalSecret becomes Ready, the Secret it creates holds the value `s3cr3t` from the fake provider, the API server accepts the HTTPRoute, and the HPA, PDB and Ingress are created. |
+| `full` | The ExternalSecret becomes Ready, the Secret it creates holds the value `s3cr3t` from the fake provider, the API server accepts the HTTPRoute, the Deployment's `secret.reloader.stakater.com/reload` annotation is exactly `e2e-shared,full-chart-base-secrets`, and the HPA, PDB and Ingress are created. |
 
 On failure the script prints `kubectl get all,externalsecrets` for the namespace.
 
