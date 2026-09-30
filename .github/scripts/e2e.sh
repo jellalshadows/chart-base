@@ -1,20 +1,33 @@
 #!/usr/bin/env bash
 # Real install of every ci/ scenario on the current kube context (a kind cluster in CI):
 # namespace enforcing Pod Security "restricted", Gateway API CRDs, External Secrets Operator
-# with the fake provider. Usage: e2e.sh <chart-dir>
-# Env: GATEWAY_API_VERSION (e.g. v1.6.2), ESO_CHART_VERSION (e.g. 2.11.0)
+# with the fake provider, Prometheus Operator CRDs (no operator). Usage: e2e.sh <chart-dir>
+# Env: GATEWAY_API_VERSION (e.g. v1.6.2), ESO_CHART_VERSION (e.g. 2.11.0),
+#      PROMETHEUS_OPERATOR_VERSION (e.g. v0.94.1)
 set -euo pipefail
 
 chart_dir="${1:?usage: e2e.sh <chart-dir>}"
-: "${GATEWAY_API_VERSION:?}" "${ESO_CHART_VERSION:?}"
+: "${GATEWAY_API_VERSION:?}" "${ESO_CHART_VERSION:?}" "${PROMETHEUS_OPERATOR_VERSION:?}"
 ns=vending
 
-fail() { echo "FAIL: $*" >&2; kubectl get all,externalsecrets -n "$ns" >&2 || true; exit 1; }
+fail() {
+  echo "FAIL: $*" >&2
+  kubectl get all,externalsecrets,servicemonitors,podmonitors,prometheusrules -n "$ns" >&2 || true
+  exit 1
+}
 pass() { echo "ok - $*"; }
 
 echo "== platform prerequisites"
 kubectl apply --server-side \
   -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml"
+# Only the CRDs of the kinds chart-base renders, no operator: the API server validates each object
+# against its CRD schema, and nothing reconciles or scrapes them.
+po_crds="https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/${PROMETHEUS_OPERATOR_VERSION}/example/prometheus-operator-crd"
+for crd in servicemonitors podmonitors prometheusrules; do
+  kubectl apply --server-side -f "${po_crds}/monitoring.coreos.com_${crd}.yaml"
+done
+kubectl wait --for=condition=Established --timeout=60s crd/servicemonitors.monitoring.coreos.com \
+  crd/podmonitors.monitoring.coreos.com crd/prometheusrules.monitoring.coreos.com
 helm install external-secrets external-secrets --repo https://charts.external-secrets.io \
   --version "$ESO_CHART_VERSION" --namespace external-secrets --create-namespace --wait --timeout 5m
 kubectl apply -f - <<'EOF'
@@ -62,7 +75,10 @@ pass "a config change rolls the Deployment"
 echo "== worker"
 install worker || fail "worker scenario did not become ready"
 kubectl get service -n "$ns" worker-chart-base > /dev/null 2>&1 && fail "worker must not have a Service"
-pass "worker runs without a Service"
+pm="$(kubectl get podmonitor -n "$ns" worker-chart-base -o jsonpath='{.metadata.labels.release} {.spec.podMetricsEndpoints[0].port}' || true)"
+[ "$pm" = "e2e metrics" ] || fail "worker must have a PodMonitor labelled release=e2e that scrapes the container port 'metrics', got '$pm'"
+kubectl get servicemonitor -n "$ns" worker-chart-base > /dev/null 2>&1 && fail "worker has no Service: it must not have a ServiceMonitor"
+pass "worker runs without a Service; a PodMonitor scrapes its named container port"
 
 echo "== cronjob"
 install cronjob || fail "cronjob scenario failed"
@@ -95,7 +111,12 @@ pod="$(kubectl get pods -n "$ns" -l app.kubernetes.io/instance=full -o jsonpath=
 runtime="$(kubectl get pod -n "$ns" "$pod" -o jsonpath='{.spec.priorityClassName} {.spec.priority} {.spec.enableServiceLinks} {.spec.dnsConfig.options[0].name}={.spec.dnsConfig.options[0].value} {.spec.hostAliases[0].ip} {.spec.hostAliases[0].hostnames[0]}')"
 [ "$runtime" = "e2e-high 1000 false ndots=2 10.20.30.40 legacy-db.internal" ] \
   || fail "pod must carry priorityClassName (priority 1000), enableServiceLinks, dnsConfig and hostAliases, got '$runtime'"
+sm="$(kubectl get servicemonitor -n "$ns" full-chart-base -o jsonpath='{.metadata.labels.release} {.spec.endpoints[0].port} {.spec.endpoints[0].interval}' || true)"
+[ "$sm" = "e2e http 30s" ] || fail "full must have a ServiceMonitor labelled release=e2e that scrapes the Service port 'http' every 30s, got '$sm'"
+kubectl get podmonitor -n "$ns" full-chart-base > /dev/null 2>&1 && fail "full has a Service: it must not have a PodMonitor"
+rule="$(kubectl get prometheusrule -n "$ns" full-chart-base -o jsonpath='{.metadata.labels.release} {.spec.groups[0].rules[0].alert}' || true)"
+[ "$rule" = "e2e FullChartBaseDown" ] || fail "full must have a PrometheusRule labelled release=e2e with its alert, got '$rule'"
 kubectl get hpa,pdb,ingress -n "$ns" -l app.kubernetes.io/instance=full
-pass "full scenario: ExternalSecret synced, HTTPRoute/HPA/PDB/Ingress accepted, rollout and pod runtime knobs applied"
+pass "full scenario: ExternalSecret synced, HTTPRoute/HPA/PDB/Ingress/ServiceMonitor/PrometheusRule accepted, rollout and pod runtime knobs applied"
 
 echo "e2e: all checks passed"

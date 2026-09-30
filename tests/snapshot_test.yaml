@@ -10,8 +10,11 @@ templates:
   - templates/ingress.yaml
   - templates/job.yaml
   - templates/pdb.yaml
+  - templates/podmonitor.yaml
+  - templates/prometheusrule.yaml
   - templates/service.yaml
   - templates/serviceaccount.yaml
+  - templates/servicemonitor.yaml
 release:
   name: vending
   namespace: vending

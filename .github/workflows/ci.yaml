@@ -26,6 +26,8 @@ env:
   GATEWAY_API_VERSION: v1.6.2
   # renovate: datasource=helm depName=external-secrets registryUrl=https://charts.external-secrets.io
   ESO_CHART_VERSION: 2.11.0
+  # renovate: datasource=github-releases depName=prometheus-operator/prometheus-operator
+  PROMETHEUS_OPERATOR_VERSION: v0.94.1
 
 jobs:
   unittest:
@@ -114,7 +116,7 @@ jobs:
           version: ${{ matrix.kind }}
           node_image: ${{ matrix.node_image }}
           cluster_name: chart-base
-      - name: Install every scenario (PSS restricted, Gateway API, ESO fake provider)
+      - name: Install every scenario (PSS restricted, Gateway API, ESO fake provider, Prometheus Operator CRDs)
         run: .github/scripts/e2e.sh .
 
   docs:

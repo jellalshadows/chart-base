@@ -1,9 +1,13 @@
-# Worker: Deployment without Service (e.g. a Kafka consumer).
+# Worker: Deployment without Service (e.g. a Kafka consumer), scraped through a PodMonitor.
 image:
   repository: registry.k8s.io/e2e-test-images/agnhost
   tag: "2.66.1"
 args: ["pause"]
-ports: []
+# A named container port for the PodMonitor. Nothing listens on it: the e2e installs only the
+# Prometheus Operator CRDs, so nothing scrapes it either.
+ports:
+  - name: metrics
+    containerPort: 9090
 service:
   enabled: false
 resources:
@@ -16,3 +20,8 @@ lifecycle:
   postStart:
     exec:
       command: ["sh", "-c", "true"]
+metrics:
+  enabled: true
+  port: metrics
+  labels:
+    release: e2e

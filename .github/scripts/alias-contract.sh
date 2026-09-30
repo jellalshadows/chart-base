@@ -49,12 +49,14 @@ api:
   httpRoute:
     enabled: true
     parentRefs: [{name: platform-gw, namespace: gateway}]
+  metrics: {enabled: true}                  # a ServiceMonitor: api has a Service
 worker:
   enabled: true
   image: {repository: ghcr.io/acme/sales, tag: "1.0.0"}
   resources: {requests: {cpu: 10m, memory: 32Mi}}
   service: {enabled: false}
-  ports: []
+  ports: [{name: metrics, containerPort: 9090}]
+  metrics: {enabled: true, port: metrics}   # a PodMonitor: worker has no Service
   env:                  # references and existing objects work under an alias
     POD_NAME: {valueFrom: {fieldRef: {fieldPath: metadata.name}}}
   envFrom:
@@ -85,6 +87,14 @@ pass "resources are named <release>-<alias>"
 
 echo "$names" | grep -qx "Service/vending-worker" && fail "worker must not have a Service"
 pass "worker (service.enabled=false) renders no Service"
+
+monitor_selects() { # kind name -> the <name>/<instance> labels its selector matches
+  echo "$rendered" | yq -N "select(.kind == \"$1\" and .metadata.name == \"$2\") | .spec.selector.matchLabels | .[\"app.kubernetes.io/name\"] + \"/\" + .[\"app.kubernetes.io/instance\"]" -
+}
+[ "$(monitor_selects ServiceMonitor vending-api)" = "api/vending" ] || fail "api must get a ServiceMonitor that selects only its own Service"
+[ "$(monitor_selects PodMonitor vending-worker)" = "worker/vending" ] || fail "worker must get a PodMonitor that selects only its own pods"
+echo "$names" | grep -qxE "PodMonitor/vending-api|ServiceMonitor/vending-worker" && fail "one monitor kind per component: a ServiceMonitor with a Service, a PodMonitor without"
+pass "metrics under an alias: a ServiceMonitor for api and a PodMonitor for worker, each selecting only its own component"
 
 worker_container='select(.kind == "Deployment" and .metadata.name == "vending-worker") | .spec.template.spec.containers[0]'
 [ "$(echo "$rendered" | yq -N "$worker_container | .env[0].name" -)" = "POD_NAME" ] || fail "worker must render the env reference"
