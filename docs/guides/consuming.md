@@ -180,7 +180,10 @@ What fails **before the cluster is touched**, at `helm template`, `helm lint` an
   that does not apply to the workload type. The error names the alias.
 - A guard that spans several keys or names, for example a name that is not a DNS-1035 label, a name longer than 63
   characters (52 for a CronJob), a Kubernetes version below 1.33, `autoscaling.minReplicas` greater
-  than `maxReplicas`.
+  than `maxReplicas`, a rollout that Kubernetes would reject (`maxSurge` and `maxUnavailable` both 0, a
+  `maxUnavailable` above 100%, `minReadySeconds` not lower than `progressDeadlineSeconds`), a custom
+  `lifecycle.preStop` next to the built-in preStop sleep, a lifecycle `sleep` longer than
+  `terminationGracePeriodSeconds`.
 
 What fails **at install or upgrade**, when Helm talks to the cluster (rendering does not need the CRD,
 so `helm template` and `helm lint` do not catch it):
@@ -208,6 +211,9 @@ What fails **at rollout**, in the cluster:
   ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)).
 - A slow component that legitimately needs more than 240 seconds must raise
   `progressDeadlineSeconds` under its alias.
+- A `priorityClassName` or `runtimeClassName` that names no existing class: the Priority or the
+  RuntimeClass admission plugin (both on by default) rejects the pods, so the rollout fails after
+  `progressDeadlineSeconds` ([ADR-0036](../adr/0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md)).
 
 ## Recommendations for umbrella authors
 
@@ -258,7 +264,9 @@ for what to change in your values after each breaking release.
 - Bumping chart-base never restarts pods by itself: `helm.sh/chart` is not a pod label and the config
   checksums hash only the ConfigMaps' data
   ([ADR-0010](../adr/0010-chart-version-never-restarts-pods.md)). Pods restart only when their own
-  content changes.
+  content changes. A breaking release that changes the rendered pod template on purpose restarts them once
+  and says so in the upgrade guide: upgrading to 0.3.0 does, because it turns service links off
+  ([ADR-0035](../adr/0035-service-links-off-by-default.md)).
 - The pod selector labels are frozen from 1.0.0 on.
 
 ## Verifying what you deploy

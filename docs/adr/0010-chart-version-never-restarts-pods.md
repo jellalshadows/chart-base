@@ -1,6 +1,6 @@
 # ADR-0010: Bumping chart-base never restarts pods by itself
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0035](0035-service-links-off-by-default.md) (0.3.0)
 - **Date:** 2026-09-27
 - **Since:** 0.1.0
 
