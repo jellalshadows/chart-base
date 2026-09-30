@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/jellalshadows/chart-base/compare/v0.3.0...v0.4.0) (2026-09-30)
+
+
+### Features
+
+* Prometheus monitoring (ServiceMonitor, PodMonitor, PrometheusRule) ([#10](https://github.com/jellalshadows/chart-base/issues/10)) ([72ddbc9](https://github.com/jellalshadows/chart-base/commit/72ddbc90929dd56da32ac4d72351467e09083422))
+
 ## [0.3.0](https://github.com/jellalshadows/chart-base/compare/v0.2.0...v0.3.0) (2026-09-30)
 
 
