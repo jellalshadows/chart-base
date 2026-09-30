@@ -36,6 +36,17 @@ kubectl label namespace "$ns" \
   pod-security.kubernetes.io/enforce=restricted pod-security.kubernetes.io/enforce-version=latest
 # An existing Secret that components reference by name (like the ones CNPG or Strimzi create).
 kubectl create secret generic e2e-shared -n "$ns" --from-literal=TOKEN=abc
+# The PriorityClass the full scenario's priorityClassName points to.
+kubectl apply -f - <<'EOF'
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: e2e-high
+value: 1000
+globalDefault: false
+preemptionPolicy: Never
+description: chart-base e2e (full scenario)
+EOF
 
 install() { helm upgrade --install "$1" "$chart_dir" -n "$ns" -f "$chart_dir/ci/$1-values.yaml" --wait --timeout 5m "${@:2}"; }
 
@@ -55,10 +66,12 @@ pass "worker runs without a Service"
 
 echo "== cronjob"
 install cronjob || fail "cronjob scenario failed"
+svc_ip="$(kubectl get service -n "$ns" deployment-chart-base -o jsonpath='{.spec.clusterIP}')"
+case "$svc_ip" in ""|None) fail "the service-links check needs the deployment scenario's ClusterIP Service";; esac
 kubectl create job -n "$ns" --from=cronjob/cronjob-chart-base cronjob-manual-run
 kubectl wait -n "$ns" job/cronjob-manual-run --for=condition=Complete --timeout=180s \
-  || fail "a CronJob run must complete (restricted pod, config, env references, envFrom with prefix)"
-pass "a CronJob run sees config, env references (fieldRef, resourceFieldRef) and envFrom with prefix"
+  || fail "a CronJob run must complete (restricted pod, config, env references, envFrom with prefix, no service links)"
+pass "a CronJob run sees config, env references (fieldRef, resourceFieldRef), envFrom with prefix and no service links"
 
 echo "== job (pre-deploy hook)"
 install job || fail "job hook failed: it must see APP_MODE, DB_PASSWORD (ESO) and /config/migrations.yaml"
@@ -76,7 +89,13 @@ kubectl wait -n "$ns" externalsecret/full-chart-base-secrets --for=condition=Rea
 kubectl get httproute -n "$ns" full-chart-base > /dev/null || fail "HTTPRoute not accepted by the API"
 reload="$(kubectl get deployment -n "$ns" full-chart-base -o jsonpath='{.metadata.annotations.secret\.reloader\.stakater\.com/reload}')"
 [ "$reload" = "e2e-shared,full-chart-base-secrets" ] || fail "Reloader annotation must list the referenced Secrets, got '$reload'"
+rollout="$(kubectl get deployment -n "$ns" full-chart-base -o jsonpath='{.spec.strategy.type} {.spec.strategy.rollingUpdate.maxSurge} {.spec.strategy.rollingUpdate.maxUnavailable} {.spec.minReadySeconds} {.spec.revisionHistoryLimit}')"
+[ "$rollout" = "RollingUpdate 1 0 5 5" ] || fail "Deployment must carry strategy, minReadySeconds and revisionHistoryLimit, got '$rollout'"
+pod="$(kubectl get pods -n "$ns" -l app.kubernetes.io/instance=full -o jsonpath='{.items[0].metadata.name}')"
+runtime="$(kubectl get pod -n "$ns" "$pod" -o jsonpath='{.spec.priorityClassName} {.spec.priority} {.spec.enableServiceLinks} {.spec.dnsConfig.options[0].name}={.spec.dnsConfig.options[0].value} {.spec.hostAliases[0].ip} {.spec.hostAliases[0].hostnames[0]}')"
+[ "$runtime" = "e2e-high 1000 false ndots=2 10.20.30.40 legacy-db.internal" ] \
+  || fail "pod must carry priorityClassName (priority 1000), enableServiceLinks, dnsConfig and hostAliases, got '$runtime'"
 kubectl get hpa,pdb,ingress -n "$ns" -l app.kubernetes.io/instance=full
-pass "full scenario: ExternalSecret synced, HTTPRoute/HPA/PDB/Ingress accepted"
+pass "full scenario: ExternalSecret synced, HTTPRoute/HPA/PDB/Ingress accepted, rollout and pod runtime knobs applied"
 
 echo "e2e: all checks passed"

@@ -63,6 +63,22 @@ autoscaling:
   minReplicas: 2
   maxReplicas: 4
   targetMemoryUtilizationPercentage: 80
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+minReadySeconds: 5
+revisionHistoryLimit: 5
+priorityClassName: e2e-high
+dnsConfig:
+  options:
+    - name: ndots
+      value: "2"
+hostAliases:
+  - ip: 10.20.30.40
+    hostnames:
+      - legacy-db.internal
 httpRoute:
   enabled: true
   parentRefs:

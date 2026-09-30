@@ -6,6 +6,9 @@ image:
   tag: "2.66.1"
 # The run checks config (ConfigMap), env references (fieldRef, resourceFieldRef) and an
 # existing Secret injected with envFrom + prefix (the e2e creates Secret e2e-shared, TOKEN=abc).
+# It also checks that service links are off: the e2e installs the deployment scenario (Service
+# deployment-chart-base) before this one; only the variables of the `kubernetes` Service
+# (KUBERNETES_SERVICE_HOST/_PORT) may be injected.
 command:
   - sh
   - -c
@@ -14,6 +17,8 @@ command:
     test -n "$POD_NAME" &&
     test "$MEMORY_MB" = 64 &&
     test "$SHARED_TOKEN" = abc &&
+    test -n "$KUBERNETES_SERVICE_HOST" &&
+    test -z "$DEPLOYMENT_CHART_BASE_SERVICE_HOST" &&
     echo ok
 ports: []
 resources:

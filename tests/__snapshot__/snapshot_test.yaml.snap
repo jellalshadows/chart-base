@@ -54,7 +54,7 @@ cronjob scenario:
                 - command:
                     - sh
                     - -c
-                    - test "$APP_MODE" = cleanup && test -n "$POD_NAME" && test "$MEMORY_MB" = 64 && test "$SHARED_TOKEN" = abc && echo ok
+                    - test "$APP_MODE" = cleanup && test -n "$POD_NAME" && test "$MEMORY_MB" = 64 && test "$SHARED_TOKEN" = abc && test -n "$KUBERNETES_SERVICE_HOST" && test -z "$DEPLOYMENT_CHART_BASE_SERVICE_HOST" && echo ok
                   env:
                     - name: MEMORY_MB
                       valueFrom:
@@ -361,11 +361,18 @@ full scenario:
         helm.sh/chart: chart-base-0.0.0-test
       name: vending-chart-base
     spec:
+      minReadySeconds: 5
       progressDeadlineSeconds: 240
+      revisionHistoryLimit: 5
       selector:
         matchLabels:
           app.kubernetes.io/instance: vending
           app.kubernetes.io/name: chart-base
+      strategy:
+        rollingUpdate:
+          maxSurge: 1
+          maxUnavailable: 0
+        type: RollingUpdate
       template:
         metadata:
           annotations:
@@ -440,7 +447,16 @@ full scenario:
                 - mountPath: /config
                   name: config-files
                   readOnly: true
+          dnsConfig:
+            options:
+              - name: ndots
+                value: "2"
           enableServiceLinks: false
+          hostAliases:
+            - hostnames:
+                - legacy-db.internal
+              ip: 10.20.30.40
+          priorityClassName: e2e-high
           securityContext:
             fsGroup: 65532
             fsGroupChangePolicy: OnRootMismatch
