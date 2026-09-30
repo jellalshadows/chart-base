@@ -87,7 +87,8 @@ Everything at the top level of the repository, and why it is there:
 
 The object templates are one file per kind (`deployment.yaml`, `cronjob.yaml`, `job.yaml`,
 `service.yaml`, `serviceaccount.yaml`, `configmap-env.yaml`, `configmap-files.yaml`,
-`externalsecret.yaml`, `httproute.yaml`, `ingress.yaml`, `hpa.yaml`, `pdb.yaml`). The helpers are split by
+`externalsecret.yaml`, `httproute.yaml`, `ingress.yaml`, `hpa.yaml`, `pdb.yaml`, `servicemonitor.yaml`,
+`podmonitor.yaml`, `prometheusrule.yaml`). The helpers are split by
 responsibility so that each one can be developed and tested on its own:
 
 | File | Responsibility |
@@ -97,6 +98,7 @@ responsibility so that each one can be developed and tested on its own:
 | `_pod.tpl` | The image reference, the ServiceAccount name and the pod spec shared by Deployment, CronJob and Job. |
 | `_reloader.tpl` | The Reloader annotations for objects that change outside the deploy: the ExternalSecret's Secret and every Secret or ConfigMap referenced in `env` or `envFrom` ([ADR-0033](../adr/0033-component-level-reload-on-change.md)). |
 | `_service.tpl` | The port a Service exposes for a `ports` entry. |
+| `_metrics.tpl` | The single scrape endpoint of the ServiceMonitor and the PodMonitor ([ADR-0038](../adr/0038-one-metrics-endpoint-servicemonitor-or-podmonitor.md)). |
 | `_hooks.tpl` | The Helm hook annotations of `workload.type: job` and of its support resources ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)). |
 
 `templates/validate.yaml` renders nothing. It holds the guards, `fail` calls for the rules the schema

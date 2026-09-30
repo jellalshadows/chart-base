@@ -175,6 +175,51 @@ gives 1 and 0 below 4 replicas, but from 4 replicas on it lets pods go first, fo
 scales up: pinning the values keeps the guarantee. `maxSurge` and `maxUnavailable` both 0 fail at render
 time, and so does a `minReadySeconds` that is not lower than `progressDeadlineSeconds`.
 
+### Prometheus monitoring (kube-prometheus-stack)
+
+```yaml
+payments:
+  image: {repository: ghcr.io/acme/payments, tag: "2.3.0"}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+  ports:
+    - name: http
+      containerPort: 8080
+    - name: metrics                         # the metrics on their own port
+      containerPort: 9090
+  metrics:
+    enabled: true                           # a ServiceMonitor: the component has a Service
+    port: metrics                           # the NAME of an entry in ports
+    interval: 30s
+    labels:
+      release: kube-prometheus-stack        # the release name of YOUR kube-prometheus-stack
+  prometheusRule:
+    enabled: true
+    labels:
+      release: kube-prometheus-stack
+    groups:
+      - name: payments
+        rules:
+          - alert: PaymentsTargetDown
+            expr: up{job="vending-payments"} == 0   # job = the Service name
+            for: 5m
+            labels: {severity: critical}
+            annotations:
+              summary: A payments target has failed its scrapes for 5 minutes
+```
+
+`metrics` renders a ServiceMonitor that scrapes the Service port named `metrics`; a worker without a Service
+gets a PodMonitor on its container port of that name instead, so a worker must declare the port in `ports`
+too (the render fails otherwise). **kube-prometheus-stack only selects labelled objects:** with its default
+values (checked on chart version 91.8.2: `prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues`,
+`podMonitorSelectorNilUsesHelmValues` and `ruleSelectorNilUsesHelmValues` are `true`), its Prometheus selects
+only the ServiceMonitors, PodMonitors and PrometheusRules labelled `release: <its release name>`, in every
+namespace. An object without the label is created and silently ignored. Set the label as above, or set those
+three keys to `false` in kube-prometheus-stack so that it selects every object. The Prometheus Operator CRDs
+must be installed, or the release fails (decision 12). `metrics` is for Deployments; `prometheusRule` works on
+every workload type, for example to alert on a CronJob's failed runs with kube-state-metrics. The chart checks
+the structure of the rules, not the PromQL.
+
 ### Worker (e.g. a Kafka consumer)
 
 ```yaml
@@ -272,6 +317,12 @@ sales-migrations:
 | job.phase | string | `"pre-deploy"` | Helm hook phase for `workload.type: job`: `pre-deploy` (pre-install,pre-upgrade) or `post-deploy` (post-install,post-upgrade). |
 | job.ttlSecondsAfterFinished | int | `3600` | Seconds a finished Job (workload.type job) is kept for logs before deletion. CronJob runs are retained by the cronjob history limits instead. |
 | lifecycle | object | `{}` | Container lifecycle hooks `postStart` and `preStop`, each with exactly one of `exec`, `httpGet` or `sleep` (Kubernetes does not support `tcpSocket` here), e.g. `{preStop: {exec: {command: ["/app/drain"]}}}`. On Deployments, `lifecycle.preStop` replaces the built-in preStop sleep and requires `preStopSleepSeconds: 0`. |
+| metrics.enabled | bool | `false` | Render a Prometheus Operator monitor (`monitoring.coreos.com/v1`): a ServiceMonitor that scrapes the component's Service or, for a worker without a Service, a PodMonitor that scrapes its pods. Deployments only. The CRDs must be installed: without them the release fails. |
+| metrics.interval | string | `nil` | Scrape interval, a Prometheus duration such as `30s` or `1m30s`. `null` = Prometheus' global scrape interval. |
+| metrics.labels | object | `{}` | Extra labels on the monitor, e.g. `{release: kube-prometheus-stack}`: with its default values, kube-prometheus-stack's Prometheus only selects monitors labelled `release: <its release name>`. The keys the chart sets itself (`app.kubernetes.io/name`, `instance`, `part-of`, `component`, `version`, `managed-by`, `helm.sh/chart`) are rejected. |
+| metrics.path | string | `"/metrics"` | HTTP path of the metrics endpoint. |
+| metrics.port | string | `"http"` | Name of the entry of `ports` that serves the metrics: the Service port of that name (ServiceMonitor) or the container port (PodMonitor). A worker must declare it in `ports` too. |
+| metrics.scrapeTimeout | string | `nil` | Scrape timeout, e.g. `10s`. `null` = Prometheus' default. It must not be greater than the interval: the Prometheus Operator rejects such a monitor, and the chart cannot compare durations. |
 | minReadySeconds | int | `nil` | Seconds a new pod must be Ready, without any container crashing, before it counts as available (`spec.minReadySeconds`). `null` = Kubernetes default (0). Must be lower than `progressDeadlineSeconds`. Deployments only. |
 | nodeSelector | object | `{}` | Node selector. |
 | pdb.enabled | bool | `true` | Render a PodDisruptionBudget (policy/v1). Deployments only. |
@@ -288,6 +339,9 @@ sales-migrations:
 | probes.readiness | object | `{}` | Readiness probe (Kubernetes probe object). Empty = not rendered. |
 | probes.startup | object | `{}` | Startup probe (Kubernetes probe object). Empty = not rendered. |
 | progressDeadlineSeconds | int | `240` | Seconds without rollout progress before the Deployment is marked Failed (lower than Helm's default 300s timeout). |
+| prometheusRule.enabled | bool | `false` | Render a Prometheus Operator PrometheusRule (`monitoring.coreos.com/v1`), on every workload type (e.g. alerts on a CronJob's runs from kube-state-metrics). The CRD must be installed: without it the release fails. |
+| prometheusRule.groups | list | `[]` | Rule groups, rendered verbatim as `spec.groups`: `[{name, interval, rules: [{alert or record, expr, for, keep_firing_for, labels, annotations}]}]`; durations must not be empty. The structure is validated; PromQL is not: the Prometheus Operator ignores a PrometheusRule whose rules do not parse (a Warning event says so). |
+| prometheusRule.labels | object | `{}` | Extra labels on the PrometheusRule, e.g. `{release: kube-prometheus-stack}`; the chart's own label keys are rejected (see `metrics.labels`). |
 | reloadOnChange | bool | `true` | Restart Deployments (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is updated: the ExternalSecret's Secret and every Secret/ConfigMap referenced in `env`/`envFrom`. The chart's own ConfigMaps roll pods through checksum annotations instead. |
 | replicas | int | `1` | Deployment replicas. Ignored when `autoscaling.enabled`. |
 | resources | object | `{}` | Required: `requests.cpu` and `requests.memory`. Container resources. |
@@ -401,7 +455,8 @@ code, official docs) and local renders.
     release-please. Plain Helm and kind instead. *Rejected:* `ct lint`/`ct install`.
     [ADR-0023](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0023-no-chart-testing.md)
 24. **Renovate.** It updates action SHAs and the tool versions declared as `*_VERSION` workflow env vars
-    (Helm, helm-unittest, kubeconform, helm-docs, actionlint, lychee, cosign, Gateway API, the ESO chart). The `helm lint`
+    (Helm, helm-unittest, kubeconform, helm-docs, actionlint, lychee, cosign, Gateway API, the ESO chart, the
+    Prometheus Operator CRDs). The `helm lint`
     matrix and the kind versions/node image digests are bumped by hand.
     *Rejected:* Dependabot (only `uses:` refs); doing it all by hand.
     [ADR-0024](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0024-renovate.md)
@@ -481,6 +536,22 @@ code, official docs) and local renders.
     `httpGet.host` (Pod Security Standards baseline, from v1.34, only allows it empty) are rejected. *Rejected:* the custom hook silently
     winning over the sleep.
     [ADR-0037](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0037-one-prestop-hook.md)
+38. **One metrics endpoint, through a ServiceMonitor or a PodMonitor.** `metrics.enabled` renders a
+    ServiceMonitor that scrapes the Service port named `metrics.port` or, for a worker without a Service, a
+    PodMonitor on the container port of that name; a guard fails when no entry of `ports` has that name.
+    Deployments only: a scrape may never catch a CronJob or Job pod. The monitor carries the chart's labels
+    plus `metrics.labels` (whose keys may not be the chart's own), with no default `release` label
+    (kube-prometheus-stack selects on its own release name). A `scrapeTimeout` greater than `interval` is not
+    checked (the operator rejects the monitor).
+    *Rejected:* a pass-through list of endpoints; one switch per kind; `.Capabilities` gating.
+    [ADR-0038](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0038-one-metrics-endpoint-servicemonitor-or-podmonitor.md)
+39. **Prometheus rules travel with the component.** `prometheusRule` renders a PrometheusRule on every
+    workload type (on a Job component a regular object, not a hook) with `groups` verbatim. The schema checks
+    the structure with the CRD's field names: a named group with rules, and per rule exactly one of `alert` and
+    `record`, a non-empty `expr` and non-empty durations with the CRD's pattern. PromQL is not checked: the operator
+    ignores a PrometheusRule that does not parse. *Rejected:* promtool in CI (a download of about 112 MB to
+    lint only the chart's own example rule); a pass-through without a schema.
+    [ADR-0039](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0039-prometheus-rules-travel-with-the-component.md)
 
 ## Versioning and releases
 
@@ -519,6 +590,9 @@ cosign verify ghcr.io/jellalshadows/charts/chart-base:X.Y.Z \
   so that Secret rotation and changes to referenced Secrets/ConfigMaps reach the pods.
 - **HTTPRoute** needs a Gateway whose listener allows routes from the application namespace
   (`allowedRoutes`); the default only allows the Gateway's own namespace.
+- **Prometheus monitoring** (`metrics`, `prometheusRule`) needs the Prometheus Operator CRDs, and
+  kube-prometheus-stack only selects objects labelled `release: <its release name>` by default: set it in
+  `metrics.labels` and `prometheusRule.labels`.
 - **Turning on `autoscaling` for a running component** removes `spec.replicas`: Kubernetes scales it to 1
   once, then the HPA scales it back up.
 - **Quote image tags** (`tag: "1.10"`): the schema only accepts strings, so an unquoted `1.10` fails

@@ -2,7 +2,26 @@
 
 Before 1.0, a breaking release bumps the minor version and its pull request title carries `!`
 (`feat!:`). This page lists, for every breaking release, what to change in your values. Releases
-that are not listed here need no change; the [changelog](../CHANGELOG.md) has every release.
+that are not listed here need no change to your values; the [changelog](../CHANGELOG.md) has every release.
+
+## Every upgrade: a direct install must not use `--reuse-values`
+
+A release that installs chart-base directly (not through an umbrella) and is upgraded with
+`helm upgrade --reuse-values` fails validation when the new version adds required keys, as 0.3.0 and 0.4.0
+do: Helm renders the new chart with the previous release's values, the old chart's defaults included,
+instead of the new chart's defaults, so the new keys are missing. An upgrade to 0.3.0 fails with
+`missing property 'enableServiceLinks'` and `'/cronjob': missing property 'suspend'`; an upgrade to 0.4.0
+with an error that contains:
+
+```text
+missing properties 'metrics', 'prometheusRule'
+```
+
+From 0.2.x straight to 0.4.0 the errors add up:
+`missing properties 'enableServiceLinks', 'metrics', 'prometheusRule'` and `'/cronjob': missing property 'suspend'`.
+Use `--reset-then-reuse-values` (available in Helm 3.22 and 4.3), which starts from the new chart's
+defaults and applies your previous values on top, or pass your values files again. Umbrellas are not
+affected.
 
 ## 0.1.x → 0.2.0
 
@@ -68,15 +87,6 @@ apply flag: it forces the change through conflicts with other field managers).
 **To keep a CronJob suspended, set `<alias>.cronjob.suspend: true` before upgrading.** Nothing changes for
 a CronJob that was never suspended (`false` is Kubernetes' default), and from 0.3.0 on a suspension
 belongs in the values, not only in the cluster.
-
-### Installing chart-base directly: do not upgrade with `--reuse-values`
-
-A release that installs chart-base directly (not through an umbrella) and is upgraded with
-`helm upgrade --reuse-values` fails validation (`missing property 'enableServiceLinks'`,
-`/cronjob: missing property 'suspend'`): Helm reuses the previous release's values instead of the new
-chart's defaults, so the keys added in 0.3.0 are missing. Use `--reset-then-reuse-values` (available in Helm 3.22 and 4.3) or pass your
-values files again.
-Umbrellas are not affected.
 
 ### New and optional: rollout and pod runtime knobs, `lifecycle`
 

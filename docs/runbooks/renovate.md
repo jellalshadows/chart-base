@@ -14,8 +14,9 @@
 - **Actions:** `config:best-practices` pins every `uses:` reference to a commit SHA with the version as a trailing comment (`# vX.Y.Z`), in `ci.yaml` and `release.yaml`.
 - **Tool versions:** the `*_VERSION` environment variables that have a `# renovate:` comment directly above them.
   In `ci.yaml`: `HELM_VERSION`, `HELM_UNITTEST_VERSION`, `KUBECONFORM_VERSION`, `HELM_DOCS_VERSION`,
-  `ACTIONLINT_VERSION`, `LYCHEE_VERSION`, `GATEWAY_API_VERSION` and `ESO_CHART_VERSION`
-  (the External Secrets Operator chart and the Gateway API CRDs used by the e2e). `release.yaml` tracks `HELM_VERSION` and `COSIGN_VERSION` (the cosign binary, installed by the `sigstore/cosign-installer` action, which Renovate pins like every other action).
+  `ACTIONLINT_VERSION`, `LYCHEE_VERSION`, `GATEWAY_API_VERSION`, `ESO_CHART_VERSION` and
+  `PROMETHEUS_OPERATOR_VERSION` (the External Secrets Operator chart, and the Gateway API and Prometheus
+  Operator CRDs used by the e2e). `release.yaml` tracks `HELM_VERSION` and `COSIGN_VERSION` (the cosign binary, installed by the `sigstore/cosign-installer` action, which Renovate pins like every other action).
   The `release-signing` job of `ci.yaml` reads `COSIGN_VERSION` from `release.yaml` (there is one place to bump), so a cosign bump is exercised by the CI of the Renovate pull request: it runs the signing steps against an already-signed release ([testing guide](../guides/testing.md#release-signing-checks)).
 - **Cadence:** one `ci tooling` group (`packageRules`, for the `github-actions` and `custom.regex` managers): one pull request, only for releases older than 7 days (`minimumReleaseAge`), scheduled `before 6am on monday`.
 
@@ -25,12 +26,12 @@ Nothing pings you about these; check them by hand from time to time.
 
 - The Helm 3 entry of the `lint` job matrix in `ci.yaml` (`helm: [v3.22.0, v4.3.0]`). Its **4.x entry must equal `HELM_VERSION`**: when a Renovate PR bumps `HELM_VERSION`, edit the matrix entry in that same PR.
 - The `kind` versions and the digest-pinned `node_image` values of the `e2e` matrix in `ci.yaml`.
-- The commit SHAs of the schema sources in `.github/scripts/validate-manifests.sh` (`k8s_schemas` and `crd_schemas`): they are raw URLs, which Renovate does not track.
+- The commit SHAs of the schema sources in `.github/scripts/validate-manifests.sh` (`k8s_schemas` and `crd_schemas`): they are raw URLs, which Renovate does not track. The CRD catalog also holds the Prometheus Operator schemas that kubeconform checks against: they do not follow `PROMETHEUS_OPERATOR_VERSION`.
 
 ## Reviewing a Renovate pull request
 
 1. Read the PR body: which tools and actions change, and the release notes linked from it.
-2. Wait for CI. **Every check must be green, including the `e2e` jobs on kind**; a green `lint` alone is not enough for a Helm or Gateway API bump.
+2. Wait for CI. **Every check must be green, including the `e2e` jobs on kind**; a green `lint` alone is not enough for a Helm, Gateway API or Prometheus Operator bump.
    ```bash
    gh pr checks <number> --repo jellalshadows/chart-base
    ```
@@ -59,7 +60,8 @@ The Kubernetes patch versions in `validate-manifests.sh` calls in the `lint` job
    LYCHEE_VERSION: v0.24.2
    ```
 3. Use the variable in the download URL, and keep verifying the checksum as the other tools do.
-4. Update [ADR-0024](../adr/0024-renovate.md) if the list of tracked variables changes. See the [Renovate documentation](https://docs.renovatebot.com/) for the `datasource` values.
+4. If the list of tracked variables changes, update [README decision 24](../../README.md#design-decisions) and the list
+   above. ADR-0024 is not rewritten: accepted ADRs are immutable ([ADR-0000](../adr/0000-record-architecture-decisions.md)). See the [Renovate documentation](https://docs.renovatebot.com/) for the `datasource` values.
 
 ## Verification
 
