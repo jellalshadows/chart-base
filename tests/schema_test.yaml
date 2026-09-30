@@ -360,3 +360,79 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "additional properties 'reloadOnChange' not allowed"
+
+  - it: requires strategy.type
+    set:
+      strategy.rollingUpdate.maxSurge: 1
+    asserts:
+      - failedTemplate:
+          errorPattern: "/strategy': missing property 'type'"
+
+  - it: rejects an unknown strategy.type
+    set:
+      strategy.type: BlueGreen
+    asserts:
+      - failedTemplate:
+          errorPattern: "/strategy/type': value must be one of 'RollingUpdate', 'Recreate'"
+
+  - it: rejects rollingUpdate with a Recreate strategy (Kubernetes rejects it)
+    set:
+      strategy.type: Recreate
+      strategy.rollingUpdate.maxSurge: 1
+    asserts:
+      - failedTemplate:
+          errorPattern: "/strategy': 'not' failed"
+
+  - it: rejects a maxSurge that is neither an integer nor a percentage
+    set:
+      strategy.type: RollingUpdate
+      strategy.rollingUpdate.maxSurge: "1.5"
+    asserts:
+      - failedTemplate:
+          errorPattern: "/strategy/rollingUpdate/maxSurge': '1.5' does not match pattern"
+
+  - it: rejects a negative maxUnavailable
+    set:
+      strategy.type: RollingUpdate
+      strategy.rollingUpdate.maxUnavailable: -1
+    asserts:
+      - failedTemplate:
+          errorPattern: "/strategy/rollingUpdate/maxUnavailable': minimum"
+
+  - it: rejects a negative minReadySeconds
+    set:
+      minReadySeconds: -1
+    asserts:
+      - failedTemplate:
+          errorPattern: "/minReadySeconds': minimum"
+
+  - it: rejects a negative revisionHistoryLimit
+    set:
+      revisionHistoryLimit: -1
+    asserts:
+      - failedTemplate:
+          errorPattern: "/revisionHistoryLimit': minimum"
+
+  - it: accepts a maxUnavailable of 100%
+    set:
+      strategy.type: RollingUpdate
+      strategy.rollingUpdate.maxUnavailable: 100%
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a maxUnavailable percentage above 100% (Kubernetes rejects it)
+    set:
+      strategy.type: RollingUpdate
+      strategy.rollingUpdate.maxUnavailable: 101%
+    asserts:
+      - failedTemplate:
+          errorPattern: "/strategy/rollingUpdate/maxUnavailable': '101%' does not match pattern"
+
+  - it: accepts a maxSurge above 100% (Kubernetes does not cap it)
+    set:
+      strategy.type: RollingUpdate
+      strategy.rollingUpdate.maxSurge: 150%
+    asserts:
+      - hasDocuments:
+          count: 0

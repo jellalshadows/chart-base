@@ -43,6 +43,11 @@
         "name": { "type": "string", "minLength": 1 },
         "optional": { "type": "boolean" }
       }
+    },
+    "intOrPercent": {
+      "type": ["integer", "string"],
+      "minimum": 0,
+      "pattern": "^[0-9]+%$"
     }
   },
   "properties": {
@@ -223,6 +228,33 @@
     },
     "replicas": { "type": "integer", "minimum": 0 },
     "progressDeadlineSeconds": { "type": "integer", "minimum": 1 },
+    "strategy": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["RollingUpdate", "Recreate"] },
+        "rollingUpdate": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxSurge": { "$ref": "#/definitions/intOrPercent" },
+            "maxUnavailable": {
+              "description": "Kubernetes rejects a percentage above 100% (maxSurge has no such cap).",
+              "allOf": [{ "$ref": "#/definitions/intOrPercent" }],
+              "pattern": "^0*([0-9]{1,2}|100)%$"
+            }
+          }
+        }
+      },
+      "not": {
+        "type": "object",
+        "required": ["type", "rollingUpdate"],
+        "properties": { "type": { "const": "Recreate" } }
+      }
+    },
+    "minReadySeconds": { "type": ["integer", "null"], "minimum": 0 },
+    "revisionHistoryLimit": { "type": ["integer", "null"], "minimum": 0 },
     "service": {
       "type": "object",
       "additionalProperties": false,

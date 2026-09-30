@@ -402,3 +402,66 @@ tests:
           value: dedicated
       - exists:
           path: spec.template.spec.affinity.podAntiAffinity
+
+  - it: leaves the rollout to Kubernetes' defaults (no strategy, minReadySeconds or revisionHistoryLimit)
+    template: templates/deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.strategy
+      - notExists:
+          path: spec.minReadySeconds
+      - notExists:
+          path: spec.revisionHistoryLimit
+
+  - it: renders a RollingUpdate strategy verbatim
+    template: templates/deployment.yaml
+    set:
+      strategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 25%
+          maxUnavailable: 0
+    asserts:
+      - equal:
+          path: spec.strategy
+          value:
+            type: RollingUpdate
+            rollingUpdate:
+              maxSurge: 25%
+              maxUnavailable: 0
+
+  - it: renders a Recreate strategy
+    template: templates/deployment.yaml
+    set:
+      strategy.type: Recreate
+    asserts:
+      - equal:
+          path: spec.strategy
+          value:
+            type: Recreate
+
+  - it: renders minReadySeconds and revisionHistoryLimit, including an explicit 0
+    template: templates/deployment.yaml
+    set:
+      minReadySeconds: 10
+      revisionHistoryLimit: 0
+    asserts:
+      - equal:
+          path: spec.minReadySeconds
+          value: 10
+      - equal:
+          path: spec.revisionHistoryLimit
+          value: 0
+
+  - it: renders large progressDeadlineSeconds and revisionHistoryLimit from a values file as integers
+    template: templates/deployment.yaml
+    values:
+      - values/base.yaml
+      - values/large-numbers.yaml
+    asserts:
+      - equal:
+          path: spec.progressDeadlineSeconds
+          value: 2000000
+      - equal:
+          path: spec.revisionHistoryLimit
+          value: 1000000

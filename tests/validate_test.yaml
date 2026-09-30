@@ -161,3 +161,56 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: 'env is a map of NAME: \{valueFrom: \.\.\.\}, not a Kubernetes env list: literal values belong in config, references in env as a map'
+
+  - it: rejects maxSurge and maxUnavailable both 0 (Kubernetes rejects it)
+    set:
+      strategy.type: RollingUpdate
+      strategy.rollingUpdate.maxSurge: 0
+      strategy.rollingUpdate.maxUnavailable: 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "strategy.rollingUpdate.maxSurge and maxUnavailable cannot both be 0"
+
+  - it: counts 0% as 0 in the maxSurge and maxUnavailable check
+    set:
+      strategy.type: RollingUpdate
+      strategy.rollingUpdate.maxSurge: 0%
+      strategy.rollingUpdate.maxUnavailable: 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "strategy.rollingUpdate.maxSurge and maxUnavailable cannot both be 0"
+
+  - it: accepts a percentage maxSurge with maxUnavailable 0
+    set:
+      strategy.type: RollingUpdate
+      strategy.rollingUpdate.maxSurge: 25%
+      strategy.rollingUpdate.maxUnavailable: 0
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects minReadySeconds >= progressDeadlineSeconds (Kubernetes rejects it)
+    set:
+      minReadySeconds: 240
+    asserts:
+      - failedTemplate:
+          errorPattern: "minReadySeconds must be lower than progressDeadlineSeconds"
+
+  - it: accepts minReadySeconds just below progressDeadlineSeconds
+    set:
+      minReadySeconds: 239
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: skips the rollout checks for workloads that are not Deployments (the keys are ignored there)
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      minReadySeconds: 240
+      strategy.type: RollingUpdate
+      strategy.rollingUpdate.maxSurge: 0
+      strategy.rollingUpdate.maxUnavailable: 0
+    asserts:
+      - hasDocuments:
+          count: 0

@@ -80,6 +80,17 @@ replicas: 1
 # -- Seconds without rollout progress before the Deployment is marked Failed (lower than Helm's default 300s timeout).
 progressDeadlineSeconds: 240
 
+# -- (object) Deployment update strategy (`spec.strategy`): `{type: RollingUpdate, rollingUpdate: {maxSurge, maxUnavailable}}`
+# or `{type: Recreate}`. `null` = Kubernetes default (`RollingUpdate`, 25% surge, 25% unavailable). Deployments only.
+strategy: null
+
+# -- (int) Seconds a new pod must be Ready, without any container crashing, before it counts as available
+# (`spec.minReadySeconds`). `null` = Kubernetes default (0). Must be lower than `progressDeadlineSeconds`. Deployments only.
+minReadySeconds: null
+
+# -- (int) Old ReplicaSets kept for `kubectl rollout undo` (`spec.revisionHistoryLimit`). `null` = Kubernetes default (10). Deployments only.
+revisionHistoryLimit: null
+
 service:
   # -- Render a Service (deployments only). Set `false` for workers.
   enabled: true

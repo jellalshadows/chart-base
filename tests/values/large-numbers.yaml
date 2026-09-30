@@ -7,3 +7,5 @@ config:
 job:
   ttlSecondsAfterFinished: 1209600
   activeDeadlineSeconds: 1000000
+progressDeadlineSeconds: 2000000
+revisionHistoryLimit: 1000000

@@ -14,7 +14,17 @@ spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicas }}
   {{- end }}
-  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds | int64 }}
+  {{- if not (kindIs "invalid" .Values.minReadySeconds) }}
+  minReadySeconds: {{ .Values.minReadySeconds | int64 }}
+  {{- end }}
+  {{- if not (kindIs "invalid" .Values.revisionHistoryLimit) }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit | int64 }}
+  {{- end }}
+  {{- with .Values.strategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "chart-base.selectorLabels" . | nindent 6 }}
