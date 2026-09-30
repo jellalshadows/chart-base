@@ -1,0 +1,18 @@
+{{- /*
+Every workload type. Never a hook, not even on a job component: the Job's support resources are hooks
+deleted once the hook succeeds (templates/_hooks.tpl), and the rules must stay.
+*/}}
+{{- if .Values.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "chart-base.fullname" . }}
+  labels:
+    {{- include "chart-base.labels" . | nindent 4 }}
+    {{- with .Values.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    {{- toYaml .Values.prometheusRule.groups | nindent 4 }}
+{{- end }}

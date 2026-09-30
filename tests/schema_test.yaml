@@ -676,3 +676,139 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "invalid propertyName 'app.kubernetes.io/name'"
+
+  - it: requires at least one rule group when prometheusRule is enabled
+    set:
+      prometheusRule.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups': minItems"
+
+  - it: requires a name in every rule group
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - rules:
+            - alert: Down
+              expr: up == 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0': missing property 'name'"
+
+  - it: requires at least one rule in every group
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules': minItems"
+
+  - it: requires expr in every rule
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - alert: Down
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0': missing property 'expr'"
+
+  - it: rejects a rule that is both an alert and a recording rule
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - alert: Down
+              record: sales:up
+              expr: up == 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0': 'oneOf' failed, subschemas 0, 1 matched"
+
+  - it: rejects a rule that is neither an alert nor a recording rule
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - expr: up == 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0': 'oneOf' failed, none matched"
+
+  - it: rejects a for that is not a Prometheus duration
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - alert: Down
+              expr: up == 0
+              for: 5 minutes
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0/for': '5 minutes' does not match pattern"
+
+  - it: rejects an empty for (it would reach Prometheus, whose duration parser rejects it)
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - alert: Down
+              expr: up == 0
+              for: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0/for': minLength"
+
+  - it: rejects an empty group interval
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          interval: ""
+          rules:
+            - alert: Down
+              expr: up == 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/interval': minLength"
+
+  - it: rejects an empty keep_firing_for (the CRD requires at least one character)
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - alert: Down
+              expr: up == 0
+              keep_firing_for: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0/keep_firing_for': minLength"
+
+  - it: rejects rule keys that are not the CRD's (keep_firing_for, not keepFiringFor)
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - alert: Down
+              expr: up == 0
+              keepFiringFor: 5m
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'keepFiringFor' not allowed"
+
+  - it: rejects a label key that the chart sets itself in prometheusRule.labels
+    set:
+      prometheusRule.labels:
+        app.kubernetes.io/part-of: other
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'app.kubernetes.io/part-of'"

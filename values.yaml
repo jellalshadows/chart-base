@@ -186,6 +186,18 @@ metrics:
   # (`app.kubernetes.io/name`, `instance`, `part-of`, `component`, `version`, `managed-by`, `helm.sh/chart`) are rejected.
   labels: {}
 
+prometheusRule:
+  # -- Render a Prometheus Operator PrometheusRule (`monitoring.coreos.com/v1`), on every workload type (e.g. alerts
+  # on a CronJob's runs from kube-state-metrics). The CRD must be installed: without it the release fails.
+  enabled: false
+  # -- Extra labels on the PrometheusRule, e.g. `{release: kube-prometheus-stack}`; the chart's own label keys are
+  # rejected (see `metrics.labels`).
+  labels: {}
+  # -- Rule groups, rendered verbatim as `spec.groups`: `[{name, interval, rules: [{alert or record, expr, for,
+  # keep_firing_for, labels, annotations}]}]`; durations must not be empty. The structure is validated; PromQL is not:
+  # the Prometheus Operator ignores a PrometheusRule whose rules do not parse (a Warning event says so).
+  groups: []
+
 cronjob:
   # -- Cron schedule. Required for cronjob.
   schedule: ""

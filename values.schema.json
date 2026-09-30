@@ -24,7 +24,8 @@
     "preStopSleepSeconds",
     "terminationGracePeriodSeconds",
     "enableServiceLinks",
-    "metrics"
+    "metrics",
+    "prometheusRule"
   ],
   "definitions": {
     "keyRef": {
@@ -110,6 +111,11 @@
       "type": "object",
       "propertyNames": { "not": { "enum": ["app.kubernetes.io/name", "app.kubernetes.io/instance", "app.kubernetes.io/part-of", "app.kubernetes.io/component", "app.kubernetes.io/version", "app.kubernetes.io/managed-by", "helm.sh/chart"] } },
       "additionalProperties": { "type": "string" }
+    },
+    "nonEmptyDuration": {
+      "description": "A Prometheus duration that is not empty (the CRDs' NonEmptyDuration): the operator writes an empty for or group interval to Prometheus, whose duration parser rejects it.",
+      "allOf": [{ "$ref": "#/definitions/duration" }],
+      "minLength": 1
     }
   },
   "properties": {
@@ -433,6 +439,49 @@
         "labels": { "$ref": "#/definitions/extraLabels" }
       }
     },
+    "prometheusRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "labels": { "$ref": "#/definitions/extraLabels" },
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "rules"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "interval": { "$ref": "#/definitions/nonEmptyDuration" },
+              "rules": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["expr"],
+                  "oneOf": [
+                    { "required": ["alert"] },
+                    { "required": ["record"] }
+                  ],
+                  "properties": {
+                    "alert": { "type": "string", "minLength": 1 },
+                    "record": { "type": "string", "minLength": 1 },
+                    "expr": { "type": "string", "minLength": 1 },
+                    "for": { "$ref": "#/definitions/nonEmptyDuration" },
+                    "keep_firing_for": { "$ref": "#/definitions/nonEmptyDuration" },
+                    "labels": { "type": "object", "additionalProperties": { "type": "string" } },
+                    "annotations": { "type": "object", "additionalProperties": { "type": "string" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "cronjob": {
       "type": "object",
       "additionalProperties": false,
@@ -568,6 +617,14 @@
         "properties": {
           "ingress": { "properties": { "className": { "minLength": 1 }, "hosts": { "minItems": 1 } } },
           "service": { "properties": { "enabled": { "const": true } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "prometheusRule": { "properties": { "enabled": { "const": true } } } } },
+      "then": {
+        "properties": {
+          "prometheusRule": { "required": ["groups"], "properties": { "groups": { "minItems": 1 } } }
         }
       }
     }
