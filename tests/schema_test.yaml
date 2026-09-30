@@ -533,3 +533,33 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "missing property 'enableServiceLinks'"
+
+  - it: rejects two handlers in one lifecycle hook
+    set:
+      lifecycle.preStop.exec.command: ["/app/drain"]
+      lifecycle.preStop.sleep.seconds: 5
+    asserts:
+      - failedTemplate:
+          errorPattern: "/lifecycle/preStop': 'oneOf' failed"
+
+  - it: rejects a tcpSocket lifecycle handler (Kubernetes does not support it)
+    set:
+      lifecycle.preStop.tcpSocket.port: 8080
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'tcpSocket' not allowed"
+
+  - it: requires port in a lifecycle httpGet handler
+    set:
+      lifecycle.postStart.httpGet.path: /warmup
+    asserts:
+      - failedTemplate:
+          errorPattern: "/lifecycle/postStart/httpGet': missing property 'port'"
+
+  - it: rejects httpGet.host in a lifecycle hook (Pod Security only allows it empty)
+    set:
+      lifecycle.postStart.httpGet.port: 8080
+      lifecycle.postStart.httpGet.host: example.com
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'host' not allowed"

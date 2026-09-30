@@ -49,6 +49,55 @@
       "type": ["integer", "string"],
       "minimum": 0,
       "pattern": "^[0-9]+%$"
+    },
+    "lifecycleHandler": {
+      "type": "object",
+      "additionalProperties": false,
+      "oneOf": [
+        { "required": ["exec"] },
+        { "required": ["httpGet"] },
+        { "required": ["sleep"] }
+      ],
+      "properties": {
+        "exec": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["command"],
+          "properties": {
+            "command": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+          }
+        },
+        "httpGet": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["port"],
+          "properties": {
+            "path": { "type": "string" },
+            "port": { "type": ["integer", "string"] },
+            "scheme": { "enum": ["HTTP", "HTTPS"] },
+            "httpHeaders": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "value"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "value": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "sleep": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["seconds"],
+          "properties": {
+            "seconds": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
     }
   },
   "properties": {
@@ -307,6 +356,14 @@
     "topologySpreadConstraints": { "type": ["array", "null"], "items": { "type": "object" } },
     "preStopSleepSeconds": { "type": "integer", "minimum": 0 },
     "terminationGracePeriodSeconds": { "type": "integer", "minimum": 0 },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "postStart": { "$ref": "#/definitions/lifecycleHandler" },
+        "preStop": { "$ref": "#/definitions/lifecycleHandler" }
+      }
+    },
     "httpRoute": {
       "type": "object",
       "additionalProperties": false,

@@ -130,11 +130,16 @@ pdb:
 # -- (list) `null` = chart defaults (zone + hostname spread, ScheduleAnyway); `[]` = none; a list = used verbatim.
 topologySpreadConstraints: null
 
-# -- Seconds to sleep in preStop so endpoints drain before SIGTERM. `0` disables it. Deployments only.
+# -- Seconds to sleep in preStop so endpoints drain before SIGTERM. `0` disables it (required with `lifecycle.preStop`). Deployments only.
 preStopSleepSeconds: 5
 
 # -- Pod termination grace period. Must be greater than `preStopSleepSeconds`.
 terminationGracePeriodSeconds: 30
+
+# -- Container lifecycle hooks `postStart` and `preStop`, each with exactly one of `exec`, `httpGet` or `sleep`
+# (Kubernetes does not support `tcpSocket` here), e.g. `{preStop: {exec: {command: ["/app/drain"]}}}`.
+# On Deployments, `lifecycle.preStop` replaces the built-in preStop sleep and requires `preStopSleepSeconds: 0`.
+lifecycle: {}
 
 httpRoute:
   # -- Render a Gateway API HTTPRoute (gateway.networking.k8s.io/v1). Requires `service.enabled`.

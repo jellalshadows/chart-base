@@ -214,3 +214,52 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: rejects lifecycle.preStop together with the built-in preStop sleep on Deployments
+    set:
+      lifecycle.preStop.exec.command: ["/app/drain"]
+    asserts:
+      - failedTemplate:
+          errorPattern: "lifecycle.preStop replaces the built-in preStop sleep: set preStopSleepSeconds: 0"
+
+  - it: accepts lifecycle.preStop on a Deployment with preStopSleepSeconds 0
+    set:
+      preStopSleepSeconds: 0
+      lifecycle.preStop.exec.command: ["/app/drain"]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts lifecycle.preStop on a Job hook with the default preStopSleepSeconds (the sleep is for Deployments only)
+    set:
+      workload.type: job
+      lifecycle.preStop.exec.command: ["/app/flush"]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a lifecycle sleep longer than terminationGracePeriodSeconds (Kubernetes rejects it)
+    set:
+      preStopSleepSeconds: 0
+      lifecycle.preStop.sleep.seconds: 31
+    asserts:
+      - failedTemplate:
+          errorPattern: 'lifecycle.preStop.sleep.seconds \(31\) must not be greater than terminationGracePeriodSeconds \(30\)'
+
+  - it: accepts a lifecycle sleep equal to terminationGracePeriodSeconds (the API server's bound)
+    set:
+      preStopSleepSeconds: 0
+      lifecycle.preStop.sleep.seconds: 30
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: checks a postStart sleep of a CronJob against terminationGracePeriodSeconds too (every pod is validated)
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      terminationGracePeriodSeconds: 10
+      lifecycle.postStart.sleep.seconds: 11
+    asserts:
+      - failedTemplate:
+          errorPattern: 'lifecycle.postStart.sleep.seconds \(11\) must not be greater than terminationGracePeriodSeconds \(10\)'
