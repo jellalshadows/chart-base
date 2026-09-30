@@ -292,3 +292,24 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: rejects metrics on a worker that declares no port (a PodMonitor scrapes a named container port)
+    set:
+      service.enabled: false
+      ports: []
+      metrics.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: 'metrics.port "http" is not the name of an entry in ports'
+
+  - it: accepts metrics on a worker with a named container port
+    set:
+      service.enabled: false
+      ports:
+        - name: metrics
+          containerPort: 9090
+      metrics.enabled: true
+      metrics.port: metrics
+    asserts:
+      - hasDocuments:
+          count: 0
