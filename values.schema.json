@@ -22,7 +22,8 @@
     "replicas",
     "progressDeadlineSeconds",
     "preStopSleepSeconds",
-    "terminationGracePeriodSeconds"
+    "terminationGracePeriodSeconds",
+    "enableServiceLinks"
   ],
   "definitions": {
     "keyRef": {
@@ -429,7 +430,8 @@
           "hostnames": { "type": "array", "minItems": 1, "items": { "type": "string" } }
         }
       }
-    }
+    },
+    "enableServiceLinks": { "type": "boolean" }
   },
   "allOf": [
     {

@@ -26,6 +26,7 @@ Deployment-only parts (preStop, topology spread) are rendered only for deploymen
 {{- $isDeployment := eq $.Values.workload.type "deployment" -}}
 serviceAccountName: {{ include "chart-base.serviceAccountName" $ }}
 automountServiceAccountToken: {{ $.Values.serviceAccount.automountToken }}
+enableServiceLinks: {{ $.Values.enableServiceLinks }}
 {{- with .restartPolicy }}
 restartPolicy: {{ . }}
 {{- end }}

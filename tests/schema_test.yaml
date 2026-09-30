@@ -526,3 +526,10 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "/hostAliases/0/hostnames': minItems"
+
+  - it: requires enableServiceLinks (a null would silently restore Kubernetes' true)
+    set:
+      enableServiceLinks: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "missing property 'enableServiceLinks'"

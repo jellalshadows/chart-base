@@ -244,3 +244,9 @@ dnsConfig: null
 
 # -- Extra `/etc/hosts` entries of the pods (`hostAliases`), e.g. `[{ip: 10.0.0.5, hostnames: [legacy-db.internal]}]`.
 hostAliases: []
+
+# -- Inject `<SERVICE>_SERVICE_HOST`/`_PORT` and Docker-links variables for every Service of the namespace
+# (`enableServiceLinks`). `false` here (Kubernetes defaults to `true`): a Service named e.g. `redis` injects `REDIS_PORT=tcp://...`,
+# which an app that reads `REDIS_PORT` without the component setting it gets instead of a port. `KUBERNETES_SERVICE_HOST`/`_PORT`
+# are injected either way. Set `true` to restore Kubernetes' behavior.
+enableServiceLinks: false

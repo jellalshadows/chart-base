@@ -90,6 +90,7 @@ cronjob scenario:
                   volumeMounts:
                     - mountPath: /tmp
                       name: tmp
+              enableServiceLinks: false
               restartPolicy: Never
               securityContext:
                 fsGroup: 65532
@@ -212,6 +213,7 @@ deployment scenario:
               volumeMounts:
                 - mountPath: /tmp
                   name: tmp
+          enableServiceLinks: false
           securityContext:
             fsGroup: 65532
             fsGroupChangePolicy: OnRootMismatch
@@ -438,6 +440,7 @@ full scenario:
                 - mountPath: /config
                   name: config-files
                   readOnly: true
+          enableServiceLinks: false
           securityContext:
             fsGroup: 65532
             fsGroupChangePolicy: OnRootMismatch
@@ -772,6 +775,7 @@ job scenario:
                 - mountPath: /config
                   name: config-files
                   readOnly: true
+          enableServiceLinks: false
           restartPolicy: Never
           securityContext:
             fsGroup: 65532
@@ -883,6 +887,7 @@ worker scenario:
               volumeMounts:
                 - mountPath: /tmp
                   name: tmp
+          enableServiceLinks: false
           securityContext:
             fsGroup: 65532
             fsGroupChangePolicy: OnRootMismatch

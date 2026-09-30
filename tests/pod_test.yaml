@@ -98,3 +98,38 @@ tests:
       - equal:
           path: spec.template.spec.hostAliases[0].hostnames[1]
           value: legacy-db
+
+  - it: disables service links by default on Deployments
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.enableServiceLinks
+          value: false
+
+  - it: disables service links by default on CronJob runs
+    template: templates/cronjob.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.enableServiceLinks
+          value: false
+
+  - it: disables service links by default on Job hooks
+    template: templates/job.yaml
+    set:
+      workload.type: job
+    asserts:
+      - equal:
+          path: spec.template.spec.enableServiceLinks
+          value: false
+
+  - it: restores Kubernetes' service links when enableServiceLinks is true
+    template: templates/deployment.yaml
+    set:
+      enableServiceLinks: true
+    asserts:
+      - equal:
+          path: spec.template.spec.enableServiceLinks
+          value: true
