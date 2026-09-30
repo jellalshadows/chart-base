@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0](https://github.com/jellalshadows/chart-base/compare/v0.2.0...v0.3.0) (2026-09-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* enableServiceLinks now defaults to false (Deployments roll once on upgrade; CronJob and Job pods pick it up at their next run); set enableServiceLinks: true to restore Kubernetes' default. cronjob.suspend is now always rendered (false): a CronJob suspended by hand is resumed by the upgrade (or, with Helm 4 server-side apply, the upgrade can fail with a field-manager conflict) unless <alias>.cronjob.suspend: true is set first. See docs/upgrading.md.
+
+### Features
+
+* rollout and pod runtime knobs ([#8](https://github.com/jellalshadows/chart-base/issues/8)) ([0cb0da7](https://github.com/jellalshadows/chart-base/commit/0cb0da75f15ba2613f260fd8e4f293d8b84c19cb))
+
 ## [0.2.0](https://github.com/jellalshadows/chart-base/compare/v0.1.0...v0.2.0) (2026-09-29)
 
 
