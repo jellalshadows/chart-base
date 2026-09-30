@@ -812,3 +812,105 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "invalid propertyName 'app.kubernetes.io/part-of'"
+
+  - it: rejects for on a recording rule (Prometheus' rule parser rejects it)
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - record: sales:up
+              expr: up
+              for: 5m
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0/for"
+
+  - it: rejects keep_firing_for on a recording rule (Prometheus' rule parser rejects it)
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - record: sales:up
+              expr: up
+              keep_firing_for: 5m
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0/keep_firing_for"
+
+  - it: rejects annotations on a recording rule (Prometheus' rule parser rejects it)
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - record: sales:up
+              expr: up
+              annotations:
+                summary: nope
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0/annotations"
+
+  - it: accepts labels on a recording rule
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - record: sales:up
+              expr: up
+              labels:
+                team: sales
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects an empty expr
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - alert: Down
+              expr: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0/expr': minLength"
+
+  - it: rejects an empty alert name
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - alert: ""
+              expr: up == 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0/alert': minLength"
+
+  - it: rejects an empty record name
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - record: ""
+              expr: up
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0/record': minLength"
+
+  - it: rejects an empty group name
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: ""
+          rules:
+            - alert: Down
+              expr: up == 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/name': minLength"

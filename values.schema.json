@@ -462,6 +462,8 @@
                   "type": "object",
                   "additionalProperties": false,
                   "required": ["expr"],
+                  "if": { "required": ["record"] },
+                  "then": { "properties": { "for": false, "keep_firing_for": false, "annotations": false } },
                   "oneOf": [
                     { "required": ["alert"] },
                     { "required": ["record"] }
