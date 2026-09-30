@@ -106,6 +106,7 @@ cronjob scenario:
                   name: tmp
       schedule: '*/30 * * * *'
       successfulJobsHistoryLimit: 3
+      suspend: false
       timeZone: Europe/Madrid
   3: |
     apiVersion: v1

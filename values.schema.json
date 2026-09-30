@@ -353,13 +353,15 @@
     "cronjob": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["concurrencyPolicy", "successfulJobsHistoryLimit", "failedJobsHistoryLimit"],
+      "required": ["concurrencyPolicy", "successfulJobsHistoryLimit", "failedJobsHistoryLimit", "suspend"],
       "properties": {
         "schedule": { "type": "string" },
         "timeZone": { "type": "string" },
         "concurrencyPolicy": { "enum": ["Allow", "Forbid", "Replace"] },
         "successfulJobsHistoryLimit": { "type": "integer", "minimum": 0 },
-        "failedJobsHistoryLimit": { "type": "integer", "minimum": 0 }
+        "failedJobsHistoryLimit": { "type": "integer", "minimum": 0 },
+        "startingDeadlineSeconds": { "type": ["integer", "null"], "minimum": 0 },
+        "suspend": { "type": "boolean" }
       }
     },
     "job": {

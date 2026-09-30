@@ -11,6 +11,10 @@ spec:
   timeZone: {{ . | quote }}
   {{- end }}
   concurrencyPolicy: {{ .Values.cronjob.concurrencyPolicy }}
+  suspend: {{ .Values.cronjob.suspend }}
+  {{- if not (kindIs "invalid" .Values.cronjob.startingDeadlineSeconds) }}
+  startingDeadlineSeconds: {{ .Values.cronjob.startingDeadlineSeconds | int64 }}
+  {{- end }}
   successfulJobsHistoryLimit: {{ .Values.cronjob.successfulJobsHistoryLimit }}
   failedJobsHistoryLimit: {{ .Values.cronjob.failedJobsHistoryLimit }}
   jobTemplate:

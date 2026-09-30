@@ -89,3 +89,36 @@ tests:
     asserts:
       - notExists:
           path: metadata.annotations
+
+  - it: renders suspend false and no startingDeadlineSeconds by default
+    asserts:
+      - equal:
+          path: spec.suspend
+          value: false
+      - notExists:
+          path: spec.startingDeadlineSeconds
+
+  - it: suspends future runs when cronjob.suspend is true
+    set:
+      cronjob.suspend: true
+    asserts:
+      - equal:
+          path: spec.suspend
+          value: true
+
+  - it: sets startingDeadlineSeconds when given
+    set:
+      cronjob.startingDeadlineSeconds: 300
+    asserts:
+      - equal:
+          path: spec.startingDeadlineSeconds
+          value: 300
+
+  - it: keeps startingDeadlineSeconds as a large int64 when values come from a file
+    values:
+      - values/base.yaml
+      - values/large-numbers.yaml
+    asserts:
+      - equal:
+          path: spec.startingDeadlineSeconds
+          value: 1000000

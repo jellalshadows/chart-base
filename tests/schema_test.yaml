@@ -436,3 +436,24 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: requires cronjob.suspend (a null would render an empty suspend field)
+    set:
+      cronjob.suspend: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/cronjob': missing property 'suspend'"
+
+  - it: rejects a string cronjob.suspend
+    set:
+      cronjob.suspend: "true"
+    asserts:
+      - failedTemplate:
+          errorPattern: "/cronjob/suspend': got string, want boolean"
+
+  - it: rejects a negative cronjob.startingDeadlineSeconds
+    set:
+      cronjob.startingDeadlineSeconds: -1
+    asserts:
+      - failedTemplate:
+          errorPattern: "/cronjob/startingDeadlineSeconds': minimum"
