@@ -453,7 +453,7 @@ tests:
           path: spec.revisionHistoryLimit
           value: 0
 
-  - it: renders large progressDeadlineSeconds and revisionHistoryLimit from a values file as integers
+  - it: renders large progressDeadlineSeconds, minReadySeconds and revisionHistoryLimit from a values file as integers
     template: templates/deployment.yaml
     values:
       - values/base.yaml
@@ -462,6 +462,9 @@ tests:
       - equal:
           path: spec.progressDeadlineSeconds
           value: 2000000
+      - equal:
+          path: spec.minReadySeconds
+          value: 1000000
       - equal:
           path: spec.revisionHistoryLimit
           value: 1000000

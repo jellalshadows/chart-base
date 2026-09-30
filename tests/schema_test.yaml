@@ -563,3 +563,41 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "additional properties 'host' not allowed"
+
+  - it: rejects a lifecycle sleep shorter than one second
+    set:
+      lifecycle.preStop.sleep.seconds: 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "/lifecycle/preStop/sleep/seconds"
+
+  - it: rejects an empty lifecycle exec command
+    set:
+      lifecycle.postStart.exec.command: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "/lifecycle/postStart/exec/command"
+
+  - it: rejects an unknown httpGet scheme in a lifecycle hook
+    set:
+      lifecycle.postStart.httpGet.port: 8080
+      lifecycle.postStart.httpGet.scheme: FTP
+    asserts:
+      - failedTemplate:
+          errorPattern: "/lifecycle/postStart/httpGet/scheme"
+
+  - it: requires value in a lifecycle httpHeaders entry
+    set:
+      lifecycle.postStart.httpGet.port: 8080
+      lifecycle.postStart.httpGet.httpHeaders:
+        - name: X-Warmup
+    asserts:
+      - failedTemplate:
+          errorPattern: "missing property 'value'"
+
+  - it: rejects an unknown key under strategy.rollingUpdate
+    set:
+      strategy.rollingUpdate.maxSurgee: 1
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'maxSurgee' not allowed"
