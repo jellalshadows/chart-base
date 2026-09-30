@@ -243,7 +243,7 @@ release succeeds):
 
 A **rule whose PromQL does not parse** (or a broken annotation template) depends on the operator's admission
 webhook. Where it is deployed (kube-prometheus-stack deploys it by default, checked on chart version 91.8.2), the
-PrometheusRule is rejected when Helm applies it, no object is created, and the install or upgrade of the whole
+PrometheusRule is rejected when Helm applies it and is not created, and the install or upgrade of the whole
 release (the whole umbrella) fails. Without the webhook the object is created and the operator skips the whole
 PrometheusRule with a Warning event
 ([ADR-0039](../adr/0039-prometheus-rules-travel-with-the-component.md)). The schema already rejects the structural
