@@ -180,6 +180,9 @@ A component with `workload.type: job` is rendered as a Helm hook (`job.phase: pr
 or `post-deploy`), and its ServiceAccount, ConfigMaps and ExternalSecret are hooks of the same phase.
 Hook resources are not part of the release, so `helm uninstall` does not delete them
 ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)).
+The exception is the component's PrometheusRule: it is not a hook but a regular release object, deleted by
+`helm uninstall`, and on the first install it is created only if the pre-deploy hook succeeds
+([ADR-0039](../adr/0039-prometheus-rules-travel-with-the-component.md)).
 
 ## Failure behavior
 
@@ -237,9 +240,14 @@ release succeeds):
   kube-prometheus-stack selects on (see [Rules](#rules)).
 - A `scrapeTimeout` greater than `interval`: the operator rejects the monitor
   ([ADR-0038](../adr/0038-one-metrics-endpoint-servicemonitor-or-podmonitor.md)).
-- A rule whose PromQL does not parse: the operator skips the whole PrometheusRule and records a Warning event
-  on it. Only where the operator's admission webhook is deployed does the install itself fail
-  ([ADR-0039](../adr/0039-prometheus-rules-travel-with-the-component.md)).
+
+A **rule whose PromQL does not parse** (or a broken annotation template) depends on the operator's admission
+webhook. Where it is deployed (kube-prometheus-stack deploys it by default, checked on chart version 91.8.2), the
+PrometheusRule is rejected when Helm applies it, no object is created, and the install or upgrade of the whole
+release (the whole umbrella) fails. Without the webhook the object is created and the operator skips the whole
+PrometheusRule with a Warning event
+([ADR-0039](../adr/0039-prometheus-rules-travel-with-the-component.md)). The schema already rejects the structural
+mistakes, including a `for`, `keep_firing_for` or `annotations` on a recording rule.
 
 ## Recommendations for umbrella authors
 

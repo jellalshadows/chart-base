@@ -194,8 +194,11 @@ prometheusRule:
   # rejected (see `metrics.labels`).
   labels: {}
   # -- Rule groups, rendered verbatim as `spec.groups`: `[{name, interval, rules: [{alert or record, expr, for,
-  # keep_firing_for, labels, annotations}]}]`; durations must not be empty. The structure is validated; PromQL is not:
-  # the Prometheus Operator ignores a PrometheusRule whose rules do not parse (a Warning event says so).
+  # keep_firing_for, labels, annotations}]}]`; durations must not be empty and a recording rule takes no `for`,
+  # `keep_firing_for` or `annotations`. The structure is validated; PromQL is not: where the operator's admission
+  # webhook is deployed (kube-prometheus-stack deploys it by default, checked on chart version 91.8.2) a rule that does
+  # not parse is rejected when Helm applies it and the install or upgrade of the whole release fails; without the
+  # webhook the object is created and the operator skips it with a Warning event.
   groups: []
 
 cronjob:

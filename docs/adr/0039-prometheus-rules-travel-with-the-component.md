@@ -24,8 +24,11 @@ CRD of prometheus-operator v0.94.1 checks, and what it leaves to the operator:
   rejected due to invalid configuration". The parser (Prometheus v3.14.0, the version the operator builds with)
   rejects, among others, a rule with both or neither of `alert` and `record`, a rule without `expr`,
   `annotations`, `for` or `keep_firing_for` on a recording rule, an invalid recording rule name, and PromQL that
-  does not parse. The operator's admission webhook, when it is deployed, runs the same checks at creation time.
-  A cluster with only the CRDs accepts any string as `expr`.
+  does not parse. The operator's admission webhook, when it is deployed, runs the same `ValidateRule` when the
+  object is created or updated and rejects it. kube-prometheus-stack deploys the webhook by default
+  (`prometheusOperator.admissionWebhooks.enabled: true`; its `validatingWebhookConfiguration.yaml` registers
+  `prometheusrulevalidate.monitoring.coreos.com` for `prometheusrules` `CREATE` and `UPDATE`, checked on chart
+  version 91.8.2). A cluster with only the CRDs accepts any string as `expr`.
 - The CRD pattern matches the empty string, and the operator writes to Prometheus the spec it marshalled
   before that check: `generateRulesConfiguration` calls `yaml.Marshal` first and `ValidateRule` afterwards, and
   `ValidateRule` sets an empty `for` or group `interval` to nil before it parses. So an empty `for` or group
@@ -57,13 +60,16 @@ hook succeeds (`hook-delete-policy: before-hook-creation,hook-succeeded`, [ADR-0
   every level: `enabled: true` needs at least one group; a group has a `name` (at least one character), an
   optional non-empty `interval` and at least one rule; a rule has exactly one of `alert` and `record` (a `oneOf`,
   which the CRD documents but does not enforce), a non-empty string `expr`, optional `for` and `keep_firing_for`,
-  and `labels` and `annotations` (maps of strings). Every duration is non-empty and has the CRDs' pattern
+  and `labels` and `annotations` (maps of strings); a recording rule (one with `record`) takes no `for`,
+  `keep_firing_for` or `annotations`, which the parser rejects. Every duration is non-empty and has the CRDs' pattern
   (`definitions.nonEmptyDuration`, like the CRD's own type for `keep_firing_for`): an empty one would break the
   rule file in Prometheus. The rule fields are the CRD's, so `keep_firing_for` is snake_case.
-- **PromQL is not validated.** There is no promtool step in CI. The operator skips a PrometheusRule that does not
-  parse, and its admission webhook, where it runs, rejects it.
+- **PromQL is not validated.** There is no promtool step in CI. Where the operator's admission webhook is deployed
+  (kube-prometheus-stack deploys it by default, checked on chart version 91.8.2), a PrometheusRule that does not
+  parse is rejected when Helm applies it, and the install or upgrade of the whole release fails; without the
+  webhook the object is created and the operator skips it with a Warning event.
 - **Not validated either:** two groups with the same name (the API server rejects them), and what the parser
-  checks beyond the structure (for example `annotations` or `for` on a recording rule).
+  checks beyond the structure (PromQL, an invalid recording rule name, a broken annotation template).
 - The CRD's group fields `limit`, `labels`, `query_offset` and `partial_response_strategy` are not accepted.
 - **No `.Capabilities` gating** ([ADR-0012](0012-no-capabilities-gating.md)): without the CRD, a release that
   enables `prometheusRule` fails.
@@ -73,9 +79,11 @@ hook succeeds (`hook-delete-policy: before-hook-creation,hook-succeeded`, [ADR-0
 - A component ships its alerts in the same pull request and the same release as the code they watch, and they
   are removed with it.
 - Mistakes in the structure (a missing `expr`, `alert` and `record` together, `keepFiringFor`, a duration such as
-  `5 minutes` or an empty `for`) fail at render time, with the path of the offending rule.
-- Trade-off: a PromQL error is not caught before the cluster. The objects are created, and the only signals are
-  the operator's Warning event and log, or the webhook's rejection where it is deployed. Teams that want the
+  `5 minutes`, an empty `for` or a `for` on a recording rule) fail at render time, with the path of the offending rule.
+- Trade-off: a PromQL error is not caught before the cluster. Where the admission webhook is deployed, as in
+  kube-prometheus-stack by default, Helm's apply is rejected and the install or upgrade of the whole release
+  fails, so one bad rule blocks the whole umbrella; without the webhook the object is created and the only
+  signals are the operator's Warning event and log. Teams that want the
   check before merging can run promtool on the rendered `spec` in their own CI.
 - Trade-off: the four group fields that are not accepted, and any rule field a future CRD adds, need a chart
   change; adding them is additive.
@@ -104,7 +112,8 @@ Prometheus evaluates rules, and `groups` is the CRD's own shape.
 ### A free-form pass-through without a schema
 
 stakater application passes `groups` through, and its schema only checks that it is a list. Every structural
-mistake would then surface only as the operator's Warning event and log line.
+mistake would then surface only at the operator: its Warning event and log line, or the webhook's rejection where it is
+deployed.
 
 ### Rules only in a central monitoring repository
 
@@ -121,6 +130,10 @@ its changes, and they outlive it when it is removed.
 - Prometheus v3.15.0 release assets (https://github.com/prometheus/prometheus/releases/tag/v3.15.0)
 - kube-prometheus-stack 91.8.2: `values.yaml` (`ruleSelectorNilUsesHelmValues`)
   (https://github.com/prometheus-community/helm-charts/tree/kube-prometheus-stack-91.8.2/charts/kube-prometheus-stack)
+- kube-prometheus-stack 91.8.2: `values.yaml` (`prometheusOperator.admissionWebhooks.enabled`)
+  (https://github.com/prometheus-community/helm-charts/blob/kube-prometheus-stack-91.8.2/charts/kube-prometheus-stack/values.yaml) and
+  `templates/prometheus-operator/admission-webhooks/validatingWebhookConfiguration.yaml`
+  (https://github.com/prometheus-community/helm-charts/blob/kube-prometheus-stack-91.8.2/charts/kube-prometheus-stack/templates/prometheus-operator/admission-webhooks/validatingWebhookConfiguration.yaml)
 - kube-state-metrics v2.20.0: `docs/metrics/workload/job-metrics.md`
 - `values.yaml` (`prometheusRule`), `values.schema.json` (`prometheusRule`, `definitions.duration`, the `allOf`
   rule that requires a group), `templates/prometheusrule.yaml`, `.github/scripts/e2e.sh`

@@ -459,9 +459,12 @@ code, official docs) and local renders.
 39. **Prometheus rules travel with the component.** `prometheusRule` renders a PrometheusRule on every
     workload type (on a Job component a regular object, not a hook) with `groups` verbatim. The schema checks
     the structure with the CRD's field names: a named group with rules, and per rule exactly one of `alert` and
-    `record`, a non-empty `expr` and non-empty durations with the CRD's pattern. PromQL is not checked: the operator
-    ignores a PrometheusRule that does not parse. *Rejected:* promtool in CI (a download of about 112 MB to
-    lint only the chart's own example rule); a pass-through without a schema.
+    `record`, a non-empty `expr`, non-empty durations with the CRD's pattern, and no `for`, `keep_firing_for` or
+    `annotations` on a recording rule. PromQL is not checked: where the operator's admission webhook is deployed
+    (kube-prometheus-stack deploys it by default, checked on chart version 91.8.2) a rule that does not parse is
+    rejected when Helm applies it and the install or upgrade of the whole release fails; without the webhook the
+    object is created and the operator skips it with a Warning event. *Rejected:* promtool in CI (a download of
+    about 112 MB to lint only the chart's own example rule); a pass-through without a schema.
     [ADR-0039](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0039-prometheus-rules-travel-with-the-component.md)
 
 ## Versioning and releases

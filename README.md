@@ -340,7 +340,7 @@ sales-migrations:
 | probes.startup | object | `{}` | Startup probe (Kubernetes probe object). Empty = not rendered. |
 | progressDeadlineSeconds | int | `240` | Seconds without rollout progress before the Deployment is marked Failed (lower than Helm's default 300s timeout). |
 | prometheusRule.enabled | bool | `false` | Render a Prometheus Operator PrometheusRule (`monitoring.coreos.com/v1`), on every workload type (e.g. alerts on a CronJob's runs from kube-state-metrics). The CRD must be installed: without it the release fails. |
-| prometheusRule.groups | list | `[]` | Rule groups, rendered verbatim as `spec.groups`: `[{name, interval, rules: [{alert or record, expr, for, keep_firing_for, labels, annotations}]}]`; durations must not be empty. The structure is validated; PromQL is not: the Prometheus Operator ignores a PrometheusRule whose rules do not parse (a Warning event says so). |
+| prometheusRule.groups | list | `[]` | Rule groups, rendered verbatim as `spec.groups`: `[{name, interval, rules: [{alert or record, expr, for, keep_firing_for, labels, annotations}]}]`; durations must not be empty and a recording rule takes no `for`, `keep_firing_for` or `annotations`. The structure is validated; PromQL is not: where the operator's admission webhook is deployed (kube-prometheus-stack deploys it by default, checked on chart version 91.8.2) a rule that does not parse is rejected when Helm applies it and the install or upgrade of the whole release fails; without the webhook the object is created and the operator skips it with a Warning event. |
 | prometheusRule.labels | object | `{}` | Extra labels on the PrometheusRule, e.g. `{release: kube-prometheus-stack}`; the chart's own label keys are rejected (see `metrics.labels`). |
 | reloadOnChange | bool | `true` | Restart Deployments (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is updated: the ExternalSecret's Secret and every Secret/ConfigMap referenced in `env`/`envFrom`. The chart's own ConfigMaps roll pods through checksum annotations instead. |
 | replicas | int | `1` | Deployment replicas. Ignored when `autoscaling.enabled`. |
@@ -548,9 +548,12 @@ code, official docs) and local renders.
 39. **Prometheus rules travel with the component.** `prometheusRule` renders a PrometheusRule on every
     workload type (on a Job component a regular object, not a hook) with `groups` verbatim. The schema checks
     the structure with the CRD's field names: a named group with rules, and per rule exactly one of `alert` and
-    `record`, a non-empty `expr` and non-empty durations with the CRD's pattern. PromQL is not checked: the operator
-    ignores a PrometheusRule that does not parse. *Rejected:* promtool in CI (a download of about 112 MB to
-    lint only the chart's own example rule); a pass-through without a schema.
+    `record`, a non-empty `expr`, non-empty durations with the CRD's pattern, and no `for`, `keep_firing_for` or
+    `annotations` on a recording rule. PromQL is not checked: where the operator's admission webhook is deployed
+    (kube-prometheus-stack deploys it by default, checked on chart version 91.8.2) a rule that does not parse is
+    rejected when Helm applies it and the install or upgrade of the whole release fails; without the webhook the
+    object is created and the operator skips it with a Warning event. *Rejected:* promtool in CI (a download of
+    about 112 MB to lint only the chart's own example rule); a pass-through without a schema.
     [ADR-0039](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0039-prometheus-rules-travel-with-the-component.md)
 
 ## Versioning and releases
