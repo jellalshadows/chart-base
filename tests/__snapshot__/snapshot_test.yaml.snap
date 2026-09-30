@@ -885,6 +885,12 @@ worker scenario:
               image: registry.k8s.io/e2e-test-images/agnhost:2.66.1
               imagePullPolicy: IfNotPresent
               lifecycle:
+                postStart:
+                  exec:
+                    command:
+                      - sh
+                      - -c
+                      - "true"
                 preStop:
                   sleep:
                     seconds: 5

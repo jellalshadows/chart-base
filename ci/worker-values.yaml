@@ -12,3 +12,7 @@ resources:
     memory: 16Mi
 config:
   APP_MODE: worker
+lifecycle:
+  postStart:
+    exec:
+      command: ["sh", "-c", "true"]
