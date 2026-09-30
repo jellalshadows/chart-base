@@ -1,0 +1,89 @@
+suite: prometheusrule (every workload type)
+templates:
+  - templates/prometheusrule.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+values:
+  - values/base.yaml
+tests:
+  - it: renders no PrometheusRule by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the rule groups verbatim as spec.groups, Prometheus templates included
+    values:
+      - values/base.yaml
+      - values/prometheus-rules.yaml
+    asserts:
+      - isKind:
+          of: PrometheusRule
+      - isAPIVersion:
+          of: monitoring.coreos.com/v1
+      - equal:
+          path: metadata.name
+          value: vending-chart-base
+      - equal:
+          path: spec.groups
+          value:
+            - name: sales
+              interval: 1m
+              rules:
+                - record: sales:http_requests:rate5m
+                  expr: sum(rate(http_requests_total{job="vending-chart-base"}[5m]))
+                - alert: SalesDown
+                  expr: up{job="vending-chart-base"} == 0
+                  for: 5m
+                  keep_firing_for: 10m
+                  labels:
+                    severity: critical
+                  annotations:
+                    summary: "{{ $labels.instance }} of sales is down"
+      - notExists:
+          path: metadata.labels.release
+
+  - it: adds prometheusRule.labels to the chart's labels
+    values:
+      - values/base.yaml
+      - values/prometheus-rules.yaml
+    set:
+      prometheusRule.labels.release: kube-prometheus-stack
+    asserts:
+      - equal:
+          path: metadata.labels.release
+          value: kube-prometheus-stack
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: chart-base
+
+  - it: renders a PrometheusRule on a CronJob component (e.g. alerts on its runs)
+    values:
+      - values/base.yaml
+      - values/prometheus-rules.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+    asserts:
+      - isKind:
+          of: PrometheusRule
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: cronjob
+
+  - it: renders a PrometheusRule on a Job component as a regular release object, not a hook
+    values:
+      - values/base.yaml
+      - values/prometheus-rules.yaml
+    set:
+      workload.type: job
+    asserts:
+      - isKind:
+          of: PrometheusRule
+      - notExists:
+          path: metadata.annotations

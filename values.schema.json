@@ -23,7 +23,9 @@
     "progressDeadlineSeconds",
     "preStopSleepSeconds",
     "terminationGracePeriodSeconds",
-    "enableServiceLinks"
+    "enableServiceLinks",
+    "metrics",
+    "prometheusRule"
   ],
   "definitions": {
     "keyRef": {
@@ -98,6 +100,22 @@
           }
         }
       }
+    },
+    "duration": {
+      "description": "A Prometheus duration, with the pattern of the prometheus-operator CRDs (v0.94.1), e.g. 30s, 1m30s, 1h.",
+      "type": "string",
+      "pattern": "^(0|(([0-9]+)y)?(([0-9]+)w)?(([0-9]+)d)?(([0-9]+)h)?(([0-9]+)m)?(([0-9]+)s)?(([0-9]+)ms)?)$"
+    },
+    "extraLabels": {
+      "description": "Extra labels of an object that also carries the chart's labels: the keys the chart sets itself are rejected (they would render twice).",
+      "type": "object",
+      "propertyNames": { "not": { "enum": ["app.kubernetes.io/name", "app.kubernetes.io/instance", "app.kubernetes.io/part-of", "app.kubernetes.io/component", "app.kubernetes.io/version", "app.kubernetes.io/managed-by", "helm.sh/chart"] } },
+      "additionalProperties": { "type": "string" }
+    },
+    "nonEmptyDuration": {
+      "description": "A Prometheus duration that is not empty (the CRDs' NonEmptyDuration): the operator writes an empty for or group interval to Prometheus, whose duration parser rejects it.",
+      "allOf": [{ "$ref": "#/definitions/duration" }],
+      "minLength": 1
     }
   },
   "properties": {
@@ -408,6 +426,64 @@
         "tls": { "type": "array", "items": { "type": "object" } }
       }
     },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "port", "path"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "port": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "pattern": "^/" },
+        "interval": { "anyOf": [{ "type": "null" }, { "$ref": "#/definitions/duration" }] },
+        "scrapeTimeout": { "anyOf": [{ "type": "null" }, { "$ref": "#/definitions/duration" }] },
+        "labels": { "$ref": "#/definitions/extraLabels" }
+      }
+    },
+    "prometheusRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "labels": { "$ref": "#/definitions/extraLabels" },
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "rules"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "interval": { "$ref": "#/definitions/nonEmptyDuration" },
+              "rules": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["expr"],
+                  "if": { "required": ["record"] },
+                  "then": { "properties": { "for": false, "keep_firing_for": false, "annotations": false } },
+                  "oneOf": [
+                    { "required": ["alert"] },
+                    { "required": ["record"] }
+                  ],
+                  "properties": {
+                    "alert": { "type": "string", "minLength": 1 },
+                    "record": { "type": "string", "minLength": 1 },
+                    "expr": { "type": "string", "minLength": 1 },
+                    "for": { "$ref": "#/definitions/nonEmptyDuration" },
+                    "keep_firing_for": { "$ref": "#/definitions/nonEmptyDuration" },
+                    "labels": { "type": "object", "additionalProperties": { "type": "string" } },
+                    "annotations": { "type": "object", "additionalProperties": { "type": "string" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "cronjob": {
       "type": "object",
       "additionalProperties": false,
@@ -501,7 +577,8 @@
         "properties": {
           "httpRoute": { "properties": { "enabled": { "const": false } } },
           "ingress": { "properties": { "enabled": { "const": false } } },
-          "autoscaling": { "properties": { "enabled": { "const": false } } }
+          "autoscaling": { "properties": { "enabled": { "const": false } } },
+          "metrics": { "properties": { "enabled": { "const": false } } }
         }
       }
     },
@@ -542,6 +619,14 @@
         "properties": {
           "ingress": { "properties": { "className": { "minLength": 1 }, "hosts": { "minItems": 1 } } },
           "service": { "properties": { "enabled": { "const": true } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "prometheusRule": { "properties": { "enabled": { "const": true } } } } },
+      "then": {
+        "properties": {
+          "prometheusRule": { "required": ["groups"], "properties": { "groups": { "minItems": 1 } } }
         }
       }
     }

@@ -165,11 +165,24 @@ listener only accepts routes from the Gateway's own namespace, so configure `all
 listener that the route's `parentRefs` point to
 ([ADR-0016](../adr/0016-httproute-first-ingress-optional.md)).
 
+**Label the monitors and rules for your Prometheus.**
+`metrics` and `prometheusRule` render Prometheus Operator objects, and Prometheus selects them by label.
+With its default values, kube-prometheus-stack (checked on chart version 91.8.2) selects only the
+ServiceMonitors, PodMonitors and PrometheusRules labelled `release: <its release name>`: an object without
+the label is created and silently ignored, and nothing fails. Set `metrics.labels.release` and
+`prometheusRule.labels.release` to that name, or configure kube-prometheus-stack to select every object (the
+[README recipe](../../README.md#prometheus-monitoring-kube-prometheus-stack) names the keys;
+[ADR-0038](../adr/0038-one-metrics-endpoint-servicemonitor-or-podmonitor.md),
+[ADR-0039](../adr/0039-prometheus-rules-travel-with-the-component.md)).
+
 **Job components: expect them to run as Helm hooks.**
 A component with `workload.type: job` is rendered as a Helm hook (`job.phase: pre-deploy` by default,
 or `post-deploy`), and its ServiceAccount, ConfigMaps and ExternalSecret are hooks of the same phase.
 Hook resources are not part of the release, so `helm uninstall` does not delete them
 ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)).
+The exception is the component's PrometheusRule: it is not a hook but a regular release object, deleted by
+`helm uninstall`, and on the first install it is created only if the pre-deploy hook succeeds
+([ADR-0039](../adr/0039-prometheus-rules-travel-with-the-component.md)).
 
 ## Failure behavior
 
@@ -179,20 +192,21 @@ What fails **before the cluster is touched**, at `helm template`, `helm lint` an
 - A value that breaks the schema: an unknown key, a wrong type, a missing required key, a
   `maxUnavailable` given as a percentage above 100% (an integer above 100 is valid). The error names the
   alias. Keys that apply to one workload type only (`strategy`, `minReadySeconds`, ...) are ignored on the
-  others, not rejected.
+  others, not rejected; the exceptions are the Deployment-only integrations (`httpRoute`, `ingress`,
+  `autoscaling`, `metrics`), which fail when they are enabled on a CronJob or a Job.
 - A guard that spans several keys or names, for example a name that is not a DNS-1035 label, a name longer than 63
   characters (52 for a CronJob), a Kubernetes version below 1.33, `autoscaling.minReplicas` greater
   than `maxReplicas`, a rollout that Kubernetes would reject (`maxSurge` and `maxUnavailable` both 0,
   `minReadySeconds` not lower than `progressDeadlineSeconds`), a custom
   `lifecycle.preStop` next to the built-in preStop sleep, a lifecycle `sleep` longer than
-  `terminationGracePeriodSeconds`.
+  `terminationGracePeriodSeconds`, a `metrics.port` that is not the name of an entry in `ports`.
 
 What fails **at install or upgrade**, when Helm talks to the cluster (rendering does not need the CRD,
 so `helm template` and `helm lint` do not catch it):
 
-- A kind whose CRD is not installed (HTTPRoute, ExternalSecret): Helm cannot build the object, so the
-  release fails cleanly. chart-base does not skip such objects
-  ([ADR-0012](../adr/0012-no-capabilities-gating.md)).
+- A kind whose CRD is not installed (HTTPRoute, ExternalSecret, ServiceMonitor, PodMonitor,
+  PrometheusRule): Helm cannot build the object, so the release fails cleanly. chart-base does not skip
+  such objects ([ADR-0012](../adr/0012-no-capabilities-gating.md)).
 
 What fails **at rollout**, in the cluster:
 
@@ -218,6 +232,22 @@ What fails **at rollout**, in the cluster:
   after `progressDeadlineSeconds`; for a `pre-deploy` or `post-deploy` Job hook no pod is ever created, so
   the release waits until Helm's `--timeout` (or `job.activeDeadlineSeconds`); for a CronJob the runs
   silently never start ([ADR-0036](../adr/0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md)).
+
+What **Helm never reports**, because only the Prometheus Operator reads it (the objects are created and the
+release succeeds):
+
+- A monitor or a PrometheusRule that Prometheus does not select, for example without the `release` label that
+  kube-prometheus-stack selects on (see [Rules](#rules)).
+- A `scrapeTimeout` greater than `interval`: the operator rejects the monitor
+  ([ADR-0038](../adr/0038-one-metrics-endpoint-servicemonitor-or-podmonitor.md)).
+
+A **rule whose PromQL does not parse** (or a broken annotation template) depends on the operator's admission
+webhook. Where it is deployed (kube-prometheus-stack deploys it by default, checked on chart version 91.8.2), the
+PrometheusRule is rejected when Helm applies it, no object is created, and the install or upgrade of the whole
+release (the whole umbrella) fails. Without the webhook the object is created and the operator skips the whole
+PrometheusRule with a Warning event
+([ADR-0039](../adr/0039-prometheus-rules-travel-with-the-component.md)). The schema already rejects the structural
+mistakes, including a `for`, `keep_firing_for` or `annotations` on a recording rule.
 
 ## Recommendations for umbrella authors
 

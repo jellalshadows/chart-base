@@ -102,3 +102,24 @@ podAnnotations:
   example.com/team: vending
 podLabels:
   example.com/tier: backend
+metrics:
+  enabled: true
+  port: http
+  interval: 30s
+  scrapeTimeout: 10s
+  labels:
+    release: e2e
+prometheusRule:
+  enabled: true
+  labels:
+    release: e2e
+  groups:
+    - name: full-chart-base
+      rules:
+        - alert: FullChartBaseDown
+          expr: up{job="full-chart-base"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.pod }} of the full scenario is down"

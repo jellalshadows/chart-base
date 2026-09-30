@@ -601,3 +601,316 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "additional properties 'maxSurgee' not allowed"
+
+  - it: rejects metrics on a cronjob (a scrape may never catch a short-lived pod)
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      metrics.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "/metrics/enabled': value must be false"
+
+  - it: rejects metrics on a job
+    set:
+      workload.type: job
+      metrics.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "/metrics/enabled': value must be false"
+
+  - it: rejects a metrics.interval that is not a Prometheus duration
+    set:
+      metrics.interval: 1.5m
+    asserts:
+      - failedTemplate:
+          errorPattern: "/metrics/interval': '1.5m' does not match pattern"
+
+  - it: rejects a metrics.scrapeTimeout that is not a Prometheus duration
+    set:
+      metrics.scrapeTimeout: 10 seconds
+    asserts:
+      - failedTemplate:
+          errorPattern: "/metrics/scrapeTimeout': '10 seconds' does not match pattern"
+
+  - it: accepts Prometheus durations with several units
+    set:
+      metrics.interval: 1m30s
+      metrics.scrapeTimeout: 500ms
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a metrics.path that does not start with /
+    set:
+      metrics.path: metrics
+    asserts:
+      - failedTemplate:
+          errorPattern: "/metrics/path': 'metrics' does not match pattern"
+
+  - it: requires metrics.port (a null would leave the endpoint without a port)
+    set:
+      metrics.port: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/metrics': missing property 'port'"
+
+  - it: rejects unknown keys under metrics (there is no metrics.serviceMonitor block)
+    set:
+      metrics.serviceMonitor.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'serviceMonitor' not allowed"
+
+  - it: rejects a metrics label value that is not a string
+    set:
+      metrics.labels.team: 1
+    asserts:
+      - failedTemplate:
+          errorPattern: "/metrics/labels/team': got number, want string"
+
+  - it: rejects a label key that the chart sets itself in metrics.labels (it would render twice)
+    set:
+      metrics.labels:
+        app.kubernetes.io/name: other
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'app.kubernetes.io/name'"
+
+  - it: requires at least one rule group when prometheusRule is enabled
+    set:
+      prometheusRule.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups': minItems"
+
+  - it: requires a name in every rule group
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - rules:
+            - alert: Down
+              expr: up == 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0': missing property 'name'"
+
+  - it: requires at least one rule in every group
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules': minItems"
+
+  - it: requires expr in every rule
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - alert: Down
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0': missing property 'expr'"
+
+  - it: rejects a rule that is both an alert and a recording rule
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - alert: Down
+              record: sales:up
+              expr: up == 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0': 'oneOf' failed, subschemas 0, 1 matched"
+
+  - it: rejects a rule that is neither an alert nor a recording rule
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - expr: up == 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0': 'oneOf' failed, none matched"
+
+  - it: rejects a for that is not a Prometheus duration
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - alert: Down
+              expr: up == 0
+              for: 5 minutes
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0/for': '5 minutes' does not match pattern"
+
+  - it: rejects an empty for (it would reach Prometheus, whose duration parser rejects it)
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - alert: Down
+              expr: up == 0
+              for: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0/for': minLength"
+
+  - it: rejects an empty group interval
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          interval: ""
+          rules:
+            - alert: Down
+              expr: up == 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/interval': minLength"
+
+  - it: rejects an empty keep_firing_for (the CRD requires at least one character)
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - alert: Down
+              expr: up == 0
+              keep_firing_for: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0/keep_firing_for': minLength"
+
+  - it: rejects rule keys that are not the CRD's (keep_firing_for, not keepFiringFor)
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - alert: Down
+              expr: up == 0
+              keepFiringFor: 5m
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'keepFiringFor' not allowed"
+
+  - it: rejects a label key that the chart sets itself in prometheusRule.labels
+    set:
+      prometheusRule.labels:
+        app.kubernetes.io/part-of: other
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'app.kubernetes.io/part-of'"
+
+  - it: rejects for on a recording rule (Prometheus' rule parser rejects it)
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - record: sales:up
+              expr: up
+              for: 5m
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0/for"
+
+  - it: rejects keep_firing_for on a recording rule (Prometheus' rule parser rejects it)
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - record: sales:up
+              expr: up
+              keep_firing_for: 5m
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0/keep_firing_for"
+
+  - it: rejects annotations on a recording rule (Prometheus' rule parser rejects it)
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - record: sales:up
+              expr: up
+              annotations:
+                summary: nope
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0/annotations"
+
+  - it: accepts labels on a recording rule
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - record: sales:up
+              expr: up
+              labels:
+                team: sales
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects an empty expr
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - alert: Down
+              expr: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0/expr': minLength"
+
+  - it: rejects an empty alert name
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - alert: ""
+              expr: up == 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0/alert': minLength"
+
+  - it: rejects an empty record name
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: sales
+          rules:
+            - record: ""
+              expr: up
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/rules/0/record': minLength"
+
+  - it: rejects an empty group name
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups:
+        - name: ""
+          rules:
+            - alert: Down
+              expr: up == 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule/groups/0/name': minLength"

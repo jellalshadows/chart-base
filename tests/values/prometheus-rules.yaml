@@ -1,0 +1,17 @@
+# One recording rule and one alerting rule that uses every rule field, for the prometheusrule suite.
+prometheusRule:
+  enabled: true
+  groups:
+    - name: sales
+      interval: 1m
+      rules:
+        - record: sales:http_requests:rate5m
+          expr: sum(rate(http_requests_total{job="vending-chart-base"}[5m]))
+        - alert: SalesDown
+          expr: up{job="vending-chart-base"} == 0
+          for: 5m
+          keep_firing_for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.instance }} of sales is down"

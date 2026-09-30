@@ -46,11 +46,13 @@ A single required check, `ci-ok`, depends on all the jobs. chart-testing (`ct`) 
 
 - Suites in `tests/*_test.yaml`, roughly one per area (`deployment`, `cronjob`, `job`, `configmap`,
   `env` (references, `envFrom`, Reloader annotations), `pod` (runtime knobs and service links, on every
-  workload type), `lifecycle` (container hooks), `externalsecret`, `exposure`, `scaling`, `service`, `serviceaccount`, `hooks`, `validate`, `schema`,
+  workload type), `lifecycle` (container hooks), `monitoring` (the ServiceMonitor or the PodMonitor),
+  `prometheusrule` (on every workload type), `externalsecret`, `exposure`, `scaling`, `service`, `serviceaccount`, `hooks`, `validate`, `schema`,
   `snapshot`). Each suite names the templates it renders.
 - Shared values in `tests/values/`: `base.yaml` (the minimum valid values every suite starts from),
   `env-refs.yaml` (one reference of every kind plus `envFrom` sources, for the `env` suite),
-  `pod-runtime.yaml` (every pod runtime knob, for the `pod` suite) and
+  `pod-runtime.yaml` (every pod runtime knob, for the `pod` suite), `prometheus-rules.yaml` (a recording
+  and an alerting rule, for the `prometheusrule` suite) and
   `large-numbers.yaml` (numbers, loaded as a values file on purpose, see the
   [pitfalls](development.md#pitfalls)).
 - Snapshots in `tests/__snapshot__/`, from `tests/snapshot_test.yaml`: one per `ci/` scenario. A
@@ -101,7 +103,7 @@ done
 
 **What it proves.** Each `ci/` scenario, rendered with `helm template --kube-version`, is valid against
 the strict Kubernetes JSON schemas for Kubernetes 1.33 and 1.37, and against the CRD schemas for the
-Gateway API and External Secrets kinds. Both schema sources are pinned to a commit in the script, so
+Gateway API, External Secrets and Prometheus Operator kinds. Both schema sources are pinned to a commit in the script, so
 a run does not change when an upstream catalog changes.
 
 **Where it lives.** `.github/scripts/validate-manifests.sh <chart-dir> <kubernetes-version>`. The
@@ -130,6 +132,8 @@ covered: a hyphen in the values key, the `condition` path and the resource names
 - the umbrella renders with `global` and `<alias>.enabled` keys present;
 - there are no duplicated `kind/name` pairs across aliases;
 - objects are named `<release>-<alias>`, and a worker renders no Service;
+- with `metrics` on, `api` gets a ServiceMonitor and `worker` a PodMonitor (never the other kind), each
+  selecting only its own component (`app.kubernetes.io/name` is the alias);
 - `helm.sh/chart` keeps the real chart name (`chart-base-<version>`) under an alias;
 - `<alias>.enabled=false` removes the component;
 - the schema is enforced per alias and names the alias in the error, and a typo under an alias fails;
@@ -171,15 +175,19 @@ The prerequisites the script installs:
 
 1. The **Gateway API** standard CRDs (`GATEWAY_API_VERSION`, v1.6.2 in CI), so that an HTTPRoute can be
    created.
-2. The **External Secrets Operator** chart (`ESO_CHART_VERSION`, 2.11.0), with a `ClusterSecretStore`
+2. The **Prometheus Operator** CRDs of ServiceMonitor, PodMonitor and PrometheusRule
+   (`PROMETHEUS_OPERATOR_VERSION`, v0.94.1), from the `example/prometheus-operator-crd` directory of that
+   tag, and nothing else: no operator runs, so the e2e proves that the API server accepts the objects, not
+   that anything scrapes them. The script waits until the three CRDs are `Established`.
+3. The **External Secrets Operator** chart (`ESO_CHART_VERSION`, 2.11.0), with a `ClusterSecretStore`
    named `fake` that uses ESO's `fake` provider and one key, `/sales/db-password`. The script waits until
    the store is `Ready`.
-3. A namespace `vending` labelled `pod-security.kubernetes.io/enforce=restricted`. Every pod of every
+4. A namespace `vending` labelled `pod-security.kubernetes.io/enforce=restricted`. Every pod of every
    scenario must therefore satisfy Pod Security `restricted`, which validates the secure defaults
    ([ADR-0013](../adr/0013-secure-by-default.md)).
-4. A Secret `e2e-shared` (key `TOKEN`) in that namespace, created by hand like the ones an operator
+5. A Secret `e2e-shared` (key `TOKEN`) in that namespace, created by hand like the ones an operator
    would create. The `cronjob` and `full` scenarios reference it by name.
-5. A PriorityClass `e2e-high` (value 1000, not the global default, `preemptionPolicy: Never` so it never
+6. A PriorityClass `e2e-high` (value 1000, not the global default, `preemptionPolicy: Never` so it never
    evicts anything), which the `full` scenario's `priorityClassName` points to.
 
 The image is the Kubernetes end-to-end test image `registry.k8s.io/e2e-test-images/agnhost:2.66.1`
@@ -193,16 +201,17 @@ Each scenario is installed with `helm upgrade --install ... --wait --timeout 5m`
 | Scenario | Assertions |
 |---|---|
 | `deployment` | The Deployment becomes Ready in the restricted namespace. A second upgrade with `--set config.APP_MODE=api-v2` creates a new ReplicaSet: a config change rolls the pods (the checksum annotation). |
-| `worker` | The worker becomes Ready and there is no Service named for it. |
+| `worker` | The worker becomes Ready and there is no Service named for it. It has a PodMonitor labelled `release: e2e` whose endpoint port is the container port `metrics`, and no ServiceMonitor. |
 | `cronjob` | A Job created manually from the CronJob (`kubectl create job --from=cronjob/...`) completes within 180 seconds: a restricted pod that reads its config from the ConfigMap, its `env` references (`fieldRef`, `resourceFieldRef`) and the `e2e-shared` Secret injected with `envFrom` and a prefix. Service links are off: `KUBERNETES_SERVICE_HOST` is set, `DEPLOYMENT_CHART_BASE_SERVICE_HOST` (the `deployment` scenario's Service, installed before; the script first checks that it has a ClusterIP) is not. |
 | `job` | The `pre-deploy` hook Job succeeds and its log contains `migrations-ok`: it saw `APP_MODE`, `DB_PASSWORD` (from the ExternalSecret) and `/config/migrations.yaml`, all created as hooks before it ran. A second deploy with `--set-string podAnnotations.revision=2` succeeds, so the Job hook is recreated instead of hitting `field is immutable` ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)). |
-| `full` | The ExternalSecret becomes Ready, the Secret it creates holds the value `s3cr3t` from the fake provider, the API server accepts the HTTPRoute, the Deployment's `secret.reloader.stakater.com/reload` annotation is exactly `e2e-shared,full-chart-base-secrets`, and the HPA, PDB and Ingress are created. The Deployment carries `strategy` (`maxSurge: 1`, `maxUnavailable: 0`), `minReadySeconds` and `revisionHistoryLimit`; a pod carries `priorityClassName: e2e-high` resolved to priority 1000 by the API server, `enableServiceLinks: false`, the `dnsConfig` option and the `hostAliases` entry. |
+| `full` | The ExternalSecret becomes Ready, the Secret it creates holds the value `s3cr3t` from the fake provider, the API server accepts the HTTPRoute, the Deployment's `secret.reloader.stakater.com/reload` annotation is exactly `e2e-shared,full-chart-base-secrets`, and the HPA, PDB and Ingress are created. The Deployment carries `strategy` (`maxSurge: 1`, `maxUnavailable: 0`), `minReadySeconds` and `revisionHistoryLimit`; a pod carries `priorityClassName: e2e-high` resolved to priority 1000 by the API server, `enableServiceLinks: false`, the `dnsConfig` option and the `hostAliases` entry. The ServiceMonitor is labelled `release: e2e` and scrapes the Service port `http` every `30s`, there is no PodMonitor, and the PrometheusRule is labelled `release: e2e` and holds the alert `FullChartBaseDown`. |
 
-On failure the script prints `kubectl get all,externalsecrets` for the namespace.
+On failure the script prints `kubectl get all,externalsecrets,servicemonitors,podmonitors,prometheusrules`
+for the namespace.
 
 **In CI.** The `e2e` job, one leg per Kubernetes version. To debug a failure locally, read the failing
 step in the job log first: the `FAIL:` message names what the script expected. Reproducing it needs a
-local kind cluster on the same Kubernetes version and the two environment variables above.
+local kind cluster on the same Kubernetes version and the three environment variables above.
 
 ## Documentation checks
 

@@ -48,6 +48,8 @@ not published; each record restates every fact it uses.
 | [0035](0035-service-links-off-by-default.md) | Service links are off by default | Accepted | 0.3.0 |
 | [0036](0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md) | Rollout and pod runtime knobs are validated pass-throughs | Accepted | 0.3.0 |
 | [0037](0037-one-prestop-hook.md) | One preStop hook: `lifecycle.preStop` requires `preStopSleepSeconds: 0` | Accepted | 0.3.0 |
+| [0038](0038-one-metrics-endpoint-servicemonitor-or-podmonitor.md) | One metrics endpoint, through a ServiceMonitor or a PodMonitor | Accepted | 0.4.0 |
+| [0039](0039-prometheus-rules-travel-with-the-component.md) | Prometheus rules travel with the component | Accepted | 0.4.0 |
 
 ## Adding a record
 
