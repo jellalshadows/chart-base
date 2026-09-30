@@ -1,0 +1,16 @@
+# The pod runtime knobs, shared by every workload type.
+priorityClassName: business-critical
+runtimeClassName: gvisor
+dnsConfig:
+  nameservers:
+    - 10.0.0.10
+  searches:
+    - vending.svc.cluster.local
+  options:
+    - name: ndots
+      value: "2"
+hostAliases:
+  - ip: 10.20.30.40
+    hostnames:
+      - legacy-db.internal
+      - legacy-db

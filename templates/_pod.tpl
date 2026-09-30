@@ -132,6 +132,20 @@ tolerations:
 affinity:
   {{- toYaml . | nindent 2 }}
 {{- end }}
+{{- with $.Values.priorityClassName }}
+priorityClassName: {{ . | quote }}
+{{- end }}
+{{- with $.Values.runtimeClassName }}
+runtimeClassName: {{ . | quote }}
+{{- end }}
+{{- with $.Values.dnsConfig }}
+dnsConfig:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with $.Values.hostAliases }}
+hostAliases:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
 {{- if $isDeployment }}
 {{- if kindIs "invalid" $.Values.topologySpreadConstraints }}
 topologySpreadConstraints:

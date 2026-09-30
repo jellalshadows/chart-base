@@ -457,3 +457,72 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "/cronjob/startingDeadlineSeconds': minimum"
+
+  - it: rejects an empty priorityClassName
+    set:
+      priorityClassName: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "/priorityClassName': minLength"
+
+  - it: rejects an empty runtimeClassName
+    set:
+      runtimeClassName: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "/runtimeClassName': minLength"
+
+  - it: rejects more than 3 dnsConfig nameservers
+    set:
+      dnsConfig.nameservers: [10.0.0.1, 10.0.0.2, 10.0.0.3, 10.0.0.4]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/dnsConfig/nameservers': maxItems"
+
+  - it: rejects more than 32 dnsConfig searches
+    set:
+      dnsConfig.searches: [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12, s13, s14, s15, s16, s17, s18, s19, s20, s21, s22, s23, s24, s25, s26, s27, s28, s29, s30, s31, s32, s33]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/dnsConfig/searches': maxItems"
+
+  - it: requires a name in every dnsConfig option
+    set:
+      dnsConfig.options:
+        - value: "2"
+    asserts:
+      - failedTemplate:
+          errorPattern: "/dnsConfig/options/0': missing property 'name'"
+
+  - it: rejects a dnsConfig option value that is not a string (quote it)
+    set:
+      dnsConfig.options:
+        - name: ndots
+          value: 2
+    asserts:
+      - failedTemplate:
+          errorPattern: "/dnsConfig/options/0/value': got number, want string"
+
+  - it: rejects unknown keys in dnsConfig
+    set:
+      dnsConfig.nameserver: [10.0.0.1]
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'nameserver' not allowed"
+
+  - it: requires ip in every hostAliases entry
+    set:
+      hostAliases:
+        - hostnames: [legacy-db]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/hostAliases/0': missing property 'ip'"
+
+  - it: requires at least one hostname in every hostAliases entry
+    set:
+      hostAliases:
+        - ip: 10.20.30.40
+          hostnames: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "/hostAliases/0/hostnames': minItems"

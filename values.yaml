@@ -230,3 +230,17 @@ tolerations: []
 
 # -- Affinity.
 affinity: {}
+
+# -- (string) PriorityClass of the pods (`priorityClassName`); it must exist. `null` = the default priority
+# (the `globalDefault` PriorityClass, or 0).
+priorityClassName: null
+
+# -- (string) RuntimeClass of the pods (`runtimeClassName`), e.g. `gvisor`; it must exist. `null` = the default runtime handler.
+runtimeClassName: null
+
+# -- (object) DNS settings merged into those of the pod's DNS policy (`dnsConfig`): `nameservers` (at most 3), `searches`
+# (at most 32) and `options`, e.g. `{options: [{name: ndots, value: "2"}]}` (option values are strings: quote them).
+dnsConfig: null
+
+# -- Extra `/etc/hosts` entries of the pods (`hostAliases`), e.g. `[{ip: 10.0.0.5, hostnames: [legacy-db.internal]}]`.
+hostAliases: []
