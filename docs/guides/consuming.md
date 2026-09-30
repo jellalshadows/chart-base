@@ -176,12 +176,14 @@ Hook resources are not part of the release, so `helm uninstall` does not delete 
 What fails **before the cluster is touched**, at `helm template`, `helm lint` and `helm install` /
 `helm upgrade` alike (rendering and schema validation are local):
 
-- A value that breaks the schema: an unknown key, a wrong type, a missing required key, a feature
-  that does not apply to the workload type. The error names the alias.
+- A value that breaks the schema: an unknown key, a wrong type, a missing required key, a
+  `maxUnavailable` given as a percentage above 100% (an integer above 100 is valid). The error names the
+  alias. Keys that apply to one workload type only (`strategy`, `minReadySeconds`, ...) are ignored on the
+  others, not rejected.
 - A guard that spans several keys or names, for example a name that is not a DNS-1035 label, a name longer than 63
   characters (52 for a CronJob), a Kubernetes version below 1.33, `autoscaling.minReplicas` greater
-  than `maxReplicas`, a rollout that Kubernetes would reject (`maxSurge` and `maxUnavailable` both 0, a
-  `maxUnavailable` above 100%, `minReadySeconds` not lower than `progressDeadlineSeconds`), a custom
+  than `maxReplicas`, a rollout that Kubernetes would reject (`maxSurge` and `maxUnavailable` both 0,
+  `minReadySeconds` not lower than `progressDeadlineSeconds`), a custom
   `lifecycle.preStop` next to the built-in preStop sleep, a lifecycle `sleep` longer than
   `terminationGracePeriodSeconds`.
 
@@ -212,8 +214,10 @@ What fails **at rollout**, in the cluster:
 - A slow component that legitimately needs more than 240 seconds must raise
   `progressDeadlineSeconds` under its alias.
 - A `priorityClassName` or `runtimeClassName` that names no existing class: the Priority or the
-  RuntimeClass admission plugin (both on by default) rejects the pods, so the rollout fails after
-  `progressDeadlineSeconds` ([ADR-0036](../adr/0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md)).
+  RuntimeClass admission plugin (both on by default) rejects the pods. A Deployment's rollout fails
+  after `progressDeadlineSeconds`; for a `pre-deploy` or `post-deploy` Job hook no pod is ever created, so
+  the release waits until Helm's `--timeout` (or `job.activeDeadlineSeconds`); for a CronJob the runs
+  silently never start ([ADR-0036](../adr/0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md)).
 
 ## Recommendations for umbrella authors
 

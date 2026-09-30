@@ -60,11 +60,23 @@ In 0.2.x the chart did not render `spec.suspend`, so a CronJob could only be sus
 suspended that way: a client-side upgrade (Helm 3, or Helm 4 on a release installed client-side) computes
 a three-way merge that writes the `false` over the live `true`; with Helm 4's server-side apply (its
 default for the releases it installs) the same change can instead fail the upgrade with a field-manager
-conflict. A resumed CronJob without `startingDeadlineSeconds` may start its missed run immediately.
+conflict. A resumed CronJob without `startingDeadlineSeconds` has its missed runs scheduled immediately.
+
+If you do want the CronJob resumed, pass `--force-conflicts` to `helm upgrade` on Helm 4 (a server-side
+apply flag: it forces the change through conflicts with other field managers).
 
 **To keep a CronJob suspended, set `<alias>.cronjob.suspend: true` before upgrading.** Nothing changes for
 a CronJob that was never suspended (`false` is Kubernetes' default), and from 0.3.0 on a suspension
 belongs in the values, not only in the cluster.
+
+### Installing chart-base directly: do not upgrade with `--reuse-values`
+
+A release that installs chart-base directly (not through an umbrella) and is upgraded with
+`helm upgrade --reuse-values` fails validation (`missing property 'enableServiceLinks'`,
+`/cronjob: missing property 'suspend'`): Helm reuses the previous release's values instead of the new
+chart's defaults, so the keys added in 0.3.0 are missing. Use `--reset-then-reuse-values` (available in Helm 3.22 and 4.3) or pass your
+values files again.
+Umbrellas are not affected.
 
 ### New and optional: rollout and pod runtime knobs, `lifecycle`
 

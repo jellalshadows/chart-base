@@ -241,7 +241,7 @@ sales-migrations:
 | cronjob.schedule | string | `""` | Cron schedule. Required for cronjob. |
 | cronjob.startingDeadlineSeconds | int | `nil` | Seconds after its scheduled time within which a missed run may still start; a later run is skipped and counted as failed. `null` = no deadline. Under 10 the CronJob may not be scheduled at all (the controller checks every 10 seconds). |
 | cronjob.successfulJobsHistoryLimit | int | `3` | Successful Jobs to keep. |
-| cronjob.suspend | bool | `false` | Suspend future runs (runs already started are not affected). Unsuspending a CronJob without `startingDeadlineSeconds` schedules the runs it missed immediately. |
+| cronjob.suspend | bool | `false` | Suspend future runs (runs already started are not affected). Unsuspending a CronJob without `startingDeadlineSeconds` schedules its missed runs immediately. |
 | cronjob.timeZone | string | `""` | IANA time zone, e.g. `Europe/Madrid`. Empty = controller default (UTC). |
 | dnsConfig | object | `nil` | DNS settings merged into those of the pod's DNS policy (`dnsConfig`): `nameservers` (at most 3), `searches` (at most 32) and `options`, e.g. `{options: [{name: ndots, value: "2"}]}` (option values are strings: quote them). |
 | enableServiceLinks | bool | `false` | Inject `<SERVICE>_SERVICE_HOST`/`_PORT` and Docker-links variables for every Service of the namespace (`enableServiceLinks`). `false` here (Kubernetes defaults to `true`): a Service named e.g. `redis` injects `REDIS_PORT=tcp://...`, which an app that reads `REDIS_PORT` without the component setting it gets instead of a port. `KUBERNETES_SERVICE_HOST`/`_PORT` are injected either way. Set `true` to restore Kubernetes' behavior. |
@@ -300,7 +300,7 @@ sales-migrations:
 | serviceAccount.automountToken | bool | `false` | Mount the ServiceAccount token into the pod. |
 | serviceAccount.create | bool | `true` | Create a ServiceAccount named `<fullname>`. When `false`, the namespace `default` ServiceAccount is used. |
 | strategy | object | `nil` | Deployment update strategy (`spec.strategy`): `{type: RollingUpdate, rollingUpdate: {maxSurge, maxUnavailable}}` or `{type: Recreate}`. `null` = Kubernetes default (`RollingUpdate`, 25% surge, 25% unavailable). Deployments only. |
-| terminationGracePeriodSeconds | int | `30` | Pod termination grace period. Must be greater than `preStopSleepSeconds`. |
+| terminationGracePeriodSeconds | int | `30` | Pod termination grace period. Must be greater than `preStopSleepSeconds`; a `lifecycle` sleep must not exceed it. |
 | tolerations | list | `[]` | Tolerations. |
 | topologySpreadConstraints | list | `nil` | `null` = chart defaults (zone + hostname spread, ScheduleAnyway); `[]` = none; a list = used verbatim. |
 | workload.type | string | `"deployment"` | Workload kind: `deployment` (API or worker), `cronjob`, or `job` (a Helm hook, see `job.phase`). |
@@ -462,7 +462,7 @@ code, official docs) and local renders.
     `<SERVICE>_SERVICE_PORT` and Docker-links variables for every Service of the namespace, and a domain's
     namespace holds every component: a Service named `redis` injects `REDIS_PORT=tcp://...`, which an app
     that reads `REDIS_PORT` without the component setting it gets instead of a port.
-    `KUBERNETES_SERVICE_HOST`/`_PORT` are still injected. Breaking in 0.3.0: every pod rotates once.
+    `KUBERNETES_SERVICE_HOST`/`_PORT` are still injected. Breaking in 0.3.0: Deployments roll once on upgrade; CronJob and Job pods pick it up at their next run.
     *Rejected:* keeping Kubernetes' default (`true`) and only exposing the key.
     [ADR-0035](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0035-service-links-off-by-default.md)
 36. **Rollout and pod runtime knobs are validated pass-throughs.** `strategy`, `minReadySeconds`,
@@ -478,7 +478,7 @@ code, official docs) and local renders.
     custom `lifecycle.preStop` must turn the sleep off explicitly instead of replacing it silently.
     `postStart` works next to the sleep. A custom `sleep` may not outlast `terminationGracePeriodSeconds`
     (the API server's bound); `tcpSocket` (not supported by Kubernetes in lifecycle hooks) and
-    `httpGet.host` (Pod Security only allows it empty) are rejected. *Rejected:* the custom hook silently
+    `httpGet.host` (Pod Security Standards baseline, from v1.34, only allows it empty) are rejected. *Rejected:* the custom hook silently
     winning over the sleep.
     [ADR-0037](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0037-one-prestop-hook.md)
 

@@ -133,7 +133,7 @@ topologySpreadConstraints: null
 # -- Seconds to sleep in preStop so endpoints drain before SIGTERM. `0` disables it (required with `lifecycle.preStop`). Deployments only.
 preStopSleepSeconds: 5
 
-# -- Pod termination grace period. Must be greater than `preStopSleepSeconds`.
+# -- Pod termination grace period. Must be greater than `preStopSleepSeconds`; a `lifecycle` sleep must not exceed it.
 terminationGracePeriodSeconds: 30
 
 # -- Container lifecycle hooks `postStart` and `preStop`, each with exactly one of `exec`, `httpGet` or `sleep`
@@ -181,7 +181,7 @@ cronjob:
   # counted as failed. `null` = no deadline. Under 10 the CronJob may not be scheduled at all (the controller checks every 10 seconds).
   startingDeadlineSeconds: null
   # -- Suspend future runs (runs already started are not affected). Unsuspending a CronJob without
-  # `startingDeadlineSeconds` schedules the runs it missed immediately.
+  # `startingDeadlineSeconds` schedules its missed runs immediately.
   suspend: false
 
 job:

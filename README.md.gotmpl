@@ -382,7 +382,7 @@ code, official docs) and local renders.
     `<SERVICE>_SERVICE_PORT` and Docker-links variables for every Service of the namespace, and a domain's
     namespace holds every component: a Service named `redis` injects `REDIS_PORT=tcp://...`, which an app
     that reads `REDIS_PORT` without the component setting it gets instead of a port.
-    `KUBERNETES_SERVICE_HOST`/`_PORT` are still injected. Breaking in 0.3.0: every pod rotates once.
+    `KUBERNETES_SERVICE_HOST`/`_PORT` are still injected. Breaking in 0.3.0: Deployments roll once on upgrade; CronJob and Job pods pick it up at their next run.
     *Rejected:* keeping Kubernetes' default (`true`) and only exposing the key.
     [ADR-0035](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0035-service-links-off-by-default.md)
 36. **Rollout and pod runtime knobs are validated pass-throughs.** `strategy`, `minReadySeconds`,
@@ -398,7 +398,7 @@ code, official docs) and local renders.
     custom `lifecycle.preStop` must turn the sleep off explicitly instead of replacing it silently.
     `postStart` works next to the sleep. A custom `sleep` may not outlast `terminationGracePeriodSeconds`
     (the API server's bound); `tcpSocket` (not supported by Kubernetes in lifecycle hooks) and
-    `httpGet.host` (Pod Security only allows it empty) are rejected. *Rejected:* the custom hook silently
+    `httpGet.host` (Pod Security Standards baseline, from v1.34, only allows it empty) are rejected. *Rejected:* the custom hook silently
     winning over the sleep.
     [ADR-0037](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0037-one-prestop-hook.md)
 
