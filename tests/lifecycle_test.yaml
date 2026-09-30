@@ -1,0 +1,84 @@
+suite: container lifecycle hooks
+templates:
+  - templates/deployment.yaml
+  - templates/cronjob.yaml
+  - templates/job.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+values:
+  - values/base.yaml
+tests:
+  - it: renders postStart next to the built-in preStop sleep on Deployments
+    template: templates/deployment.yaml
+    set:
+      lifecycle.postStart.exec.command: ["sh", "-c", "date > /tmp/started"]
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].lifecycle
+          value:
+            postStart:
+              exec:
+                command: ["sh", "-c", "date > /tmp/started"]
+            preStop:
+              sleep:
+                seconds: 5
+
+  - it: renders a custom preStop instead of the built-in sleep when preStopSleepSeconds is 0
+    template: templates/deployment.yaml
+    set:
+      preStopSleepSeconds: 0
+      lifecycle.preStop.httpGet.path: /drain
+      lifecycle.preStop.httpGet.port: http
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].lifecycle
+          value:
+            preStop:
+              httpGet:
+                path: /drain
+                port: http
+
+  - it: renders lifecycle hooks on CronJob runs (the built-in sleep is for Deployments only)
+    template: templates/cronjob.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      lifecycle.postStart.sleep.seconds: 2
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].lifecycle
+          value:
+            postStart:
+              sleep:
+                seconds: 2
+
+  - it: renders a custom preStop on Job hooks with the default preStopSleepSeconds
+    template: templates/job.yaml
+    set:
+      workload.type: job
+      lifecycle.preStop.exec.command: ["/app/flush"]
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].lifecycle
+          value:
+            preStop:
+              exec:
+                command: ["/app/flush"]
+
+  - it: keeps the built-in preStop sleep when lifecycle is null
+    template: templates/deployment.yaml
+    set:
+      lifecycle: null
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].lifecycle
+          value:
+            preStop:
+              sleep:
+                seconds: 5

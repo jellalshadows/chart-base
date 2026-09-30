@@ -150,6 +150,31 @@ orders:
 edited ConfigMap restarts the pods. External `envFrom` sources are injected
 before the chart's own ConfigMap/Secret, and `env` wins over every `envFrom` source.
 
+### Zero-downtime rollouts at any replica count
+
+```yaml
+payments:
+  image: {repository: ghcr.io/acme/payments, tag: "2.3.0"}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1                           # start one new pod first...
+      maxUnavailable: 0                     # ...and remove an old one only when the new one is available
+  minReadySeconds: 10                       # available = Ready for 10 s without a container crash
+  probes:
+    readiness:                              # without it, a pod is Ready as soon as its container starts
+      httpGet: {path: /ready, port: http}
+```
+
+With `maxUnavailable: 0` a rollout never removes a pod before its replacement is available, whatever the
+replica count. Kubernetes' default (25% each; `maxSurge` rounds up, `maxUnavailable` rounds down) already
+gives 1 and 0 below 4 replicas, but from 4 replicas on it lets pods go first, for example after the HPA
+scales up: pinning the values keeps the guarantee. `maxSurge` and `maxUnavailable` both 0 fail at render
+time, and so does a `minReadySeconds` that is not lower than `progressDeadlineSeconds`.
+
 ### Worker (e.g. a Kafka consumer)
 
 ```yaml
@@ -214,8 +239,12 @@ sales-migrations:
 | cronjob.concurrencyPolicy | string | `"Forbid"` | `Allow`, `Forbid` or `Replace`. |
 | cronjob.failedJobsHistoryLimit | int | `1` | Failed Jobs to keep. |
 | cronjob.schedule | string | `""` | Cron schedule. Required for cronjob. |
+| cronjob.startingDeadlineSeconds | int | `nil` | Seconds after its scheduled time within which a missed run may still start; a later run is skipped and counted as failed. `null` = no deadline. Under 10 the CronJob may not be scheduled at all (the controller checks every 10 seconds). |
 | cronjob.successfulJobsHistoryLimit | int | `3` | Successful Jobs to keep. |
+| cronjob.suspend | bool | `false` | Suspend future runs (runs already started are not affected). Unsuspending a CronJob without `startingDeadlineSeconds` schedules its missed runs immediately. |
 | cronjob.timeZone | string | `""` | IANA time zone, e.g. `Europe/Madrid`. Empty = controller default (UTC). |
+| dnsConfig | object | `nil` | DNS settings merged into those of the pod's DNS policy (`dnsConfig`): `nameservers` (at most 3), `searches` (at most 32) and `options`, e.g. `{options: [{name: ndots, value: "2"}]}` (option values are strings: quote them). |
+| enableServiceLinks | bool | `false` | Inject `<SERVICE>_SERVICE_HOST`/`_PORT` and Docker-links variables for every Service of the namespace (`enableServiceLinks`). `false` here (Kubernetes defaults to `true`): a Service named e.g. `redis` injects `REDIS_PORT=tcp://...`, which an app that reads `REDIS_PORT` without the component setting it gets instead of a port. `KUBERNETES_SERVICE_HOST`/`_PORT` are injected either way. Set `true` to restore Kubernetes' behavior. |
 | env | object | `{}` | Environment variables from REFERENCES only (literal values belong in `config`): a map of `NAME: {valueFrom: {<source>: ...}}` where the source is one of `fieldRef`, `resourceFieldRef`, `secretKeyRef` or `configMapKeyRef`. Rendered as container `env`, which wins over every `envFrom` source. |
 | envFrom | list | `[]` | Existing ConfigMaps/Secrets injected whole, e.g. `[{secretRef: {name: sales-kafka-user}}]` or `[{configMapRef: {name: shared, optional: true}, prefix: SHARED_}]`. Injected BEFORE the chart's own `-env`/`-secrets`, so the component's explicit `config`/`externalSecret` win on duplicate keys. |
 | externalSecret.data | object | `{}` | Map of `ENV_VAR: {key: <remote key>, property: <optional field>}`. |
@@ -223,6 +252,7 @@ sales-migrations:
 | externalSecret.refreshInterval | string | `"1h"` | How often ESO re-reads the remote secrets. |
 | externalSecret.secretStoreRef.kind | string | `"ClusterSecretStore"` | `ClusterSecretStore` or `SecretStore`. |
 | externalSecret.secretStoreRef.name | string | `""` | Name of the secret store. Required when enabled. |
+| hostAliases | list | `[]` | Extra `/etc/hosts` entries of the pods (`hostAliases`), e.g. `[{ip: 10.0.0.5, hostnames: [legacy-db.internal]}]`. |
 | httpRoute.enabled | bool | `false` | Render a Gateway API HTTPRoute (gateway.networking.k8s.io/v1). Requires `service.enabled`. |
 | httpRoute.hostnames | list | `[]` | Hostnames matched by the route. |
 | httpRoute.matches | list | `[{"path":{"type":"PathPrefix","value":"/"}}]` | HTTPRoute matches. The backend is always this component's Service (first port). |
@@ -241,6 +271,8 @@ sales-migrations:
 | job.backoffLimit | int | `3` | Retries before the Job is marked failed (also used by cronjob runs). |
 | job.phase | string | `"pre-deploy"` | Helm hook phase for `workload.type: job`: `pre-deploy` (pre-install,pre-upgrade) or `post-deploy` (post-install,post-upgrade). |
 | job.ttlSecondsAfterFinished | int | `3600` | Seconds a finished Job (workload.type job) is kept for logs before deletion. CronJob runs are retained by the cronjob history limits instead. |
+| lifecycle | object | `{}` | Container lifecycle hooks `postStart` and `preStop`, each with exactly one of `exec`, `httpGet` or `sleep` (Kubernetes does not support `tcpSocket` here), e.g. `{preStop: {exec: {command: ["/app/drain"]}}}`. On Deployments, `lifecycle.preStop` replaces the built-in preStop sleep and requires `preStopSleepSeconds: 0`. |
+| minReadySeconds | int | `nil` | Seconds a new pod must be Ready, without any container crashing, before it counts as available (`spec.minReadySeconds`). `null` = Kubernetes default (0). Must be lower than `progressDeadlineSeconds`. Deployments only. |
 | nodeSelector | object | `{}` | Node selector. |
 | pdb.enabled | bool | `true` | Render a PodDisruptionBudget (policy/v1). Deployments only. |
 | pdb.maxUnavailable | int or string | `nil` | Max unavailable pods. When neither this nor `minAvailable` is set, `1` is used. |
@@ -250,7 +282,8 @@ sales-migrations:
 | podLabels | object | `{}` | Extra pod labels. |
 | podSecurityContext | object | `{"fsGroup":65532,"fsGroupChangePolicy":"OnRootMismatch","runAsGroup":65532,"runAsNonRoot":true,"runAsUser":65532,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod security context. Defaults satisfy the Pod Security Standards `restricted` profile; override key by key. |
 | ports | list | `[{"containerPort":8080,"name":"http"}]` | Container ports. Each entry also becomes a Service port when a Service is rendered. `servicePort` is optional and defaults to `containerPort`. |
-| preStopSleepSeconds | int | `5` | Seconds to sleep in preStop so endpoints drain before SIGTERM. `0` disables it. Deployments only. |
+| preStopSleepSeconds | int | `5` | Seconds to sleep in preStop so endpoints drain before SIGTERM. `0` disables it (required with `lifecycle.preStop`). Deployments only. |
+| priorityClassName | string | `nil` | PriorityClass of the pods (`priorityClassName`); it must exist. `null` = the default priority (the `globalDefault` PriorityClass, or 0). |
 | probes.liveness | object | `{}` | Liveness probe (Kubernetes probe object). Empty = not rendered. |
 | probes.readiness | object | `{}` | Readiness probe (Kubernetes probe object). Empty = not rendered. |
 | probes.startup | object | `{}` | Startup probe (Kubernetes probe object). Empty = not rendered. |
@@ -258,13 +291,16 @@ sales-migrations:
 | reloadOnChange | bool | `true` | Restart Deployments (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is updated: the ExternalSecret's Secret and every Secret/ConfigMap referenced in `env`/`envFrom`. The chart's own ConfigMaps roll pods through checksum annotations instead. |
 | replicas | int | `1` | Deployment replicas. Ignored when `autoscaling.enabled`. |
 | resources | object | `{}` | Required: `requests.cpu` and `requests.memory`. Container resources. |
+| revisionHistoryLimit | int | `nil` | Old ReplicaSets kept for `kubectl rollout undo` (`spec.revisionHistoryLimit`). `null` = Kubernetes default (10). Deployments only. |
+| runtimeClassName | string | `nil` | RuntimeClass of the pods (`runtimeClassName`), e.g. `gvisor`; it must exist. `null` = the default runtime handler. |
 | securityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true,"runAsNonRoot":true}` | Container security context. `readOnlyRootFilesystem` is extra hardening (an emptyDir is always mounted at `/tmp`). |
 | service.enabled | bool | `true` | Render a Service (deployments only). Set `false` for workers. |
 | service.type | string | `"ClusterIP"` | Service type. |
 | serviceAccount.annotations | object | `{}` | ServiceAccount annotations (e.g. GKE Workload Identity). |
 | serviceAccount.automountToken | bool | `false` | Mount the ServiceAccount token into the pod. |
 | serviceAccount.create | bool | `true` | Create a ServiceAccount named `<fullname>`. When `false`, the namespace `default` ServiceAccount is used. |
-| terminationGracePeriodSeconds | int | `30` | Pod termination grace period. Must be greater than `preStopSleepSeconds`. |
+| strategy | object | `nil` | Deployment update strategy (`spec.strategy`): `{type: RollingUpdate, rollingUpdate: {maxSurge, maxUnavailable}}` or `{type: Recreate}`. `null` = Kubernetes default (`RollingUpdate`, 25% surge, 25% unavailable). Deployments only. |
+| terminationGracePeriodSeconds | int | `30` | Pod termination grace period. Must be greater than `preStopSleepSeconds`; a `lifecycle` sleep must not exceed it. |
 | tolerations | list | `[]` | Tolerations. |
 | topologySpreadConstraints | list | `nil` | `null` = chart defaults (zone + hostname spread, ScheduleAnyway); `[]` = none; a list = used verbatim. |
 | workload.type | string | `"deployment"` | Workload kind: `deployment` (API or worker), `cronjob`, or `job` (a Helm hook, see `job.phase`). |
@@ -316,7 +352,9 @@ code, official docs) and local renders.
    [ADR-0009](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0009-no-name-overrides.md)
 10. **Bumping `chart-base` never restarts pods by itself.** `helm.sh/chart` is never a pod label, and the
     config checksums hash only the ConfigMaps' `data` (their metadata carries `helm.sh/chart`). Otherwise
-    every chart release would restart every pod of the domain without any real change.
+    every chart release would restart every pod of the domain without any real change. A breaking release
+    that changes the pod template on purpose restarts the pods once and says so in the upgrade guide
+    (0.3.0, decision 35).
     *Rejected:* the labels `helm create` puts on the pod template; hashing the whole rendered ConfigMap.
     [ADR-0010](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0010-chart-version-never-restarts-pods.md)
 11. **Strict draft-07 schema with reserved `global` and `enabled`.** Typos fail instead of being ignored;
@@ -420,6 +458,29 @@ code, official docs) and local renders.
     *Rejected:* a signing key pair (a secret to guard and rotate); legacy `.sig` signatures (deprecated);
     relying on `cosign verify` accepting the attestation (it does not filter by type).
     [ADR-0034](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0034-keyless-cosign-signatures.md)
+35. **Service links are off (`enableServiceLinks: false`).** Kubernetes injects `<SERVICE>_SERVICE_HOST`,
+    `<SERVICE>_SERVICE_PORT` and Docker-links variables for every Service of the namespace, and a domain's
+    namespace holds every component: a Service named `redis` injects `REDIS_PORT=tcp://...`, which an app
+    that reads `REDIS_PORT` without the component setting it gets instead of a port.
+    `KUBERNETES_SERVICE_HOST`/`_PORT` are still injected. Breaking in 0.3.0: Deployments roll once on upgrade; CronJob and Job pods pick it up at their next run.
+    *Rejected:* keeping Kubernetes' default (`true`) and only exposing the key.
+    [ADR-0035](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0035-service-links-off-by-default.md)
+36. **Rollout and pod runtime knobs are validated pass-throughs.** `strategy`, `minReadySeconds`,
+    `revisionHistoryLimit`, `cronjob.startingDeadlineSeconds`, `priorityClassName`, `runtimeClassName`,
+    `dnsConfig` and `hostAliases` render nothing by default, so Kubernetes' defaults apply; when set they are
+    rendered as given, after a strict schema and guards for what the API server would reject (`maxSurge`
+    and `maxUnavailable` both 0, a `maxUnavailable` above 100%, `rollingUpdate` with `Recreate`,
+    `minReadySeconds` not lower than `progressDeadlineSeconds`). `cronjob.suspend` is always rendered.
+    *Rejected:* rollout defaults chosen by the chart; a free-form pod spec pass-through.
+    [ADR-0036](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md)
+37. **One preStop hook: `lifecycle.preStop` requires `preStopSleepSeconds: 0`.** A container has one
+    `preStop` handler, and the built-in sleep keeps endpoint draining on by default, so a Deployment's
+    custom `lifecycle.preStop` must turn the sleep off explicitly instead of replacing it silently.
+    `postStart` works next to the sleep. A custom `sleep` may not outlast `terminationGracePeriodSeconds`
+    (the API server's bound); `tcpSocket` (not supported by Kubernetes in lifecycle hooks) and
+    `httpGet.host` (Pod Security Standards baseline, from v1.34, only allows it empty) are rejected. *Rejected:* the custom hook silently
+    winning over the sleep.
+    [ADR-0037](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0037-one-prestop-hook.md)
 
 ## Versioning and releases
 

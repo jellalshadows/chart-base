@@ -20,7 +20,7 @@ not published; each record restates every fact it uses.
 | [0007](0007-jobs-as-helm-hooks.md) | `workload.type: job` is a Helm hook | Accepted | 0.1.0 |
 | [0008](0008-names-are-release-alias-and-never-truncated.md) | Names are `<release>-<alias>` and never truncated | Accepted | 0.1.0 |
 | [0009](0009-no-name-overrides.md) | No `nameOverride`/`fullnameOverride` | Accepted | 0.1.0 |
-| [0010](0010-chart-version-never-restarts-pods.md) | Bumping chart-base never restarts pods by itself | Accepted | 0.1.0 |
+| [0010](0010-chart-version-never-restarts-pods.md) | Bumping chart-base never restarts pods by itself | Amended by 0035 | 0.1.0 |
 | [0011](0011-strict-draft-07-schema.md) | Strict draft-07 schema with reserved `global` and `enabled` | Accepted | 0.1.0 |
 | [0012](0012-no-capabilities-gating.md) | No `.Capabilities` gating for CRD kinds | Accepted | 0.1.0 |
 | [0013](0013-secure-by-default.md) | Secure by default (Pod Security `restricted`) | Accepted | 0.1.0 |
@@ -45,6 +45,9 @@ not published; each record restates every fact it uses.
 | [0032](0032-external-envfrom-first-env-wins.md) | External `envFrom` sources first, `env` wins | Accepted | 0.2.0 |
 | [0033](0033-component-level-reload-on-change.md) | Component-level `reloadOnChange` | Accepted | 0.2.0 |
 | [0034](0034-keyless-cosign-signatures.md) | Keyless cosign signatures by digest | Accepted | after 0.2.0 (ci) |
+| [0035](0035-service-links-off-by-default.md) | Service links are off by default | Accepted | 0.3.0 |
+| [0036](0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md) | Rollout and pod runtime knobs are validated pass-throughs | Accepted | 0.3.0 |
+| [0037](0037-one-prestop-hook.md) | One preStop hook: `lifecycle.preStop` requires `preStopSleepSeconds: 0` | Accepted | 0.3.0 |
 
 ## Adding a record
 

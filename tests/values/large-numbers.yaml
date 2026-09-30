@@ -7,3 +7,8 @@ config:
 job:
   ttlSecondsAfterFinished: 1209600
   activeDeadlineSeconds: 1000000
+progressDeadlineSeconds: 2000000
+minReadySeconds: 1000000
+revisionHistoryLimit: 1000000
+cronjob:
+  startingDeadlineSeconds: 1000000

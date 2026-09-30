@@ -18,7 +18,7 @@ default
 {{/*
 Pod spec shared by Deployment, CronJob and Job.
 Usage: include "chart-base.podSpec" (dict "ctx" $ "restartPolicy" "Never")
-Deployment-only parts (preStop, topology spread) are rendered only for deployments.
+Deployment-only parts (the built-in preStop sleep, topology spread) are rendered only for deployments.
 */}}
 {{- define "chart-base.podSpec" -}}
 {{- $ := .ctx -}}
@@ -26,6 +26,7 @@ Deployment-only parts (preStop, topology spread) are rendered only for deploymen
 {{- $isDeployment := eq $.Values.workload.type "deployment" -}}
 serviceAccountName: {{ include "chart-base.serviceAccountName" $ }}
 automountServiceAccountToken: {{ $.Values.serviceAccount.automountToken }}
+enableServiceLinks: {{ $.Values.enableServiceLinks }}
 {{- with .restartPolicy }}
 restartPolicy: {{ . }}
 {{- end }}
@@ -94,11 +95,23 @@ containers:
     readinessProbe:
       {{- toYaml . | nindent 6 }}
     {{- end }}
-    {{- if and $isDeployment (gt (int $.Values.preStopSleepSeconds) 0) }}
+    {{- $lifecycle := $.Values.lifecycle | default dict }}
+    {{- $preStopSleep := and $isDeployment (gt (int $.Values.preStopSleepSeconds) 0) }}
+    {{- if or $lifecycle $preStopSleep }}
     lifecycle:
+      {{- with $lifecycle.postStart }}
+      postStart:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- /* One preStop only: templates/validate.yaml rejects lifecycle.preStop with the built-in sleep on deployments. */}}
+      {{- if $lifecycle.preStop }}
+      preStop:
+        {{- toYaml $lifecycle.preStop | nindent 8 }}
+      {{- else if $preStopSleep }}
       preStop:
         sleep:
           seconds: {{ $.Values.preStopSleepSeconds }}
+      {{- end }}
     {{- end }}
     resources:
       {{- toYaml $.Values.resources | nindent 6 }}
@@ -130,6 +143,20 @@ tolerations:
 {{- end }}
 {{- with $.Values.affinity }}
 affinity:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with $.Values.priorityClassName }}
+priorityClassName: {{ . | quote }}
+{{- end }}
+{{- with $.Values.runtimeClassName }}
+runtimeClassName: {{ . | quote }}
+{{- end }}
+{{- with $.Values.dnsConfig }}
+dnsConfig:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with $.Values.hostAliases }}
+hostAliases:
   {{- toYaml . | nindent 2 }}
 {{- end }}
 {{- if $isDeployment }}

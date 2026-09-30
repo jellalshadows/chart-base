@@ -27,6 +27,31 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if and (eq .Values.workload.type "deployment") (ge (int .Values.preStopSleepSeconds) (int .Values.terminationGracePeriodSeconds)) (gt (int .Values.preStopSleepSeconds) 0) -}}
 {{- include "chart-base.fail" (list . "preStopSleepSeconds must be lower than terminationGracePeriodSeconds") -}}
 {{- end -}}
+{{- if and (eq .Values.workload.type "deployment") (.Values.lifecycle | default dict).preStop (gt (int .Values.preStopSleepSeconds) 0) -}}
+{{- include "chart-base.fail" (list . "lifecycle.preStop replaces the built-in preStop sleep: set preStopSleepSeconds: 0 (a container has one preStop hook)") -}}
+{{- end -}}
+{{- /* Same bound as the API server (validateSleepAction): a lifecycle sleep may last the whole grace period, not longer. */ -}}
+{{- range $hook := list "postStart" "preStop" -}}
+{{- with (get ($.Values.lifecycle | default dict) $hook) -}}
+{{- if and .sleep (gt (int64 .sleep.seconds) (int64 $.Values.terminationGracePeriodSeconds)) -}}
+{{- include "chart-base.fail" (list $ (printf "lifecycle.%s.sleep.seconds (%d) must not be greater than terminationGracePeriodSeconds (%d)" $hook (int64 .sleep.seconds) (int64 $.Values.terminationGracePeriodSeconds))) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if and (eq .Values.workload.type "deployment") (not (kindIs "invalid" .Values.minReadySeconds)) (ge (int64 .Values.minReadySeconds) (int64 .Values.progressDeadlineSeconds)) -}}
+{{- include "chart-base.fail" (list . "minReadySeconds must be lower than progressDeadlineSeconds") -}}
+{{- end -}}
+{{- $rollingUpdate := (.Values.strategy | default dict).rollingUpdate | default dict -}}
+{{- if and (eq .Values.workload.type "deployment") (hasKey $rollingUpdate "maxSurge") (hasKey $rollingUpdate "maxUnavailable") -}}
+{{- /* Kubernetes rejects a rolling update that can neither add nor remove a pod; "0%" counts as 0. */ -}}
+{{- $surge := $rollingUpdate.maxSurge -}}
+{{- $unavailable := $rollingUpdate.maxUnavailable -}}
+{{- if kindIs "string" $surge }}{{ $surge = trimSuffix "%" $surge | atoi }}{{ end -}}
+{{- if kindIs "string" $unavailable }}{{ $unavailable = trimSuffix "%" $unavailable | atoi }}{{ end -}}
+{{- if and (eq (int64 $surge) 0) (eq (int64 $unavailable) 0) -}}
+{{- include "chart-base.fail" (list . "strategy.rollingUpdate.maxSurge and maxUnavailable cannot both be 0 (the rollout could not replace any pod)") -}}
+{{- end -}}
+{{- end -}}
 
 {{- if kindIs "slice" .Values.env -}}
 {{- include "chart-base.fail" (list . "env is a map of NAME: {valueFrom: ...}, not a Kubernetes env list: literal values belong in config, references in env as a map") -}}

@@ -161,3 +161,105 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: 'env is a map of NAME: \{valueFrom: \.\.\.\}, not a Kubernetes env list: literal values belong in config, references in env as a map'
+
+  - it: rejects maxSurge and maxUnavailable both 0 (Kubernetes rejects it)
+    set:
+      strategy.type: RollingUpdate
+      strategy.rollingUpdate.maxSurge: 0
+      strategy.rollingUpdate.maxUnavailable: 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "strategy.rollingUpdate.maxSurge and maxUnavailable cannot both be 0"
+
+  - it: counts 0% as 0 in the maxSurge and maxUnavailable check
+    set:
+      strategy.type: RollingUpdate
+      strategy.rollingUpdate.maxSurge: 0%
+      strategy.rollingUpdate.maxUnavailable: 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "strategy.rollingUpdate.maxSurge and maxUnavailable cannot both be 0"
+
+  - it: accepts a percentage maxSurge with maxUnavailable 0
+    set:
+      strategy.type: RollingUpdate
+      strategy.rollingUpdate.maxSurge: 25%
+      strategy.rollingUpdate.maxUnavailable: 0
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects minReadySeconds >= progressDeadlineSeconds (Kubernetes rejects it)
+    set:
+      minReadySeconds: 240
+    asserts:
+      - failedTemplate:
+          errorPattern: "minReadySeconds must be lower than progressDeadlineSeconds"
+
+  - it: accepts minReadySeconds just below progressDeadlineSeconds
+    set:
+      minReadySeconds: 239
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: skips the rollout checks for workloads that are not Deployments (the keys are ignored there)
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      minReadySeconds: 240
+      strategy.type: RollingUpdate
+      strategy.rollingUpdate.maxSurge: 0
+      strategy.rollingUpdate.maxUnavailable: 0
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects lifecycle.preStop together with the built-in preStop sleep on Deployments
+    set:
+      lifecycle.preStop.exec.command: ["/app/drain"]
+    asserts:
+      - failedTemplate:
+          errorPattern: "lifecycle.preStop replaces the built-in preStop sleep: set preStopSleepSeconds: 0"
+
+  - it: accepts lifecycle.preStop on a Deployment with preStopSleepSeconds 0
+    set:
+      preStopSleepSeconds: 0
+      lifecycle.preStop.exec.command: ["/app/drain"]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts lifecycle.preStop on a Job hook with the default preStopSleepSeconds (the sleep is for Deployments only)
+    set:
+      workload.type: job
+      lifecycle.preStop.exec.command: ["/app/flush"]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a lifecycle sleep longer than terminationGracePeriodSeconds (Kubernetes rejects it)
+    set:
+      preStopSleepSeconds: 0
+      lifecycle.preStop.sleep.seconds: 31
+    asserts:
+      - failedTemplate:
+          errorPattern: 'lifecycle.preStop.sleep.seconds \(31\) must not be greater than terminationGracePeriodSeconds \(30\)'
+
+  - it: accepts a lifecycle sleep equal to terminationGracePeriodSeconds (the API server's bound)
+    set:
+      preStopSleepSeconds: 0
+      lifecycle.preStop.sleep.seconds: 30
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: checks a postStart sleep of a CronJob against terminationGracePeriodSeconds too (every pod is validated)
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      terminationGracePeriodSeconds: 10
+      lifecycle.postStart.sleep.seconds: 11
+    asserts:
+      - failedTemplate:
+          errorPattern: 'lifecycle.postStart.sleep.seconds \(11\) must not be greater than terminationGracePeriodSeconds \(10\)'

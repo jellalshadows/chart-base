@@ -1,0 +1,135 @@
+suite: pod runtime knobs (every workload type)
+templates:
+  - templates/deployment.yaml
+  - templates/cronjob.yaml
+  - templates/job.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+values:
+  - values/base.yaml
+tests:
+  - it: renders no priorityClassName, runtimeClassName, dnsConfig or hostAliases by default
+    template: templates/deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.priorityClassName
+      - notExists:
+          path: spec.template.spec.runtimeClassName
+      - notExists:
+          path: spec.template.spec.dnsConfig
+      - notExists:
+          path: spec.template.spec.hostAliases
+
+  - it: renders the pod runtime knobs on Deployments
+    template: templates/deployment.yaml
+    values:
+      - values/base.yaml
+      - values/pod-runtime.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.priorityClassName
+          value: business-critical
+      - equal:
+          path: spec.template.spec.runtimeClassName
+          value: gvisor
+      - equal:
+          path: spec.template.spec.dnsConfig
+          value:
+            nameservers:
+              - 10.0.0.10
+            searches:
+              - vending.svc.cluster.local
+            options:
+              - name: ndots
+                value: "2"
+      - equal:
+          path: spec.template.spec.hostAliases
+          value:
+            - ip: 10.20.30.40
+              hostnames:
+                - legacy-db.internal
+                - legacy-db
+
+  - it: renders the pod runtime knobs on CronJob runs
+    template: templates/cronjob.yaml
+    values:
+      - values/base.yaml
+      - values/pod-runtime.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.priorityClassName
+          value: business-critical
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.runtimeClassName
+          value: gvisor
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.dnsConfig.options[0].value
+          value: "2"
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.hostAliases[0].ip
+          value: 10.20.30.40
+
+  - it: renders the pod runtime knobs on Job hooks
+    template: templates/job.yaml
+    values:
+      - values/base.yaml
+      - values/pod-runtime.yaml
+    set:
+      workload.type: job
+    asserts:
+      - equal:
+          path: spec.template.spec.priorityClassName
+          value: business-critical
+      - equal:
+          path: spec.template.spec.runtimeClassName
+          value: gvisor
+      - equal:
+          path: spec.template.spec.dnsConfig.searches[0]
+          value: vending.svc.cluster.local
+      - equal:
+          path: spec.template.spec.hostAliases[0].hostnames[1]
+          value: legacy-db
+
+  - it: disables service links by default on Deployments
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.enableServiceLinks
+          value: false
+
+  - it: disables service links by default on CronJob runs
+    template: templates/cronjob.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.enableServiceLinks
+          value: false
+
+  - it: disables service links by default on Job hooks
+    template: templates/job.yaml
+    set:
+      workload.type: job
+    asserts:
+      - equal:
+          path: spec.template.spec.enableServiceLinks
+          value: false
+
+  - it: restores Kubernetes' service links when enableServiceLinks is true
+    template: templates/deployment.yaml
+    set:
+      enableServiceLinks: true
+    asserts:
+      - equal:
+          path: spec.template.spec.enableServiceLinks
+          value: true

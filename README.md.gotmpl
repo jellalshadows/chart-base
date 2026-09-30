@@ -150,6 +150,31 @@ orders:
 edited ConfigMap restarts the pods. External `envFrom` sources are injected
 before the chart's own ConfigMap/Secret, and `env` wins over every `envFrom` source.
 
+### Zero-downtime rollouts at any replica count
+
+```yaml
+payments:
+  image: {repository: ghcr.io/acme/payments, tag: "2.3.0"}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1                           # start one new pod first...
+      maxUnavailable: 0                     # ...and remove an old one only when the new one is available
+  minReadySeconds: 10                       # available = Ready for 10 s without a container crash
+  probes:
+    readiness:                              # without it, a pod is Ready as soon as its container starts
+      httpGet: {path: /ready, port: http}
+```
+
+With `maxUnavailable: 0` a rollout never removes a pod before its replacement is available, whatever the
+replica count. Kubernetes' default (25% each; `maxSurge` rounds up, `maxUnavailable` rounds down) already
+gives 1 and 0 below 4 replicas, but from 4 replicas on it lets pods go first, for example after the HPA
+scales up: pinning the values keeps the guarantee. `maxSurge` and `maxUnavailable` both 0 fail at render
+time, and so does a `minReadySeconds` that is not lower than `progressDeadlineSeconds`.
+
 ### Worker (e.g. a Kafka consumer)
 
 ```yaml
@@ -247,7 +272,9 @@ code, official docs) and local renders.
    [ADR-0009](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0009-no-name-overrides.md)
 10. **Bumping `chart-base` never restarts pods by itself.** `helm.sh/chart` is never a pod label, and the
     config checksums hash only the ConfigMaps' `data` (their metadata carries `helm.sh/chart`). Otherwise
-    every chart release would restart every pod of the domain without any real change.
+    every chart release would restart every pod of the domain without any real change. A breaking release
+    that changes the pod template on purpose restarts the pods once and says so in the upgrade guide
+    (0.3.0, decision 35).
     *Rejected:* the labels `helm create` puts on the pod template; hashing the whole rendered ConfigMap.
     [ADR-0010](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0010-chart-version-never-restarts-pods.md)
 11. **Strict draft-07 schema with reserved `global` and `enabled`.** Typos fail instead of being ignored;
@@ -351,6 +378,29 @@ code, official docs) and local renders.
     *Rejected:* a signing key pair (a secret to guard and rotate); legacy `.sig` signatures (deprecated);
     relying on `cosign verify` accepting the attestation (it does not filter by type).
     [ADR-0034](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0034-keyless-cosign-signatures.md)
+35. **Service links are off (`enableServiceLinks: false`).** Kubernetes injects `<SERVICE>_SERVICE_HOST`,
+    `<SERVICE>_SERVICE_PORT` and Docker-links variables for every Service of the namespace, and a domain's
+    namespace holds every component: a Service named `redis` injects `REDIS_PORT=tcp://...`, which an app
+    that reads `REDIS_PORT` without the component setting it gets instead of a port.
+    `KUBERNETES_SERVICE_HOST`/`_PORT` are still injected. Breaking in 0.3.0: Deployments roll once on upgrade; CronJob and Job pods pick it up at their next run.
+    *Rejected:* keeping Kubernetes' default (`true`) and only exposing the key.
+    [ADR-0035](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0035-service-links-off-by-default.md)
+36. **Rollout and pod runtime knobs are validated pass-throughs.** `strategy`, `minReadySeconds`,
+    `revisionHistoryLimit`, `cronjob.startingDeadlineSeconds`, `priorityClassName`, `runtimeClassName`,
+    `dnsConfig` and `hostAliases` render nothing by default, so Kubernetes' defaults apply; when set they are
+    rendered as given, after a strict schema and guards for what the API server would reject (`maxSurge`
+    and `maxUnavailable` both 0, a `maxUnavailable` above 100%, `rollingUpdate` with `Recreate`,
+    `minReadySeconds` not lower than `progressDeadlineSeconds`). `cronjob.suspend` is always rendered.
+    *Rejected:* rollout defaults chosen by the chart; a free-form pod spec pass-through.
+    [ADR-0036](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md)
+37. **One preStop hook: `lifecycle.preStop` requires `preStopSleepSeconds: 0`.** A container has one
+    `preStop` handler, and the built-in sleep keeps endpoint draining on by default, so a Deployment's
+    custom `lifecycle.preStop` must turn the sleep off explicitly instead of replacing it silently.
+    `postStart` works next to the sleep. A custom `sleep` may not outlast `terminationGracePeriodSeconds`
+    (the API server's bound); `tcpSocket` (not supported by Kubernetes in lifecycle hooks) and
+    `httpGet.host` (Pod Security Standards baseline, from v1.34, only allows it empty) are rejected. *Rejected:* the custom hook silently
+    winning over the sleep.
+    [ADR-0037](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0037-one-prestop-hook.md)
 
 ## Versioning and releases
 

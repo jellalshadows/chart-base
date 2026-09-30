@@ -80,6 +80,17 @@ replicas: 1
 # -- Seconds without rollout progress before the Deployment is marked Failed (lower than Helm's default 300s timeout).
 progressDeadlineSeconds: 240
 
+# -- (object) Deployment update strategy (`spec.strategy`): `{type: RollingUpdate, rollingUpdate: {maxSurge, maxUnavailable}}`
+# or `{type: Recreate}`. `null` = Kubernetes default (`RollingUpdate`, 25% surge, 25% unavailable). Deployments only.
+strategy: null
+
+# -- (int) Seconds a new pod must be Ready, without any container crashing, before it counts as available
+# (`spec.minReadySeconds`). `null` = Kubernetes default (0). Must be lower than `progressDeadlineSeconds`. Deployments only.
+minReadySeconds: null
+
+# -- (int) Old ReplicaSets kept for `kubectl rollout undo` (`spec.revisionHistoryLimit`). `null` = Kubernetes default (10). Deployments only.
+revisionHistoryLimit: null
+
 service:
   # -- Render a Service (deployments only). Set `false` for workers.
   enabled: true
@@ -119,11 +130,16 @@ pdb:
 # -- (list) `null` = chart defaults (zone + hostname spread, ScheduleAnyway); `[]` = none; a list = used verbatim.
 topologySpreadConstraints: null
 
-# -- Seconds to sleep in preStop so endpoints drain before SIGTERM. `0` disables it. Deployments only.
+# -- Seconds to sleep in preStop so endpoints drain before SIGTERM. `0` disables it (required with `lifecycle.preStop`). Deployments only.
 preStopSleepSeconds: 5
 
-# -- Pod termination grace period. Must be greater than `preStopSleepSeconds`.
+# -- Pod termination grace period. Must be greater than `preStopSleepSeconds`; a `lifecycle` sleep must not exceed it.
 terminationGracePeriodSeconds: 30
+
+# -- Container lifecycle hooks `postStart` and `preStop`, each with exactly one of `exec`, `httpGet` or `sleep`
+# (Kubernetes does not support `tcpSocket` here), e.g. `{preStop: {exec: {command: ["/app/drain"]}}}`.
+# On Deployments, `lifecycle.preStop` replaces the built-in preStop sleep and requires `preStopSleepSeconds: 0`.
+lifecycle: {}
 
 httpRoute:
   # -- Render a Gateway API HTTPRoute (gateway.networking.k8s.io/v1). Requires `service.enabled`.
@@ -161,6 +177,12 @@ cronjob:
   successfulJobsHistoryLimit: 3
   # -- Failed Jobs to keep.
   failedJobsHistoryLimit: 1
+  # -- (int) Seconds after its scheduled time within which a missed run may still start; a later run is skipped and
+  # counted as failed. `null` = no deadline. Under 10 the CronJob may not be scheduled at all (the controller checks every 10 seconds).
+  startingDeadlineSeconds: null
+  # -- Suspend future runs (runs already started are not affected). Unsuspending a CronJob without
+  # `startingDeadlineSeconds` schedules its missed runs immediately.
+  suspend: false
 
 job:
   # -- Helm hook phase for `workload.type: job`: `pre-deploy` (pre-install,pre-upgrade) or `post-deploy` (post-install,post-upgrade).
@@ -213,3 +235,23 @@ tolerations: []
 
 # -- Affinity.
 affinity: {}
+
+# -- (string) PriorityClass of the pods (`priorityClassName`); it must exist. `null` = the default priority
+# (the `globalDefault` PriorityClass, or 0).
+priorityClassName: null
+
+# -- (string) RuntimeClass of the pods (`runtimeClassName`), e.g. `gvisor`; it must exist. `null` = the default runtime handler.
+runtimeClassName: null
+
+# -- (object) DNS settings merged into those of the pod's DNS policy (`dnsConfig`): `nameservers` (at most 3), `searches`
+# (at most 32) and `options`, e.g. `{options: [{name: ndots, value: "2"}]}` (option values are strings: quote them).
+dnsConfig: null
+
+# -- Extra `/etc/hosts` entries of the pods (`hostAliases`), e.g. `[{ip: 10.0.0.5, hostnames: [legacy-db.internal]}]`.
+hostAliases: []
+
+# -- Inject `<SERVICE>_SERVICE_HOST`/`_PORT` and Docker-links variables for every Service of the namespace
+# (`enableServiceLinks`). `false` here (Kubernetes defaults to `true`): a Service named e.g. `redis` injects `REDIS_PORT=tcp://...`,
+# which an app that reads `REDIS_PORT` without the component setting it gets instead of a port. `KUBERNETES_SERVICE_HOST`/`_PORT`
+# are injected either way. Set `true` to restore Kubernetes' behavior.
+enableServiceLinks: false
