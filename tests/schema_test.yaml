@@ -601,3 +601,78 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "additional properties 'maxSurgee' not allowed"
+
+  - it: rejects metrics on a cronjob (a scrape may never catch a short-lived pod)
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      metrics.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "/metrics/enabled': value must be false"
+
+  - it: rejects metrics on a job
+    set:
+      workload.type: job
+      metrics.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "/metrics/enabled': value must be false"
+
+  - it: rejects a metrics.interval that is not a Prometheus duration
+    set:
+      metrics.interval: 1.5m
+    asserts:
+      - failedTemplate:
+          errorPattern: "/metrics/interval': '1.5m' does not match pattern"
+
+  - it: rejects a metrics.scrapeTimeout that is not a Prometheus duration
+    set:
+      metrics.scrapeTimeout: 10 seconds
+    asserts:
+      - failedTemplate:
+          errorPattern: "/metrics/scrapeTimeout': '10 seconds' does not match pattern"
+
+  - it: accepts Prometheus durations with several units
+    set:
+      metrics.interval: 1m30s
+      metrics.scrapeTimeout: 500ms
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a metrics.path that does not start with /
+    set:
+      metrics.path: metrics
+    asserts:
+      - failedTemplate:
+          errorPattern: "/metrics/path': 'metrics' does not match pattern"
+
+  - it: requires metrics.port (a null would leave the endpoint without a port)
+    set:
+      metrics.port: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/metrics': missing property 'port'"
+
+  - it: rejects unknown keys under metrics (there is no metrics.serviceMonitor block)
+    set:
+      metrics.serviceMonitor.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'serviceMonitor' not allowed"
+
+  - it: rejects a metrics label value that is not a string
+    set:
+      metrics.labels.team: 1
+    asserts:
+      - failedTemplate:
+          errorPattern: "/metrics/labels/team': got number, want string"
+
+  - it: rejects a label key that the chart sets itself in metrics.labels (it would render twice)
+    set:
+      metrics.labels:
+        app.kubernetes.io/name: other
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'app.kubernetes.io/name'"

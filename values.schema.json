@@ -23,7 +23,8 @@
     "progressDeadlineSeconds",
     "preStopSleepSeconds",
     "terminationGracePeriodSeconds",
-    "enableServiceLinks"
+    "enableServiceLinks",
+    "metrics"
   ],
   "definitions": {
     "keyRef": {
@@ -98,6 +99,17 @@
           }
         }
       }
+    },
+    "duration": {
+      "description": "A Prometheus duration, with the pattern of the prometheus-operator CRDs (v0.94.1), e.g. 30s, 1m30s, 1h.",
+      "type": "string",
+      "pattern": "^(0|(([0-9]+)y)?(([0-9]+)w)?(([0-9]+)d)?(([0-9]+)h)?(([0-9]+)m)?(([0-9]+)s)?(([0-9]+)ms)?)$"
+    },
+    "extraLabels": {
+      "description": "Extra labels of an object that also carries the chart's labels: the keys the chart sets itself are rejected (they would render twice).",
+      "type": "object",
+      "propertyNames": { "not": { "enum": ["app.kubernetes.io/name", "app.kubernetes.io/instance", "app.kubernetes.io/part-of", "app.kubernetes.io/component", "app.kubernetes.io/version", "app.kubernetes.io/managed-by", "helm.sh/chart"] } },
+      "additionalProperties": { "type": "string" }
     }
   },
   "properties": {
@@ -408,6 +420,19 @@
         "tls": { "type": "array", "items": { "type": "object" } }
       }
     },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "port", "path"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "port": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "pattern": "^/" },
+        "interval": { "anyOf": [{ "type": "null" }, { "$ref": "#/definitions/duration" }] },
+        "scrapeTimeout": { "anyOf": [{ "type": "null" }, { "$ref": "#/definitions/duration" }] },
+        "labels": { "$ref": "#/definitions/extraLabels" }
+      }
+    },
     "cronjob": {
       "type": "object",
       "additionalProperties": false,
@@ -501,7 +526,8 @@
         "properties": {
           "httpRoute": { "properties": { "enabled": { "const": false } } },
           "ingress": { "properties": { "enabled": { "const": false } } },
-          "autoscaling": { "properties": { "enabled": { "const": false } } }
+          "autoscaling": { "properties": { "enabled": { "const": false } } },
+          "metrics": { "properties": { "enabled": { "const": false } } }
         }
       }
     },

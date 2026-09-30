@@ -166,6 +166,24 @@ ingress:
   # -- Ingress TLS entries.
   tls: []
 
+metrics:
+  # -- Render a Prometheus Operator ServiceMonitor (`monitoring.coreos.com/v1`) that scrapes the component's Service.
+  # Deployments only. The CRD must be installed: without it the release fails.
+  enabled: false
+  # -- Name of the entry of `ports` that serves the metrics: the ServiceMonitor scrapes the Service port of that name.
+  port: http
+  # -- HTTP path of the metrics endpoint.
+  path: /metrics
+  # -- (string) Scrape interval, a Prometheus duration such as `30s` or `1m30s`. `null` = Prometheus' global scrape interval.
+  interval: null
+  # -- (string) Scrape timeout, e.g. `10s`. `null` = Prometheus' default. It must not be greater than the interval: the
+  # Prometheus Operator rejects such a monitor, and the chart cannot compare durations.
+  scrapeTimeout: null
+  # -- Extra labels on the monitor, e.g. `{release: kube-prometheus-stack}`: with its default values, kube-prometheus-stack's
+  # Prometheus only selects monitors labelled `release: <its release name>`. The keys the chart sets itself
+  # (`app.kubernetes.io/name`, `instance`, `part-of`, `component`, `version`, `managed-by`, `helm.sh/chart`) are rejected.
+  labels: {}
+
 cronjob:
   # -- Cron schedule. Required for cronjob.
   schedule: ""

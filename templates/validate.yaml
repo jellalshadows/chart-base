@@ -52,6 +52,14 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list . "strategy.rollingUpdate.maxSurge and maxUnavailable cannot both be 0 (the rollout could not replace any pod)") -}}
 {{- end -}}
 {{- end -}}
+{{- if .Values.metrics.enabled -}}
+{{- /* Prometheus scrapes a port by NAME: a Service port (ServiceMonitor) or a container port (PodMonitor), both from ports. */ -}}
+{{- $portNames := list -}}
+{{- range .Values.ports }}{{ $portNames = append $portNames .name }}{{ end -}}
+{{- if not (has .Values.metrics.port $portNames) -}}
+{{- include "chart-base.fail" (list . (printf "metrics.port %q is not the name of an entry in ports: Prometheus scrapes a named port, so declare it in ports (a worker without a Service too), e.g. ports: [{name: metrics, containerPort: 9090}]" .Values.metrics.port)) -}}
+{{- end -}}
+{{- end -}}
 
 {{- if kindIs "slice" .Values.env -}}
 {{- include "chart-base.fail" (list . "env is a map of NAME: {valueFrom: ...}, not a Kubernetes env list: literal values belong in config, references in env as a map") -}}

@@ -263,3 +263,32 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: 'lifecycle.postStart.sleep.seconds \(11\) must not be greater than terminationGracePeriodSeconds \(10\)'
+
+  - it: rejects a metrics.port that is not the name of an entry in ports
+    set:
+      metrics.enabled: true
+      metrics.port: metrics
+    asserts:
+      - failedTemplate:
+          errorPattern: 'metrics.port "metrics" is not the name of an entry in ports'
+
+  - it: accepts a metrics.port that names any entry of ports, not only the first
+    set:
+      ports:
+        - name: http
+          containerPort: 8080
+        - name: metrics
+          containerPort: 9090
+      metrics.enabled: true
+      metrics.port: metrics
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: skips the metrics port check when metrics is off (a worker may have no ports)
+    set:
+      service.enabled: false
+      ports: []
+    asserts:
+      - hasDocuments:
+          count: 0
