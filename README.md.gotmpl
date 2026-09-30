@@ -33,17 +33,17 @@ name: vending
 version: 0.1.0
 dependencies:
   - name: chart-base
-    version: 0.3.0 # x-release-please-version
+    version: 0.4.0 # x-release-please-version
     repository: oci://ghcr.io/jellalshadows/charts
     alias: sales
     condition: sales.enabled
   - name: chart-base
-    version: 0.3.0 # x-release-please-version
+    version: 0.4.0 # x-release-please-version
     repository: oci://ghcr.io/jellalshadows/charts
     alias: machines
     condition: machines.enabled
   - name: chart-base
-    version: 0.3.0 # x-release-please-version
+    version: 0.4.0 # x-release-please-version
     repository: oci://ghcr.io/jellalshadows/charts
     alias: front-web
     condition: front-web.enabled
