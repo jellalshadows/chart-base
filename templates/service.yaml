@@ -11,9 +11,9 @@ spec:
     {{- include "chart-base.selectorLabels" . | nindent 4 }}
   ports:
     {{- range .Values.ports }}
-    - name: {{ .name }}
+    - name: {{ .name | quote }}
       port: {{ include "chart-base.servicePort" . }}
-      targetPort: {{ .name }}
+      targetPort: {{ .name | quote }}
       protocol: TCP
     {{- end }}
 {{- end }}

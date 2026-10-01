@@ -160,3 +160,16 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: keeps a metrics.port named true a string in the ServiceMonitor endpoint
+    template: templates/servicemonitor.yaml
+    set:
+      ports:
+        - name: "true"
+          containerPort: 8080
+      metrics.enabled: true
+      metrics.port: "true"
+    asserts:
+      - equal:
+          path: spec.endpoints[0].port
+          value: "true"

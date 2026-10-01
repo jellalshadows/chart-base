@@ -76,3 +76,28 @@ tests:
       - equal:
           path: data["application.yaml"]
           value: "spring:\n  datasource:\n    password: ${DB_PASSWORD}"
+
+  - it: keeps a config key TRUE as written (a plain TRUE key would be renamed true)
+    template: templates/configmap-env.yaml
+    set:
+      config:
+        "TRUE": "1"
+    asserts:
+      - equal:
+          path: data
+          value:
+            "TRUE": "1"
+
+  - it: keeps configFiles keys true and null as written, for string and map content
+    template: templates/configmap-files.yaml
+    set:
+      configFiles.files:
+        "true": x
+        "null":
+          a: b
+    asserts:
+      - equal:
+          path: data
+          value:
+            "true": x
+            "null": "a: b"

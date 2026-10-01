@@ -468,3 +468,14 @@ tests:
       - equal:
           path: spec.revisionHistoryLimit
           value: 1000000
+
+  - it: keeps a port named true a string in the container port name
+    template: templates/deployment.yaml
+    set:
+      ports:
+        - name: "true"
+          containerPort: 8080
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].name
+          value: "true"

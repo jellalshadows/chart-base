@@ -12,9 +12,9 @@ metadata:
 data:
   {{- range $name, $content := .Values.configFiles.files }}
   {{- if kindIs "string" $content }}
-  {{ $name }}: {{ $content | quote }}
+  {{ $name | quote }}: {{ $content | quote }}
   {{- else }}
-  {{ $name }}: {{ toYaml $content | quote }}
+  {{ $name | quote }}: {{ toYaml $content | quote }}
   {{- end }}
   {{- end }}
 {{- end }}

@@ -16,7 +16,8 @@ the features that were rejected, with the reason.
 
 ## Upgrade guide
 
-[`upgrading.md`](upgrading.md): what to change in your values for every breaking release.
+[`upgrading.md`](upgrading.md): what to change in your values for every breaking release, and which objects
+a fix release changes.
 
 ## Guides
 

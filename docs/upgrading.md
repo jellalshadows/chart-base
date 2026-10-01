@@ -1,8 +1,9 @@
 # Upgrade guide
 
 Before 1.0, a breaking release bumps the minor version and its pull request title carries `!`
-(`feat!:`). This page lists, for every breaking release, what to change in your values. Releases
-that are not listed here need no change to your values; the [changelog](../CHANGELOG.md) has every release.
+(`feat!:`). This page lists, for every breaking release, what to change in your values, and for a fix
+release that changes rendered objects (0.4.1), which objects change. Releases that are not listed here need
+no change to your values; the [changelog](../CHANGELOG.md) has every release.
 
 ## Every upgrade: a direct install must not use `--reuse-values`
 
@@ -100,3 +101,45 @@ render nothing until you set them, so Kubernetes' defaults apply
 ```text
 lifecycle.preStop replaces the built-in preStop sleep: set preStopSleepSeconds: 0
 ```
+
+## 0.4.x → 0.4.1
+
+No value needs to change, unless one of the cases in the second bullet below applies to you (check them
+first: they make `helm upgrade` fail). 0.4.1 quotes every string it renders from values: the port names,
+`ingress.className`, the Ingress paths, `externalSecret.secretStoreRef.name` and the keys of
+`externalSecret.data`, `config` and `configFiles.files`, so that Kubernetes receives them as written. An
+object changes only where 0.4.0 rendered such a value wrongly:
+
+- A port name, an Ingress class, a secret store name or an `externalSecret.data` key that YAML 1.1 reads
+  as a boolean (`on`, `off`, `yes`, `no`, `y`, `n`, `true`, `false`, also capitalized or in capitals) made
+  the object invalid, so the release could not be installed; 0.4.1 installs it. A store name or an
+  `externalSecret.data` key that YAML reads as null (`null`, `Null`, `NULL`) was rendered as a null, not as
+  a name or a key; 0.4.1 sends the string.
+- **Values 0.4.0 trimmed or dropped now fail `helm upgrade`.** 0.4.0 rendered them as another value, which
+  Kubernetes accepted; 0.4.1 sends them as written, which Kubernetes rejects. Fix the values before you
+  upgrade:
+  - An Ingress path `null`, `~`, `Null` or `NULL` (with `pathType: ImplementationSpecific`) was dropped,
+    which Kubernetes accepts as no path; 0.4.1 sends the string, and a non-empty path must start with `/`.
+    Set the path to `""` or remove it.
+  - An Ingress path with a leading space (`" /api"`) was sent as `/api`; 0.4.1 sends `" /api"`, which is
+    not an absolute path. Remove the space.
+  - `ingress.className` with leading or trailing whitespace or a ` #` comment (`" nginx"`, `"nginx "`,
+    `"nginx #x"`) was sent as `nginx`; 0.4.1 sends it as written, which is not a DNS-1123 subdomain.
+    Remove the whitespace or the comment.
+  - `ingress.className` `NULL`, `Null` or `~` was dropped, so the Ingress had no class; 0.4.1 sends it as
+    written, which is not a DNS-1123 subdomain. `null` is a valid name, so the upgrade succeeds, but the
+    Ingress now names a class `null`, which no controller serves unless such a class exists. For all of
+    them, remove the key if you want no class.
+  - `externalSecret.secretStoreRef.name` with surrounding whitespace or a ` #` comment (`"vault "`) was sent
+    as `vault`; 0.4.1 sends it as written, which ESO rejects or cannot find as a store, and the Secret
+    stops syncing. Remove the whitespace or the comment.
+- A `config` or `configFiles.files` key that YAML 1.1 reads as a boolean or a number was renamed in the
+  ConfigMap: `ON` became `true` (and `ON` with `Y` became a single key `true` that kept one of the
+  values), and a file key `010`, `007`, `1.0`, `1e3`, `0x10`, `.5` or `1_000` became `8`, `7`, `1`,
+  `1000`, `16`, `0.5` or `1000`. 0.4.1 keeps the key as written, so that ConfigMap changes once: a
+  Deployment rolls (its `checksum/config-*` annotation changes), and CronJob and Job pods get the new keys
+  at their next run. A key that YAML reads as null (`null`, `NULL`) failed the render and now renders.
+- An Ingress path that contains ` #` or ends with a space was cut there (`/a #b` and `/a ` were sent as
+  `/a`). 0.4.1 sends the path the values say, **which can change the routing of an existing Ingress on
+  upgrade**: check such paths before you upgrade. A path that contains `: ` failed the render and now
+  renders. An empty path is sent as `""` instead of null, and Kubernetes stores both as no path.
