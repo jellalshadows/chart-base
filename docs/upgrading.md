@@ -1,8 +1,9 @@
 # Upgrade guide
 
 Before 1.0, a breaking release bumps the minor version and its pull request title carries `!`
-(`feat!:`). This page lists, for every breaking release, what to change in your values. Releases
-that are not listed here need no change to your values; the [changelog](../CHANGELOG.md) has every release.
+(`feat!:`). This page lists, for every breaking release, what to change in your values, and for a fix
+release that changes rendered objects (0.4.1), which objects change. Releases that are not listed here need
+no change to your values; the [changelog](../CHANGELOG.md) has every release.
 
 ## Every upgrade: a direct install must not use `--reuse-values`
 
@@ -100,3 +101,27 @@ render nothing until you set them, so Kubernetes' defaults apply
 ```text
 lifecycle.preStop replaces the built-in preStop sleep: set preStopSleepSeconds: 0
 ```
+
+## 0.4.x → 0.4.1
+
+No value needs to change. 0.4.1 quotes every string it renders from values: the port names,
+`ingress.className`, the Ingress paths, `externalSecret.secretStoreRef.name` and the keys of
+`externalSecret.data`, `config` and `configFiles.files`, so that Kubernetes receives them as written. An
+object changes only where 0.4.0 rendered such a value wrongly:
+
+- A port name, an Ingress class, a secret store name or an `externalSecret.data` key that YAML 1.1 reads
+  as a boolean (`on`, `off`, `yes`, `no`, `y`, `n`, `true`, `false`, also capitalized or in capitals) made
+  the object invalid, so the release could not be installed; 0.4.1 installs it. An Ingress class `null`
+  was dropped, so the Ingress had no class; 0.4.1 sends the string `null`.
+- A `config` or `configFiles.files` key that YAML 1.1 reads as a boolean or a number was renamed in the
+  ConfigMap: `ON` became `true` (and `ON` with `Y` became a single key `true` that kept one of the
+  values), and a file key `010`, `007`, `1.0` or `1e3` became `8`, `7`, `1` or `1000`. 0.4.1 keeps the key
+  as written, so that ConfigMap changes once: a Deployment rolls (its `checksum/config-*` annotation
+  changes), and CronJob and Job pods get the new keys at their next run. A key that YAML reads as null
+  (`null`, `NULL`) failed the render and now renders.
+- An Ingress path that contains ` #` or ends with a space was cut there (`/a #b` and `/a ` were sent as
+  `/a`). 0.4.1 sends the path the values say, **which can change the routing of an existing Ingress on
+  upgrade**: check such paths before you upgrade. A path that contains `: ` failed the render and now
+  renders. A path `null` was dropped, which an `ImplementationSpecific` rule accepts as no path; 0.4.1
+  sends the string `null`, which Kubernetes rejects (a path must start with `/`). An empty path is sent as
+  `""` instead of null, and Kubernetes stores both as no path.

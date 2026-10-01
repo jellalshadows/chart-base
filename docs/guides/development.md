@@ -187,6 +187,25 @@ Each of these has already broken something. The reason is the important part.
   value with `toJson`, because a ConfigMap only holds strings. `configFiles` content is written with
   `quote` only: it keeps the file exactly as written, while `toJson` would escape `<`, `>` and `&`
   as `\u003c`, `\u003e` and `\u0026`.
+- **A string from values is rendered with `quote` or `toYaml`, never as a plain scalar.** Helm's client
+  converts the rendered manifests to JSON with sigs.k8s.io/yaml, which resolves plain scalars with YAML 1.1
+  rules (go-yaml v2): `on`, `off`, `yes`, `no`, `y`, `n`, `true` and `false`, capitalized or in capitals too
+  (`On`, `YES`, ...), become booleans, `null` becomes null, and a key such as `010` becomes `8`. The object
+  is then invalid (a boolean where Kubernetes expects a string), or a map key is silently renamed: a
+  plain `config` key `ON` becomes the ConfigMap key `true`. The schema cannot exclude these words without
+  rejecting valid values (`on` is a valid port name), so the template quotes. Up to 0.4.0 the port names,
+  the Ingress class and paths, the secret store name and the keys of `config`, `configFiles.files` and
+  `externalSecret.data` were rendered plain ([upgrade guide](../upgrading.md)); the `port-names` scenario
+  and the unit tests keep them fixed. Values that the schema limits to an `enum` (`service.type`,
+  `image.pullPolicy`, ...) or to an absolute path (`configFiles.mountPath`) are rendered as they are, and so
+  are `pdb.minAvailable` and `pdb.maxUnavailable`, so that an integer stays an integer (Kubernetes accepts a
+  string there only as a percentage).
+- **helm-unittest does not read YAML like Kubernetes.** It decodes the rendered manifests with go-yaml v3,
+  which reads these words as YAML 1.2 does: `on`, `yes` and the other YAML 1.1 words are strings, so an
+  `equal` on a plain `on` passes whether or not the template quotes it. Only `true`, `false` and `null` are
+  keywords in both, so a test that a value stays a string uses one of them (the port-name tests use a port
+  named `true`). kubeconform resolves these words as Helm's client does, and the `port-names` scenario
+  covers `on` there ([testing guide](testing.md#manifest-validation-with-kubeconform)).
 - **helm-unittest renders only the templates listed in the suite** (`templates:` at the top of the
   file). A helper or a template that is not listed is not rendered, and a test cannot assert on it. Schema
   errors and guards are reported by whichever listed template is rendered: the schema and guard suites list
