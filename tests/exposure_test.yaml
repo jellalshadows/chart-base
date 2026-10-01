@@ -81,3 +81,21 @@ tests:
               name: vending-chart-base
               port:
                 name: http
+
+  - it: keeps a port named true a string in the Ingress backend port name
+    template: templates/ingress.yaml
+    set:
+      ports:
+        - name: "true"
+          containerPort: 8080
+      ingress.enabled: true
+      ingress.className: internal
+      ingress.hosts:
+        - host: sales.internal.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+    asserts:
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.port.name
+          value: "true"

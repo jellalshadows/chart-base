@@ -29,7 +29,7 @@ spec:
               service:
                 name: {{ $fullname }}
                 port:
-                  name: {{ $portName }}
+                  name: {{ $portName | quote }}
           {{- end }}
     {{- end }}
 {{- end }}

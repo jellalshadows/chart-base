@@ -63,3 +63,23 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: keeps a port named true a string in the Service port name (a plain true is a YAML boolean)
+    set:
+      ports:
+        - name: "true"
+          containerPort: 8080
+    asserts:
+      - equal:
+          path: spec.ports[0].name
+          value: "true"
+
+  - it: keeps a port named true a string in the Service targetPort
+    set:
+      ports:
+        - name: "true"
+          containerPort: 8080
+    asserts:
+      - equal:
+          path: spec.ports[0].targetPort
+          value: "true"

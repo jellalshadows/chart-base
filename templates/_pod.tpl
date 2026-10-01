@@ -52,7 +52,7 @@ containers:
     {{- with $.Values.ports }}
     ports:
       {{- range . }}
-      - name: {{ .name }}
+      - name: {{ .name | quote }}
         containerPort: {{ .containerPort }}
         protocol: TCP
       {{- end }}
