@@ -79,12 +79,17 @@ Add `-u` to update snapshots after an intended change, and review the diff of `t
 **In CI.** The `unit tests` job runs `helm unittest --strict .` with Helm 4.3.0 and helm-unittest 1.1.2.
 
 **Limit.** helm-unittest embeds its own Helm engine, so it does not prove behavior on Helm 4. The
-next layers do.
+next layers do. It also decodes the rendered manifests with go-yaml v3 (YAML 1.2 booleans), while Helm's
+client uses YAML 1.1 rules: a plain `on` is a string for helm-unittest and a boolean for Kubernetes. A
+test that a value stays a string therefore uses `true`, `false` or `null`, which are keywords in both
+(the port-name tests use a port named `true`), and the `port-names` scenario covers `on` with kubeconform
+([pitfalls](development.md#pitfalls)).
 
 ## Lint on Helm 3 and 4
 
 **What it proves.** `helm lint --strict` passes, with the real Helm binaries, for every scenario in `ci/`
-(`deployment`, `worker`, `cronjob`, `job`, `full`). The `full` scenario turns every feature on at once.
+(`deployment`, `worker`, `cronjob`, `job`, `full`, `port-names`). The `full` scenario turns every feature on
+at once; `port-names` names its only port `on` (see [kubeconform](#manifest-validation-with-kubeconform)).
 CI runs the layer on Helm 3.22.0 and 4.3.0, because Helm 3 still receives security fixes and consumers still
 use it ([ADR-0019](../adr/0019-helm-4-first-helm-3-tested.md)).
 
@@ -118,6 +123,12 @@ chart's floor is 1.33, so the tests run on the oldest and the newest supported v
 ```
 
 Each scenario ends with a `Summary:` line that must report `Invalid: 0, Errors: 0`.
+
+kubeconform parses the manifests with the same YAML library as Helm's client (sigs.k8s.io/yaml, with
+YAML 1.1 rules), so it is the layer that sees a value that YAML 1.1 reads as a boolean. The `port-names`
+scenario names its only port `on`, and the Service, the Ingress backend and the ServiceMonitor endpoint
+refer to it: a port name rendered without `quote` fails here with a `got boolean` error
+([pitfalls](development.md#pitfalls)).
 
 **In CI.** The `lint` job, on both Helm versions, with kubeconform 0.8.0 verified against the published
 checksums.
@@ -204,7 +215,8 @@ Each scenario is installed with `helm upgrade --install ... --wait --timeout 5m`
 | `worker` | The worker becomes Ready and there is no Service named for it. It has a PodMonitor labelled `release: e2e` whose endpoint port is the container port `metrics`, and no ServiceMonitor. |
 | `cronjob` | A Job created manually from the CronJob (`kubectl create job --from=cronjob/...`) completes within 180 seconds: a restricted pod that reads its config from the ConfigMap, its `env` references (`fieldRef`, `resourceFieldRef`) and the `e2e-shared` Secret injected with `envFrom` and a prefix. Service links are off: `KUBERNETES_SERVICE_HOST` is set, `DEPLOYMENT_CHART_BASE_SERVICE_HOST` (the `deployment` scenario's Service, installed before; the script first checks that it has a ClusterIP) is not. |
 | `job` | The `pre-deploy` hook Job succeeds and its log contains `migrations-ok`: it saw `APP_MODE`, `DB_PASSWORD` (from the ExternalSecret) and `/config/migrations.yaml`, all created as hooks before it ran. A second deploy with `--set-string podAnnotations.revision=2` succeeds, so the Job hook is recreated instead of hitting `field is immutable` ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)). |
-| `full` | The ExternalSecret becomes Ready, the Secret it creates holds the value `s3cr3t` from the fake provider, the API server accepts the HTTPRoute, the Deployment's `secret.reloader.stakater.com/reload` annotation is exactly `e2e-shared,full-chart-base-secrets`, and the HPA, PDB and Ingress are created. The Deployment carries `strategy` (`maxSurge: 1`, `maxUnavailable: 0`), `minReadySeconds` and `revisionHistoryLimit`; a pod carries `priorityClassName: e2e-high` resolved to priority 1000 by the API server, `enableServiceLinks: false`, the `dnsConfig` option and the `hostAliases` entry. The ServiceMonitor is labelled `release: e2e` and scrapes the Service port `http` every `30s`, there is no PodMonitor, and the PrometheusRule is labelled `release: e2e` and holds the alert `FullChartBaseDown`. |
+| `full` | The ExternalSecret becomes Ready, the Secret it creates holds the value `s3cr3t` from the fake provider, the API server accepts the HTTPRoute, the Deployment's `secret.reloader.stakater.com/reload` annotation is exactly `e2e-shared,full-chart-base-secrets`, and the HPA, PDB and Ingress are created. The Deployment carries `strategy` (`maxSurge: 1`, `maxUnavailable: 0`), `minReadySeconds` and `revisionHistoryLimit`; a pod carries `priorityClassName: e2e-high` resolved to priority 1000 by the API server, `enableServiceLinks: false`, the `dnsConfig` option and the `hostAliases` entry. The ServiceMonitor is labelled `release: e2e` and its endpoint targets the Service port `http` with a `30s` interval, there is no PodMonitor, and the PrometheusRule is labelled `release: e2e` and holds the alert `FullChartBaseDown`. |
+| `port-names` | The API server accepts the component whose only port is named `on`, and stores `on` as a string in the Service port name and `targetPort`, the container port name, the Ingress backend port name and the ServiceMonitor endpoint port. |
 
 On failure the script prints `kubectl get all,externalsecrets,servicemonitors,podmonitors,prometheusrules`
 for the namespace.

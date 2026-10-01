@@ -69,7 +69,7 @@ Everything at the top level of the repository, and why it is there:
 | `values.schema.json` | The strict draft-07 schema, written by hand ([ADR-0011](../adr/0011-strict-draft-07-schema.md)). |
 | `templates/` | The Kubernetes objects and helpers, described below. |
 | `tests/` | The helm-unittest suites (`*_test.yaml`), the shared values files in `tests/values/`, and the snapshots in `tests/__snapshot__/`. |
-| `ci/` | One values file per scenario (`deployment`, `worker`, `cronjob`, `job`, `full`), used by lint, kubeconform, snapshots and the e2e. |
+| `ci/` | One values file per scenario (`deployment`, `worker`, `cronjob`, `job`, `full`, `port-names`), used by lint, kubeconform, snapshots and the e2e. |
 | `README.md.gotmpl`, `README.md` | The README template (prose) and the **generated** README. Edit the template and `values.yaml`, never `README.md` ([ADR-0025](../adr/0025-generated-english-readme.md)). |
 | `CHANGELOG.md` | Written by release-please. Do not edit it. |
 | `LICENSE` | Apache-2.0. |
