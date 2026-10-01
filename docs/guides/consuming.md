@@ -288,7 +288,8 @@ CronJobs that reference external objects. A Job hook makes Helm wait until `--ti
 
 Read [`CHANGELOG.md`](../../CHANGELOG.md) for every version between the current one and the target,
 which release-please writes from the conventional commits, and the [upgrade guide](../upgrading.md)
-for what to change in your values after each breaking release.
+for what to change in your values after each breaking release and after a fix release that changes
+rendered objects (0.4.1).
 
 - Before 1.0, a breaking change is marked `feat!:` and bumps the **minor** version, and a `feat:`
   also bumps the minor. So a `0.x` minor bump can break your values: read it before you bump.

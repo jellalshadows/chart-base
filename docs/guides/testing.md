@@ -79,8 +79,8 @@ Add `-u` to update snapshots after an intended change, and review the diff of `t
 **In CI.** The `unit tests` job runs `helm unittest --strict .` with Helm 4.3.0 and helm-unittest 1.1.2.
 
 **Limit.** helm-unittest embeds its own Helm engine, so it does not prove behavior on Helm 4. The
-next layers do. It also decodes the rendered manifests with go-yaml v3 (YAML 1.2 booleans), while Helm's
-client uses YAML 1.1 rules: a plain `on` is a string for helm-unittest and a boolean for Kubernetes. A
+next layers do. helm-unittest also decodes the rendered manifests with go-yaml v3 (YAML 1.2 booleans),
+while Helm's client uses YAML 1.1 rules: a plain `on` is a string for helm-unittest and a boolean for Kubernetes. A
 test that a value stays a string therefore uses `true`, `false` or `null`, which are keywords in both
 (the port-name tests use a port named `true`), and the `port-names` scenario covers `on` with kubeconform
 ([pitfalls](development.md#pitfalls)).
