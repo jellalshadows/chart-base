@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/jellalshadows/chart-base/compare/v0.4.0...v0.4.1) (2026-10-01)
+
+
+### Bug Fixes
+
+* quote strings rendered from values ([#12](https://github.com/jellalshadows/chart-base/issues/12)) ([28ac2ff](https://github.com/jellalshadows/chart-base/commit/28ac2fff47f671a4d46b2291b0e95a64f2265870))
+
 ## [0.4.0](https://github.com/jellalshadows/chart-base/compare/v0.3.0...v0.4.0) (2026-09-30)
 
 
