@@ -53,3 +53,9 @@ tests:
       - ../ci/full-values.yaml
     asserts:
       - matchSnapshot: {}
+
+  - it: port-names scenario
+    values:
+      - ../ci/port-names-values.yaml
+    asserts:
+      - matchSnapshot: {}
