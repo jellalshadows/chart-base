@@ -16,7 +16,12 @@ ns=vending
 fail() {
   echo "FAIL: $*" >&2
   kubectl get all,externalsecrets,servicemonitors,podmonitors,prometheusrules,networkpolicies -n "$ns" >&2 || true
-  if [ "$ns" = netpol ]; then kubectl get pods,networkpolicies -n monitoring -o wide >&2 || true; fi
+  if [ "$ns" = netpol ]; then
+    kubectl get pods,networkpolicies -n monitoring -o wide >&2 || true
+    # The migrate Job is kept (its delete policy is before-hook-creation only, ttl 3600); kindnet enforces the policies.
+    kubectl logs -n netpol job/shop-migrate --tail=50 >&2 || true
+    kubectl logs -n kube-system ds/kindnet --tail=200 >&2 || true
+  fi
   exit 1
 }
 pass() { echo "ok - $*"; }
@@ -182,6 +187,8 @@ kubectl run probe -n monitoring --image=registry.k8s.io/e2e-test-images/agnhost:
   -- netexec --http-port=8080
 kubectl wait -n monitoring pod/probe --for=condition=Ready --timeout=120s
 probe_ip="$(kubectl get pod -n monitoring probe -o jsonpath='{.status.podIP}')"
+# An empty IP would make the allow check below dial the client itself, where api's netexec listens: a false pass.
+[ -n "$probe_ip" ] || fail "the monitoring probe pod has no IP"
 
 # A throwaway umbrella, like alias-contract.sh: the chart copied next to it, a relative file:// path.
 work="$(mktemp -d)"
@@ -244,7 +251,7 @@ migrate:
 EOF
 helm dependency update "$work/shop" > /dev/null
 helm upgrade --install shop "$work/shop" -n "$ns" --wait --timeout 5m \
-  || fail "the umbrella did not install: under the default-deny, the pre-deploy Job migrate reaches the cluster DNS only through its own NetworkPolicy, a hook created before it"
+  || fail "the umbrella did not install (if the migrate Job failed: under the default-deny, it reaches the cluster DNS only through its own NetworkPolicy, a hook created before it; see its log below)"
 
 probe deny monitoring probe shop-web.netpol.svc.cluster.local:8080 \
   || fail "NetworkPolicy is not enforced: web allows no ingress source, yet another namespace reached it (kindnet fails open: the allow checks below would pass without enforcement)"
