@@ -1,0 +1,61 @@
+{{- /*
+One NetworkPolicy per component, on every workload type. On a job component it is a hook of the Job's
+phase, created before the Job like its support resources (templates/_hooks.tpl): a regular object does not
+exist yet when a pre-install Job runs. In the API an empty or missing `from` or `ports` list means "all", so
+a rule is rendered only when its input is not empty; without any rule the pods accept no connection, except
+from their own node.
+*/}}
+{{- if .Values.networkPolicy.enabled }}
+{{- $in := .Values.networkPolicy.ingress }}
+{{- $fromComponents := and $in.fromComponents .Values.ports }}
+{{- $fromNamespaces := and $in.fromNamespaces .Values.ports }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "chart-base.fullname" . }}
+  labels:
+    {{- include "chart-base.labels" . | nindent 4 }}
+  {{- with include "chart-base.supportHookAnnotations" . }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "chart-base.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  {{- if or $fromComponents $fromNamespaces $in.metricsFromNamespaces $in.extra }}
+  ingress:
+    {{- if $fromComponents }}
+    - from:
+        {{- range $in.fromComponents }}
+        {{- include "chart-base.componentPeer" (list $ .) | nindent 8 }}
+        {{- end }}
+      ports:
+        {{- range $.Values.ports }}
+        - port: {{ .name | quote }}
+          protocol: TCP
+        {{- end }}
+    {{- end }}
+    {{- if $fromNamespaces }}
+    - from:
+        {{- include "chart-base.namespacePeer" $in.fromNamespaces | nindent 8 }}
+      ports:
+        {{- range $.Values.ports }}
+        - port: {{ .name | quote }}
+          protocol: TCP
+        {{- end }}
+    {{- end }}
+    {{- with $in.metricsFromNamespaces }}
+    - from:
+        {{- include "chart-base.namespacePeer" . | nindent 8 }}
+      ports:
+        - port: {{ $.Values.metrics.port | quote }}
+          protocol: TCP
+    {{- end }}
+    {{- with $in.extra }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
+{{- end }}

@@ -201,6 +201,27 @@ prometheusRule:
   # webhook the object is created and the operator skips it with a Warning event.
   groups: []
 
+networkPolicy:
+  # -- Render a NetworkPolicy (`networking.k8s.io/v1`) named `<fullname>` that selects the component's pods and isolates
+  # their ingress: only the sources below may reach them, besides the pod's own node (kubelet probes), which the
+  # NetworkPolicy API always allows. On a `job` component it is a hook of the Job's phase, like its ServiceAccount and
+  # ConfigMaps. Without a CNI that enforces NetworkPolicy the object is created and changes nothing.
+  enabled: false
+  ingress:
+    # -- Aliases of sibling components of the same release (e.g. `[web]`) whose pods may reach every entry of `ports`, by name.
+    fromComponents: []
+    # -- Namespaces, by name (e.g. `[envoy-gateway-system]`), whose pods may reach every entry of `ports`: where the
+    # Gateway's proxy pods run (with Envoy Gateway's default mode, the namespace Envoy Gateway runs in, not the Gateway's)
+    # or the ingress controller's pods. Traffic from a `hostNetwork` controller (usually treated as node traffic) or from
+    # Cilium's Ingress/Gateway may not match a namespace: use `extra` or the CNI's own policies.
+    fromNamespaces: []
+    # -- Namespaces, by name (e.g. `[monitoring]`), whose pods may reach only `metrics.port`: Prometheus.
+    metricsFromNamespaces: []
+    # -- Extra ingress rules, appended verbatim: `[{from: [{podSelector, namespaceSelector} or {ipBlock: {cidr, except}}],
+    # ports: [{port, endPort, protocol}]}]`. An omitted `from` or `ports` means every source or port; an empty list is
+    # rejected.
+    extra: []
+
 cronjob:
   # -- Cron schedule. Required for cronjob.
   schedule: ""
