@@ -1,6 +1,6 @@
 # ADR-0007: `workload.type: job` is a Helm hook
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0041](0041-job-component-networkpolicy-is-a-hook.md) (0.5.0)
 - **Date:** 2026-09-27
 - **Since:** 0.1.0
 

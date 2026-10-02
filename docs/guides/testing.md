@@ -28,7 +28,7 @@ Contents:
 | `helm lint --strict` | The chart lints on every scenario, on real Helm 3.22 and 4.3 | Yes | `lint` |
 | kubeconform | The rendered manifests are valid for Kubernetes 1.33 and 1.37 | Yes (needs network) | `lint` |
 | Alias contract | Several aliases in one umbrella work and stay independent | Yes | `lint` |
-| End-to-end | The manifests really install and run in a cluster | No (needs kind) | `e2e` |
+| End-to-end | The manifests really install and run in a cluster, and kindnet enforces the NetworkPolicies as rendered | No (needs kind) | `e2e` |
 | Documentation | The README is not stale; every link and anchor resolves | Yes | `docs` |
 | Workflows | The workflow files are sound; the PR title is a conventional commit | Yes (actionlint) | `workflows`, `pr-title` |
 | Release signing | The signing steps of `release.yaml` verify a real signed release, and refuse a wrong identity, a missing bundle type and a bad digest | Yes (needs network; cosign, jq, yq, curl) | `release signing checks (cosign)` |
@@ -47,7 +47,8 @@ A single required check, `ci-ok`, depends on all the jobs. chart-testing (`ct`) 
 - Suites in `tests/*_test.yaml`, roughly one per area (`deployment`, `cronjob`, `job`, `configmap`,
   `env` (references, `envFrom`, Reloader annotations), `pod` (runtime knobs and service links, on every
   workload type), `lifecycle` (container hooks), `monitoring` (the ServiceMonitor or the PodMonitor),
-  `prometheusrule` (on every workload type), `externalsecret`, `exposure`, `scaling`, `service`, `serviceaccount`, `hooks`, `validate`, `schema`,
+  `prometheusrule` (on every workload type), `networkpolicy` (every workload type, a hook on a job component),
+  `externalsecret`, `exposure`, `scaling`, `service`, `serviceaccount`, `hooks`, `validate`, `schema`,
   `snapshot`). Each suite names the templates it renders.
 - Shared values in `tests/values/`: `base.yaml` (the minimum valid values every suite starts from),
   `env-refs.yaml` (one reference of every kind plus `envFrom` sources, for the `env` suite),
@@ -145,6 +146,11 @@ covered: a hyphen in the values key, the `condition` path and the resource names
 - objects are named `<release>-<alias>`, and a worker renders no Service;
 - with `metrics` on, `api` gets a ServiceMonitor and `worker` a PodMonitor (never the other kind), each
   selecting only its own component (`app.kubernetes.io/name` is the alias);
+- with `networkPolicy` on, `api` and `worker` each get a NetworkPolicy that selects only their own pods,
+  `api`'s `fromComponents: [worker]` selects the worker's pods of the release and `worker`'s
+  `toComponents: [api]` selects api's, and `nightly-cleanup` (policy off) gets none; `worker` sets
+  `egress.dns.podSelector` in the umbrella's values, and its DNS rule selects exactly that map (it replaces the
+  default selector), on both Helm versions;
 - `helm.sh/chart` keeps the real chart name (`chart-base-<version>`) under an alias;
 - `<alias>.enabled=false` removes the component;
 - the schema is enforced per alias and names the alias in the error, and a typo under an alias fails;
@@ -181,6 +187,8 @@ The cluster:
   release (kind v0.33.0 does not publish a 1.33 image, hence the two kind versions). The kind versions
   and digests are bumped by hand, not by Renovate.
 - Helm 4.3.0.
+- kind's default CNI, kindnet, which enforces NetworkPolicy since kind v0.24.0 through kube-network-policies
+  (both kind versions embed it at commit `f67f0fb35e2b`).
 
 The prerequisites the script installs:
 
@@ -215,11 +223,54 @@ Each scenario is installed with `helm upgrade --install ... --wait --timeout 5m`
 | `worker` | The worker becomes Ready and there is no Service named for it. It has a PodMonitor labelled `release: e2e` whose endpoint port is the container port `metrics`, and no ServiceMonitor. |
 | `cronjob` | A Job created manually from the CronJob (`kubectl create job --from=cronjob/...`) completes within 180 seconds: a restricted pod that reads its config from the ConfigMap, its `env` references (`fieldRef`, `resourceFieldRef`) and the `e2e-shared` Secret injected with `envFrom` and a prefix. Service links are off: `KUBERNETES_SERVICE_HOST` is set, `DEPLOYMENT_CHART_BASE_SERVICE_HOST` (the `deployment` scenario's Service, installed before; the script first checks that it has a ClusterIP) is not. |
 | `job` | The `pre-deploy` hook Job succeeds and its log contains `migrations-ok`: it saw `APP_MODE`, `DB_PASSWORD` (from the ExternalSecret) and `/config/migrations.yaml`, all created as hooks before it ran. A second deploy with `--set-string podAnnotations.revision=2` succeeds, so the Job hook is recreated instead of hitting `field is immutable` ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)). |
-| `full` | The ExternalSecret becomes Ready, the Secret it creates holds the value `s3cr3t` from the fake provider, the API server accepts the HTTPRoute, the Deployment's `secret.reloader.stakater.com/reload` annotation is exactly `e2e-shared,full-chart-base-secrets`, and the HPA, PDB and Ingress are created. The Deployment carries `strategy` (`maxSurge: 1`, `maxUnavailable: 0`), `minReadySeconds` and `revisionHistoryLimit`; a pod carries `priorityClassName: e2e-high` resolved to priority 1000 by the API server, `enableServiceLinks: false`, the `dnsConfig` option and the `hostAliases` entry. The ServiceMonitor is labelled `release: e2e` and its endpoint targets the Service port `http` with a `30s` interval, there is no PodMonitor, and the PrometheusRule is labelled `release: e2e` and holds the alert `FullChartBaseDown`. |
+| `full` | The ExternalSecret becomes Ready, the Secret it creates holds the value `s3cr3t` from the fake provider, the API server accepts the HTTPRoute, the Deployment's `secret.reloader.stakater.com/reload` annotation is exactly `e2e-shared,full-chart-base-secrets`, and the HPA, PDB and Ingress are created. The Deployment carries `strategy` (`maxSurge: 1`, `maxUnavailable: 0`), `minReadySeconds` and `revisionHistoryLimit`; a pod carries `priorityClassName: e2e-high` resolved to priority 1000 by the API server, `enableServiceLinks: false`, the `dnsConfig` option and the `hostAliases` entry. The ServiceMonitor is labelled `release: e2e` and its endpoint targets the Service port `http` with a `30s` interval, there is no PodMonitor, and the PrometheusRule is labelled `release: e2e` and holds the alert `FullChartBaseDown`. The NetworkPolicy is accepted with both policy types, the `except` of its `ipBlock` and its `endPort`. |
 | `port-names` | The API server accepts the component whose only port is named `on`, and stores `on` as a string in the Service port name and `targetPort`, the container port name, the Ingress backend port name and the ServiceMonitor endpoint port. |
 
-On failure the script prints `kubectl get all,externalsecrets,servicemonitors,podmonitors,prometheusrules`
-for the namespace.
+After the scenarios, the **NetworkPolicy checks**. The script creates a namespace `netpol` (Pod Security
+`restricted`) with a default-deny NetworkPolicy (`podSelector: {}`, `policyTypes: [Ingress, Egress]`, no rule), and
+a namespace `monitoring` without policies, with an agnhost pod `probe` that serves HTTP on 8080. It builds a throwaway
+umbrella `shop` like the alias contract does, with three aliases, and installs it in `netpol`:
+
+- `api` (a Deployment serving HTTP on `http`, 8080, with a `metrics` port, 9090, where nothing listens) allows
+  `fromComponents: [web]` and `metricsFromNamespaces: [monitoring]`;
+- `web` (the same image) allows no ingress source and isolates its egress: the cluster DNS (the default) and
+  `toComponents: [api]`;
+- `migrate`, a `pre-deploy` Job with egress isolated (DNS only), resolves and connects over TCP to
+  `kube-dns.kube-system.svc.cluster.local:53`, with up to 20 attempts one second apart.
+
+Each probe is `kubectl exec ... /agnhost connect <host>:<port> --timeout=3s`, repeated every second for up to
+10 seconds until the result is the expected one, as Kubernetes' own NetworkPolicy e2e does: an allowed connection
+connects or is `REFUSED` (nothing listens), a denied one is a `TIMEOUT` (kindnet drops it), and a DNS error counts as
+neither. kindnet fails open, and when its policy controller cannot start it only logs `skipping network policies`:
+allow checks alone would pass without enforcement, so the **first** check is a deny.
+
+With the default-deny in place, a denial may come from it as well as from the chart, so these checks prove that
+NetworkPolicy is enforced, that the chart's rules allow what they should, and that they open nothing more:
+
+| Check | Expected |
+|---|---|
+| `monitoring/probe` → `shop-web.netpol.svc.cluster.local:8080` | Denied: neither `web`'s policy nor the default-deny allows a source. Fails as "NetworkPolicy is not enforced". |
+| The install itself, and the `migrate` Job's log | The Job logged `dns-ok`: under the default-deny it reached the cluster DNS only through its own policy, a hook created before it ([ADR-0041](../adr/0041-job-component-networkpolicy-is-a-hook.md)). The policy is gone after the install (`hook-succeeded`). |
+| `web` → `shop-api:8080` | Allowed: DNS by Service name, `web`'s `toComponents: [api]` and `api`'s `fromComponents: [web]`. |
+| `web` → the `probe` pod's IP, port 8080 | Denied: `web`'s rules allow only the cluster DNS and `api`, and the default-deny allows nothing (the destination has no policy). |
+| `monitoring/probe` → `shop-api.netpol.svc.cluster.local:9090` | Allowed (`REFUSED`): `metricsFromNamespaces` opens the `metrics` port. |
+| `monitoring/probe` → `shop-api.netpol.svc.cluster.local:8080` | Denied: the monitoring namespace reaches only the metrics port. |
+
+Then the script deletes the default-deny, so that only the chart's policies remain, and checks the chart's own
+isolation:
+
+| Check | Expected |
+|---|---|
+| `api` → the `probe` pod's IP, port 8080 | Allowed: `api`'s policy isolates ingress only (`egress.enabled: false`), so its egress is open. The probe also waits until the deletion is enforced. |
+| `monitoring/probe` → `shop-web.netpol.svc.cluster.local:8080` | Denied by `web`'s own policy: it isolates `web`'s ingress and allows no source. |
+| `web` → the `probe` pod's IP, port 8080 | Denied by `web`'s own policy: it isolates `web`'s egress and allows only the cluster DNS and `api`. |
+
+No check depends on an `ipBlock` matching a pod IP, which kindnet does and some CNIs never do.
+
+On failure the script prints
+`kubectl get all,externalsecrets,servicemonitors,podmonitors,prometheusrules,networkpolicies` for the namespace
+of the failing check (`vending` for the scenarios, `netpol` for the NetworkPolicy checks, which also list the pods and
+policies of `monitoring`).
 
 **In CI.** The `e2e` job, one leg per Kubernetes version. To debug a failure locally, read the failing
 step in the job log first: the `FAIL:` message names what the script expected. Reproducing it needs a
