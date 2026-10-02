@@ -50,6 +50,12 @@ api:
     enabled: true
     parentRefs: [{name: platform-gw, namespace: gateway}]
   metrics: {enabled: true}                  # a ServiceMonitor: api has a Service
+  networkPolicy:
+    enabled: true
+    ingress:
+      fromComponents: [worker]
+      fromNamespaces: [envoy-gateway-system]   # where the Gateway's proxy pods run
+      metricsFromNamespaces: [monitoring]
 worker:
   enabled: true
   image: {repository: ghcr.io/acme/sales, tag: "1.0.0"}
@@ -57,6 +63,13 @@ worker:
   service: {enabled: false}
   ports: [{name: metrics, containerPort: 9090}]
   metrics: {enabled: true, port: metrics}   # a PodMonitor: worker has no Service
+  networkPolicy:
+    enabled: true
+    ingress: {metricsFromNamespaces: [monitoring]}
+    egress:
+      enabled: true
+      toComponents: [api]
+      dns: {podSelector: {dns.operator.openshift.io/daemonset-dns: default}}   # replaces the default
   env:                  # references and existing objects work under an alias
     POD_NAME: {valueFrom: {fieldRef: {fieldPath: metadata.name}}}
   envFrom:
@@ -95,6 +108,19 @@ monitor_selects() { # kind name -> the <name>/<instance> labels its selector mat
 [ "$(monitor_selects PodMonitor vending-worker)" = "worker/vending" ] || fail "worker must get a PodMonitor that selects only its own pods"
 echo "$names" | grep -qxE "PodMonitor/vending-api|ServiceMonitor/vending-worker" && fail "one monitor kind per component: a ServiceMonitor with a Service, a PodMonitor without"
 pass "metrics under an alias: a ServiceMonitor for api and a PodMonitor for worker, each selecting only its own component"
+
+np_selects() { # name yq-path -> the <name>/<instance> labels of the selector at that path of the NetworkPolicy
+  echo "$rendered" | yq -N "select(.kind == \"NetworkPolicy\" and .metadata.name == \"$1\") | $2 | .[\"app.kubernetes.io/name\"] + \"/\" + .[\"app.kubernetes.io/instance\"]" -
+}
+[ "$(np_selects vending-api .spec.podSelector.matchLabels)" = "api/vending" ] || fail "api's NetworkPolicy must select only api's pods"
+[ "$(np_selects vending-worker .spec.podSelector.matchLabels)" = "worker/vending" ] || fail "worker's NetworkPolicy must select only worker's pods"
+[ "$(np_selects vending-api '.spec.ingress[0].from[0].podSelector.matchLabels')" = "worker/vending" ] || fail "api's fromComponents [worker] must select worker's pods of this release"
+[ "$(np_selects vending-worker '.spec.egress[1].to[0].podSelector.matchLabels')" = "api/vending" ] || fail "worker's toComponents [api] must select api's pods of this release"
+echo "$names" | grep -qx "NetworkPolicy/vending-nightly-cleanup" && fail "nightly-cleanup has networkPolicy off: it must render no NetworkPolicy"
+pass "networkPolicy under an alias: one NetworkPolicy per component, selecting only its own pods; fromComponents/toComponents select the sibling's pods"
+dns_labels="$(echo "$rendered" | yq -N 'select(.kind == "NetworkPolicy" and .metadata.name == "vending-worker") | .spec.egress[0].to[0].podSelector.matchLabels | to_entries | map(.key + "=" + .value) | join(",")' -)"
+[ "$dns_labels" = "dns.operator.openshift.io/daemonset-dns=default" ] || fail "worker's egress.dns.podSelector must replace the default DNS selector, not merge with it, got '$dns_labels'"
+pass "an alias's egress.dns.podSelector replaces the default DNS selector (nothing is merged into it)"
 
 worker_container='select(.kind == "Deployment" and .metadata.name == "vending-worker") | .spec.template.spec.containers[0]'
 [ "$(echo "$rendered" | yq -N "$worker_container | .env[0].name" -)" = "POD_NAME" ] || fail "worker must render the env reference"

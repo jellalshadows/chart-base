@@ -9,6 +9,7 @@ templates:
   - templates/httproute.yaml
   - templates/ingress.yaml
   - templates/job.yaml
+  - templates/networkpolicy.yaml
   - templates/pdb.yaml
   - templates/podmonitor.yaml
   - templates/prometheusrule.yaml

@@ -605,6 +605,111 @@ full scenario:
                 path: /
                 pathType: Prefix
   8: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/component: deployment
+        app.kubernetes.io/instance: vending
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: chart-base
+        app.kubernetes.io/part-of: vending
+        app.kubernetes.io/version: 2.66.1
+        helm.sh/chart: chart-base-0.0.0-test
+      name: vending-chart-base
+    spec:
+      egress:
+        - ports:
+            - port: 53
+              protocol: UDP
+            - port: 53
+              protocol: TCP
+          to:
+            - namespaceSelector:
+                matchExpressions:
+                  - key: kubernetes.io/metadata.name
+                    operator: In
+                    values:
+                      - kube-system
+              podSelector:
+                matchLabels:
+                  k8s-app: kube-dns
+            - ipBlock:
+                cidr: 169.254.20.10/32
+        - to:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/instance: vending
+                  app.kubernetes.io/name: payments
+        - ports:
+            - port: 5432
+              protocol: TCP
+            - endPort: 8100
+              port: 8000
+              protocol: TCP
+          to:
+            - ipBlock:
+                cidr: 192.0.2.0/24
+                except:
+                  - 192.0.2.128/25
+        - ports:
+            - port: 9092
+              protocol: TCP
+          to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: kafka
+              podSelector:
+                matchExpressions:
+                  - key: strimzi.io/kind
+                    operator: In
+                    values:
+                      - Kafka
+      ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/instance: vending
+                  app.kubernetes.io/name: web
+          ports:
+            - port: http
+              protocol: TCP
+        - from:
+            - namespaceSelector:
+                matchExpressions:
+                  - key: kubernetes.io/metadata.name
+                    operator: In
+                    values:
+                      - envoy-gateway-system
+                      - ingress-nginx
+          ports:
+            - port: http
+              protocol: TCP
+        - from:
+            - namespaceSelector:
+                matchExpressions:
+                  - key: kubernetes.io/metadata.name
+                    operator: In
+                    values:
+                      - monitoring
+          ports:
+            - port: http
+              protocol: TCP
+        - from:
+            - ipBlock:
+                cidr: 10.0.0.0/8
+                except:
+                  - 10.1.0.0/16
+          ports:
+            - port: http
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/instance: vending
+          app.kubernetes.io/name: chart-base
+      policyTypes:
+        - Ingress
+        - Egress
+  9: |
     apiVersion: policy/v1
     kind: PodDisruptionBudget
     metadata:
@@ -624,7 +729,7 @@ full scenario:
           app.kubernetes.io/instance: vending
           app.kubernetes.io/name: chart-base
       unhealthyPodEvictionPolicy: AlwaysAllow
-  9: |
+  10: |
     apiVersion: monitoring.coreos.com/v1
     kind: PrometheusRule
     metadata:
@@ -649,7 +754,7 @@ full scenario:
               for: 5m
               labels:
                 severity: critical
-  10: |
+  11: |
     apiVersion: v1
     kind: Service
     metadata:
@@ -672,7 +777,7 @@ full scenario:
         app.kubernetes.io/instance: vending
         app.kubernetes.io/name: chart-base
       type: ClusterIP
-  11: |
+  12: |
     apiVersion: v1
     automountServiceAccountToken: false
     kind: ServiceAccount
@@ -688,7 +793,7 @@ full scenario:
         app.kubernetes.io/version: 2.66.1
         helm.sh/chart: chart-base-0.0.0-test
       name: vending-chart-base
-  12: |
+  13: |
     apiVersion: monitoring.coreos.com/v1
     kind: ServiceMonitor
     metadata:

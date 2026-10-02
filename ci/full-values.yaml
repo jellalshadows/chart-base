@@ -123,3 +123,46 @@ prometheusRule:
             severity: critical
           annotations:
             summary: "{{ $labels.pod }} of the full scenario is down"
+
+# One NetworkPolicy with every kind of rule: the API server must accept it (the e2e checks a few fields).
+# In the e2e this isolates the full pods both ways, and the 10.0.0.0/8 ipBlock below matches kind's pod IPs:
+# no e2e connectivity check may target `full` (it would pass or fail for the wrong reason).
+networkPolicy:
+  enabled: true
+  ingress:
+    fromComponents: [web]                    # a sibling alias; this release has none, so the peer selects no pod
+    # Where the Gateway's proxy pods run (Envoy Gateway's default mode: its own namespace) and the ingress controller.
+    fromNamespaces: [envoy-gateway-system, ingress-nginx]
+    metricsFromNamespaces: [monitoring]      # Prometheus: only metrics.port
+    extra:
+      - from:
+          - ipBlock:
+              cidr: 10.0.0.0/8
+              except: [10.1.0.0/16]
+        ports:
+          - port: http
+  egress:
+    enabled: true
+    dns:
+      cidrs: [169.254.20.10/32]              # NodeLocal DNSCache
+    toComponents: [payments]
+    toCIDRs:
+      - cidr: 192.0.2.0/24                   # TEST-NET-1 (RFC 5737)
+        except: [192.0.2.128/25]
+        ports:
+          - port: 5432
+          - port: 8000
+            endPort: 8100
+    extra:
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: kafka
+            podSelector:
+              matchExpressions:
+                - key: strimzi.io/kind
+                  operator: In
+                  values: [Kafka]
+        ports:
+          - port: 9092
+            protocol: TCP
