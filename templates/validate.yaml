@@ -69,8 +69,11 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if and $in.metricsFromNamespaces (not .Values.metrics.enabled) -}}
 {{- include "chart-base.fail" (list . "networkPolicy.ingress.metricsFromNamespaces opens metrics.port, but metrics.enabled is false (metrics is for Deployments only): remove it, or enable metrics") -}}
 {{- end -}}
-{{- if and (or .Values.httpRoute.enabled .Values.ingress.enabled) (not $in.fromNamespaces) (not $in.extra) -}}
-{{- include "chart-base.fail" (list . "networkPolicy with httpRoute.enabled or ingress.enabled needs a source for the route's traffic: list the namespace of the Gateway's proxy pods (with Envoy Gateway's default mode, the namespace Envoy Gateway runs in, not the Gateway's) or of the ingress controller's pods in networkPolicy.ingress.fromNamespaces (or allow them in networkPolicy.ingress.extra), or the component is unreachable") -}}
+{{- if and (or .Values.httpRoute.enabled .Values.ingress.enabled) (not $in.fromNamespaces) (not $in.extra) (not $in.routeTrafficAllowedElsewhere) -}}
+{{- include "chart-base.fail" (list . "networkPolicy with httpRoute.enabled or ingress.enabled needs a source for the route's traffic: list the namespace of the Gateway's proxy pods (with Envoy Gateway's default mode, the namespace Envoy Gateway runs in, not the Gateway's) or of the ingress controller's pods in networkPolicy.ingress.fromNamespaces (or allow them in networkPolicy.ingress.extra), or set networkPolicy.ingress.routeTrafficAllowedElsewhere: true if a policy the chart cannot express allows the route's traffic (Cilium's Ingress or Gateway, a hostNetwork ingress controller); otherwise the component is unreachable") -}}
+{{- end -}}
+{{- if and $in.routeTrafficAllowedElsewhere (not .Values.httpRoute.enabled) (not .Values.ingress.enabled) -}}
+{{- include "chart-base.fail" (list . "networkPolicy.ingress.routeTrafficAllowedElsewhere has no effect without a route: enable httpRoute or ingress, or remove it") -}}
 {{- end -}}
 {{- if and (or $in.fromComponents $in.fromNamespaces) (not .Values.ports) -}}
 {{- include "chart-base.fail" (list . "networkPolicy.ingress.fromComponents and fromNamespaces open the entries of ports by name, but ports is empty: declare the ports, or allow the traffic in networkPolicy.ingress.extra") -}}

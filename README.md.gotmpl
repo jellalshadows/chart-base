@@ -267,9 +267,18 @@ Gateway is installed in (`envoy-gateway-system` in its quickstart), not the name
 probes, is always allowed); `egress.enabled` isolates egress too and allows DNS to the pods labelled
 `k8s-app: kube-dns` in `kube-system`, on port 53. On OpenShift, set `egress.dns.namespace: openshift-dns`,
 `egress.dns.podSelector: {dns.operator.openshift.io/daemonset-dns: default}` (a map you set replaces the default
-selector, it is not merged with it) and port 5353 in `egress.dns.ports`; with NodeLocal DNSCache, add its address to
-`egress.dns.cidrs`; for a resolver that a namespace and labels cannot select, set `egress.dns.enabled: false` and allow
-it in `egress.extra`. A component that calls the Kubernetes API needs the API server's addresses in `toCIDRs`.
+selector, it is not merged with it) and `egress.dns.ports: [{port: 5353, protocol: UDP}, {port: 5353, protocol: TCP}]`
+(every entry needs its protocol, or it would be TCP only and block UDP DNS). With NodeLocal DNSCache, list in
+`egress.dns.cidrs` the address the pods actually query: `169.254.20.10/32` when the kubelet's `clusterDNS` points at
+the NodeLocal address (kube-proxy IPVS mode), the kube-dns Service ClusterIP `/32` in kube-proxy iptables mode; on GKE
+with Dataplane V2 nothing is needed. For a resolver that a namespace and labels cannot select, set
+`egress.dns.enabled: false` and allow it in `egress.extra`. A component that calls the Kubernetes API needs the API
+server's endpoint IPs and port in `toCIDRs` (ports are matched after DNAT: kubeadm listens on 6443, not 443;
+`kubectl get endpointslices -n default -l kubernetes.io/service-name=kubernetes`). Cilium's Ingress and Gateway API
+send traffic with an identity that a standard NetworkPolicy cannot select (a Cilium maintainer said so in December
+2024, for Cilium 1.16; current releases unverified): allow it with a CiliumNetworkPolicy and set
+`networkPolicy.ingress.routeTrafficAllowedElsewhere: true`, which opens nothing and only silences the route guard; a
+`hostNetwork` ingress controller is the same case (an `ipBlock` of the node CIDRs in `extra` may also work).
 Listing egress destinations while `egress.enabled` is `false` fails the render. **The CNI must enforce NetworkPolicy**
 (on EKS, enable it in the VPC CNI): otherwise the objects are created and change nothing. A namespace default-deny is
 the platform's, not the chart's; under one like this, a component without `egress.enabled` opens no connection at all:
@@ -539,7 +548,9 @@ code, official docs) and local renders.
     you set replaces the default, it is not merged with it), siblings (`toComponents`), CIDRs and `extra`. An empty
     `from`, `to` or `ports` list is never rendered (the API reads it as "all"); the render fails on a route or metrics
     without a source, a metrics source without metrics, sources without ports, an `endPort` below its port, and egress
-    destinations listed while egress is not isolated. Off by default: without a CNI that enforces it, it changes
+    destinations listed while egress is not isolated. A route whose traffic a policy the chart cannot express allows
+    (Cilium's Ingress or Gateway) is acknowledged with `ingress.routeTrafficAllowedElsewhere: true`, which opens
+    nothing and fails without a route. Off by default: without a CNI that enforces it, it changes
     nothing. *Rejected:* egress isolated by default; a default monitoring namespace; a default DNS selector map that a
     set map would be merged into; rules passed through without a schema; on by default.
     [ADR-0040](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0040-networkpolicy-per-component-with-sibling-references.md)
@@ -592,8 +603,10 @@ cosign verify ghcr.io/jellalshadows/charts/chart-base:X.Y.Z \
 - **NetworkPolicy** (`networkPolicy`) needs a CNI that enforces it (on EKS, enable it in the VPC CNI): otherwise
   the objects change nothing. List the namespace of the Gateway's proxy pods (with Envoy Gateway's default mode, the
   namespace Envoy Gateway runs in, not the Gateway's) or of the ingress controller's pods in `fromNamespaces`, and
-  Prometheus' in `metricsFromNamespaces` (the render fails without them). On OpenShift or with NodeLocal DNSCache,
-  override `egress.dns`: a `podSelector` you set replaces the default selector.
+  Prometheus' in `metricsFromNamespaces` (the render fails without them); a route allowed by a policy the chart cannot
+  express (Cilium's Ingress or Gateway, a `hostNetwork` controller) takes `routeTrafficAllowedElsewhere: true`
+  instead. On OpenShift or with NodeLocal DNSCache, override `egress.dns`: a `podSelector` you set replaces the default
+  selector, and every `ports` entry needs its protocol.
 - **Turning on `autoscaling` for a running component** removes `spec.replicas`: Kubernetes scales it to 1
   once, then the HPA scales it back up.
 - **Quote image tags** (`tag: "1.10"`): the schema only accepts strings, so an unquoted `1.10` fails

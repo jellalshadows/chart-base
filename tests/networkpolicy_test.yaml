@@ -193,6 +193,22 @@ tests:
       networkPolicy.ingress.fromComponents: [web]
       networkPolicy.ingress.fromNamespaces: [gateway]
     asserts:
+      - hasDocuments:
+          count: 1
+      - notExists:
+          path: spec.ingress
+
+  - it: opens nothing for routeTrafficAllowedElsewhere (the key only acknowledges that the route's traffic is allowed elsewhere)
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - name: platform-gw
+          namespace: gateway
+      networkPolicy.enabled: true
+      networkPolicy.ingress.routeTrafficAllowedElsewhere: true
+    asserts:
+      - hasDocuments:
+          count: 1
       - notExists:
           path: spec.ingress
 
@@ -310,6 +326,7 @@ tests:
         - port: 5353
           protocol: UDP
         - port: 5353
+          protocol: TCP
       networkPolicy.egress.dns.cidrs: [169.254.20.10/32]
     asserts:
       - equal:

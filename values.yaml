@@ -213,10 +213,18 @@ networkPolicy:
     fromComponents: []
     # -- Namespaces, by name (e.g. `[envoy-gateway-system]`), whose pods may reach every entry of `ports`: where the
     # Gateway's proxy pods run (with Envoy Gateway's default mode, the namespace Envoy Gateway runs in, not the Gateway's)
-    # or the ingress controller's pods. Required, or `extra`, when `httpRoute` or `ingress` is enabled. Traffic from a
-    # `hostNetwork` controller (usually treated as node traffic) or from Cilium's Ingress/Gateway may not match a
-    # namespace: use `extra` or the CNI's own policies.
+    # or the ingress controller's pods. Required, or `extra`, when `httpRoute` or `ingress` is enabled (or
+    # `routeTrafficAllowedElsewhere`). Traffic from Cilium's Ingress or Gateway API does not match a namespace and `extra`
+    # cannot allow it: a standard NetworkPolicy cannot select Cilium's `reserved:ingress` identity (a Cilium maintainer,
+    # 2024-12-11, Cilium 1.16: it takes a CiliumNetworkPolicy; current releases unverified). Allow it there and set
+    # `routeTrafficAllowedElsewhere`. A `hostNetwork` controller is usually treated as node traffic: an `ipBlock` of the
+    # node CIDRs in `extra` may allow it, or allow it elsewhere and set the key.
     fromNamespaces: []
+    # -- Set to `true` when the route's traffic reaches the pods through a policy this chart cannot express (Cilium's
+    # Ingress or Gateway API, a `hostNetwork` ingress controller) and you allow it there: it silences the guard that fails
+    # a route (`httpRoute` or `ingress`) without a source in `fromNamespaces` or `extra`. It opens nothing; without a
+    # route it fails the render (it would have no effect).
+    routeTrafficAllowedElsewhere: false
     # -- Namespaces, by name (e.g. `[monitoring]`), whose pods may reach only `metrics.port`: Prometheus. Required when
     # `metrics.enabled`, rejected without it. A scraper that is not a pod in a namespace (an agent on the host network, a
     # Prometheus outside the cluster) still needs an entry: list the namespace it is deployed in (or one you control) and
@@ -230,7 +238,9 @@ networkPolicy:
     # -- Isolate the pods' egress too: only DNS and the destinations below are allowed, every other connection is denied.
     # While `false`, `toComponents`, `toCIDRs`, `extra` and `dns.cidrs` must stay empty (the render fails: they would
     # restrict nothing); a changed DNS namespace, selector or port cannot be detected and is ignored. A component that
-    # calls the API server (`serviceAccount.automountToken: true`) needs the API server's endpoint IPs in `toCIDRs`.
+    # calls the API server (`serviceAccount.automountToken: true`) needs the API server's endpoint IPs and port in `toCIDRs`
+    # (ports are matched after DNAT: kubeadm listens on 6443, not 443): `kubectl get endpointslices -n default -l
+    # kubernetes.io/service-name=kubernetes`.
     enabled: false
     dns:
       # -- Allow DNS to the cluster DNS pods (`namespace` and `podSelector`) and to `cidrs`, on `ports`.
@@ -238,18 +248,25 @@ networkPolicy:
       # -- Namespace of the cluster DNS pods (OpenShift: `openshift-dns`).
       namespace: kube-system
       # -- (object) Labels of the cluster DNS pods. `null` = `{k8s-app: kube-dns}`, the label of the cluster DNS pods on
-      # kubeadm (kind), EKS, GKE, AKS and k3s. A map you set REPLACES it, it is not merged with it. OpenShift:
-      # `{dns.operator.openshift.io/daemonset-dns: default}`, with `namespace: openshift-dns` and port 5353. A resolver
-      # that a namespace and labels cannot select: `enabled: false` and an `egress.extra` rule.
+      # kubeadm (kind), EKS, GKE with kube-dns, AKS and k3s (GKE with Cloud DNS, the Autopilot default, has no such pods:
+      # unverified what it needs). A map you set REPLACES it, it is not merged with it. OpenShift:
+      # `{dns.operator.openshift.io/daemonset-dns: default}`, with `namespace: openshift-dns` and
+      # `ports: [{port: 5353, protocol: UDP}, {port: 5353, protocol: TCP}]`. A resolver that a namespace and labels
+      # cannot select: `enabled: false` and an `egress.extra` rule.
       podSelector: null
-      # -- DNS ports, by number (OpenShift's DNS pods listen on 5353).
+      # -- DNS ports, by number, each with its protocol (required: an entry without one would be TCP only and block UDP
+      # DNS). OpenShift's DNS pods listen on 5353.
       ports:
         - port: 53
           protocol: UDP
         - port: 53
           protocol: TCP
-      # -- Extra DNS destinations by CIDR, on the same ports: NodeLocal DNSCache (e.g. `169.254.20.10/32`, a host-network
-      # pod that pod selectors usually do not match) or the kube-dns Service ClusterIP (`/32`).
+      # -- Extra DNS destinations by CIDR, on the same ports, for NodeLocal DNSCache (a host-network pod that pod
+      # selectors usually do not match): list the address the pods actually query, `169.254.20.10/32` when the kubelet's
+      # `clusterDNS` points at the NodeLocal address (kube-proxy IPVS mode), the kube-dns Service ClusterIP `/32` in
+      # kube-proxy iptables mode (NodeLocal DNSCache listens on that IP too and the traffic is not DNAT-ed; GKE without
+      # Dataplane V2 documents the ClusterIP). On GKE Dataplane V2 nothing is needed, and a Service IP may not be used in
+      # an `ipBlock`.
       cidrs: []
     # -- Aliases of sibling components of the same release (e.g. `[api]`) whose pods may be reached on any port.
     toComponents: []

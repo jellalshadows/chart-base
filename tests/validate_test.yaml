@@ -401,6 +401,65 @@ tests:
       - hasDocuments:
           count: 0
 
+  - it: accepts an HTTPRoute whose traffic is allowed elsewhere (routeTrafficAllowedElsewhere), and the key opens nothing
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - name: platform-gw
+          namespace: gateway
+      networkPolicy.enabled: true
+      networkPolicy.ingress.routeTrafficAllowedElsewhere: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts an Ingress whose traffic is allowed elsewhere (routeTrafficAllowedElsewhere)
+    set:
+      ingress.enabled: true
+      ingress.className: internal
+      ingress.hosts:
+        - host: sales.internal.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+      networkPolicy.enabled: true
+      networkPolicy.ingress.routeTrafficAllowedElsewhere: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: names routeTrafficAllowedElsewhere as a remedy of the route guard
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - name: platform-gw
+          namespace: gateway
+      networkPolicy.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "or set networkPolicy.ingress.routeTrafficAllowedElsewhere: true if a policy the chart cannot express allows the route's traffic"
+
+  - it: accepts routeTrafficAllowedElsewhere together with fromNamespaces
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - name: platform-gw
+          namespace: gateway
+      networkPolicy.enabled: true
+      networkPolicy.ingress.fromNamespaces: [envoy-gateway-system]
+      networkPolicy.ingress.routeTrafficAllowedElsewhere: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects routeTrafficAllowedElsewhere without a route (it has no effect)
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.ingress.routeTrafficAllowedElsewhere: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "networkPolicy.ingress.routeTrafficAllowedElsewhere has no effect without a route: enable httpRoute or ingress, or remove it"
+
   - it: rejects fromComponents when ports is empty (there is no port to open by name)
     set:
       service.enabled: false
@@ -513,6 +572,7 @@ tests:
           ports:
             - port: 8100
               endPort: 8000
+      networkPolicy.ingress.routeTrafficAllowedElsewhere: true
     asserts:
       - hasDocuments:
           count: 0

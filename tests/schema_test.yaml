@@ -1048,6 +1048,31 @@ tests:
       - failedTemplate:
           errorPattern: "/networkPolicy/ingress/extra/0/ports/0/protocol': value must be one of 'TCP', 'UDP', 'SCTP'"
 
+  - it: rejects a port entry without a port (it would open every TCP port)
+    set:
+      networkPolicy.ingress.extra:
+        - ports:
+            - {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/ingress/extra/0/ports/0': missing property 'port'"
+
+  - it: rejects a port entry with only a protocol (a protocol-wide range is port 1 to endPort 65535)
+    set:
+      networkPolicy.ingress.extra:
+        - ports:
+            - protocol: UDP
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/ingress/extra/0/ports/0': missing property 'port'"
+
+  - it: rejects a routeTrafficAllowedElsewhere that is not a boolean
+    set:
+      networkPolicy.ingress.routeTrafficAllowedElsewhere: "yes"
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/ingress/routeTrafficAllowedElsewhere': got string, want boolean"
+
   - it: accepts complete extra ingress rules (IPv4 and IPv6 blocks, combined selectors, a named port, a port range, every source)
     set:
       networkPolicy.ingress.extra:
@@ -1115,6 +1140,14 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "/networkPolicy/egress/dns/ports': minItems"
+
+  - it: requires a protocol in every egress.dns.ports entry (TCP is the default, and DNS needs UDP too)
+    set:
+      networkPolicy.egress.dns.ports:
+        - port: 5353
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/dns/ports/0': missing property 'protocol'"
 
   - it: rejects an empty egress.dns.podSelector (it would select every pod of the DNS namespace)
     set:
