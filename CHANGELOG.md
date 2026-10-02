@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/jellalshadows/chart-base/compare/v0.4.1...v0.5.0) (2026-10-02)
+
+
+### Features
+
+* opt-in NetworkPolicy with sibling-component references ([#14](https://github.com/jellalshadows/chart-base/issues/14)) ([cdf97e1](https://github.com/jellalshadows/chart-base/commit/cdf97e188cd15b9fd85e8b0da97f91bf2681d240))
+
 ## [0.4.1](https://github.com/jellalshadows/chart-base/compare/v0.4.0...v0.4.1) (2026-10-01)
 
 
