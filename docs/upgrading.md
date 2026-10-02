@@ -8,8 +8,8 @@ no change to your values; the [changelog](../CHANGELOG.md) has every release.
 ## Every upgrade: a direct install must not use `--reuse-values`
 
 A release that installs chart-base directly (not through an umbrella) and is upgraded with
-`helm upgrade --reuse-values` fails validation when the new version adds required keys, as 0.3.0 and 0.4.0
-do: Helm renders the new chart with the previous release's values, the old chart's defaults included,
+`helm upgrade --reuse-values` fails validation when the new version adds required keys, as 0.3.0, 0.4.0 and
+0.5.0 do: Helm renders the new chart with the previous release's values, the old chart's defaults included,
 instead of the new chart's defaults, so the new keys are missing. An upgrade to 0.3.0 fails with
 `missing property 'enableServiceLinks'` and `'/cronjob': missing property 'suspend'`; an upgrade to 0.4.0
 with an error that contains:
@@ -18,8 +18,16 @@ with an error that contains:
 missing properties 'metrics', 'prometheusRule'
 ```
 
-From 0.2.x straight to 0.4.0 the errors add up:
-`missing properties 'enableServiceLinks', 'metrics', 'prometheusRule'` and `'/cronjob': missing property 'suspend'`.
+and an upgrade from 0.4.x to 0.5.0 with an error that contains:
+
+```text
+missing property 'networkPolicy'
+```
+
+The errors add up when versions are skipped: from 0.3.x straight to 0.5.0,
+`missing properties 'metrics', 'prometheusRule', 'networkPolicy'`; from 0.2.x,
+`missing properties 'enableServiceLinks', 'metrics', 'prometheusRule', 'networkPolicy'` and
+`'/cronjob': missing property 'suspend'`.
 Use `--reset-then-reuse-values` (available in Helm 3.22 and 4.3), which starts from the new chart's
 defaults and applies your previous values on top, or pass your values files again. Umbrellas are not
 affected.
@@ -143,3 +151,26 @@ object changes only where 0.4.0 rendered such a value wrongly:
   `/a`). 0.4.1 sends the path the values say, **which can change the routing of an existing Ingress on
   upgrade**: check such paths before you upgrade. A path that contains `: ` failed the render and now
   renders. An empty path is sent as `""` instead of null, and Kubernetes stores both as no path.
+
+## 0.4.x → 0.5.0
+
+Nothing to change, and the same values render the same objects: 0.5.0 adds `networkPolicy`, off by default
+([ADR-0040](adr/0040-networkpolicy-per-component-with-sibling-references.md)). A direct install upgraded with
+`--reuse-values` fails (see above). Before you turn it on for a component:
+
+- The cluster's CNI must enforce NetworkPolicy (on EKS, network policy must be enabled in the VPC CNI): otherwise the
+  object is created and changes nothing.
+- Ingress becomes isolated: list every source. A component with `httpRoute` or `ingress` needs, in
+  `networkPolicy.ingress.fromNamespaces`, the namespace of the Gateway's proxy pods (with Envoy Gateway's default
+  mode, the namespace Envoy Gateway runs in, not the Gateway's) or of the ingress controller's pods, and one with
+  `metrics` needs Prometheus' namespace in `networkPolicy.ingress.metricsFromNamespaces`; the render fails without
+  them. A route that a policy the chart cannot express allows (Cilium's Ingress or Gateway) takes
+  `networkPolicy.ingress.routeTrafficAllowedElsewhere: true` instead. Traffic from the pod's own node, such as the
+  kubelet's probes, stays allowed.
+- `networkPolicy.egress.enabled` isolates egress too: list the cluster DNS (the default fits kubeadm (kind), EKS, GKE
+  with kube-dns, AKS and k3s; OpenShift and NodeLocal DNSCache need an override, every `dns.ports` entry needs its
+  protocol, and a `dns.podSelector` you set replaces the default selector), the siblings, and every destination
+  outside the cluster, including the API server (its endpoint IPs and port) for a component with
+  `serviceAccount.automountToken: true`. Destinations listed while `egress.enabled` is `false` fail the render.
+- On a `job` component the policy is a hook of the Job's phase: keep `job.activeDeadlineSeconds` below Helm's
+  `--timeout` ([ADR-0041](adr/0041-job-component-networkpolicy-is-a-hook.md)).

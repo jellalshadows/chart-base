@@ -175,11 +175,45 @@ the label is created and silently ignored, and nothing fails. Set `metrics.label
 [ADR-0038](../adr/0038-one-metrics-endpoint-servicemonitor-or-podmonitor.md),
 [ADR-0039](../adr/0039-prometheus-rules-travel-with-the-component.md)).
 
+**NetworkPolicy: a CNI that enforces it, and the namespaces of your Gateway's proxies and of Prometheus.**
+`networkPolicy` renders a standard NetworkPolicy, and only the CNI enforces it: on one that does not, the object is
+created and nothing is restricted (on EKS, network policy must be enabled in the VPC CNI). The policy allows sources
+by namespace name, so list in `fromNamespaces` the namespace of the Gateway's proxy pods (with Envoy Gateway's default
+mode, the namespace Envoy Gateway runs in, not the Gateway's) or of the ingress controller's pods, and Prometheus' in
+`metricsFromNamespaces`. The traffic of Cilium's Ingress or Gateway matches no namespace and `extra` cannot allow it (a
+standard NetworkPolicy cannot select its `reserved:ingress` identity; a Cilium maintainer said so on 2024-12-11, for
+Cilium 1.16, current releases unverified): allow it with a CiliumNetworkPolicy and set
+`networkPolicy.ingress.routeTrafficAllowedElsewhere: true`, which opens nothing and only tells the route guard that
+the traffic is allowed elsewhere (it fails without a route). A controller on the host network (usually treated as node
+traffic) is the same case; an `ipBlock` of the node CIDRs in `extra` may allow it. The metrics guard needs
+a namespace even for a scraper that is not a pod in one (an agent on the host network, a Prometheus outside the
+cluster): list the namespace it is deployed in, or one you control, and allow its addresses on `metrics.port` with an
+`ipBlock` in `extra`. With `egress.enabled`, the defaults allow DNS to `kube-system` pods labelled `k8s-app: kube-dns`
+on port 53: OpenShift and NodeLocal DNSCache need an override. OpenShift: `dns.namespace: openshift-dns`,
+`dns.podSelector: {dns.operator.openshift.io/daemonset-dns: default}` and
+`dns.ports: [{port: 5353, protocol: UDP}, {port: 5353, protocol: TCP}]` (every entry needs its protocol: one without
+would be TCP only and block UDP DNS). NodeLocal DNSCache: list in `dns.cidrs` the address the pods actually query,
+`169.254.20.10/32` when the kubelet's `clusterDNS` points at the NodeLocal address (kube-proxy IPVS mode), the kube-dns
+Service ClusterIP `/32` in kube-proxy iptables mode (NodeLocal DNSCache also listens on that IP and the traffic is not
+DNAT-ed); on GKE with Dataplane V2 nothing is needed. A `dns.podSelector` you set replaces the default selector, it is
+not merged with it, and a resolver that cannot be selected takes `dns.enabled: false` and an `egress.extra` rule. A
+component that calls the Kubernetes API needs the API server's endpoint IPs and port in `toCIDRs` (ports are matched
+after DNAT: kubeadm listens on 6443, not 443; `kubectl get endpointslices -n default -l
+kubernetes.io/service-name=kubernetes`). While `egress.enabled` is `false`, the egress destination lists must stay empty
+(an overlay that turns egress off clears them with `[]`). As a general rule, do not use `ipBlock` for pods or Services:
+some CNIs never match pod traffic with a CIDR; the NodeLocal DNSCache address above is the one documented exception,
+because it is a host-network address that pod selectors do not match
+([ADR-0040](../adr/0040-networkpolicy-per-component-with-sibling-references.md)).
+
 **Job components: expect them to run as Helm hooks.**
 A component with `workload.type: job` is rendered as a Helm hook (`job.phase: pre-deploy` by default,
-or `post-deploy`), and its ServiceAccount, ConfigMaps and ExternalSecret are hooks of the same phase.
+or `post-deploy`), and its ServiceAccount, ConfigMaps, ExternalSecret and NetworkPolicy are hooks of the same phase.
 Hook resources are not part of the release, so `helm uninstall` does not delete them
-([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)).
+([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)). If Helm's `--timeout` expires while the Job still runs, Helm deletes
+those support resources under the running pod, its NetworkPolicy included: keep `job.activeDeadlineSeconds` below
+`--timeout`. With `networkPolicy` on, let the Job retry its first connections for a few seconds: the CNI applies a
+new policy some time after it is created, and a pod may start before that
+([ADR-0041](../adr/0041-job-component-networkpolicy-is-a-hook.md)).
 The exception is the component's PrometheusRule: it is not a hook but a regular release object, deleted by
 `helm uninstall`, and on the first install it is created only if the pre-deploy hook succeeds
 ([ADR-0039](../adr/0039-prometheus-rules-travel-with-the-component.md)).
@@ -199,7 +233,12 @@ What fails **before the cluster is touched**, at `helm template`, `helm lint` an
   than `maxReplicas`, a rollout that Kubernetes would reject (`maxSurge` and `maxUnavailable` both 0,
   `minReadySeconds` not lower than `progressDeadlineSeconds`), a custom
   `lifecycle.preStop` next to the built-in preStop sleep, a lifecycle `sleep` longer than
-  `terminationGracePeriodSeconds`, a `metrics.port` that is not the name of an entry in `ports`.
+  `terminationGracePeriodSeconds`, a `metrics.port` that is not the name of an entry in `ports`, and with
+  `networkPolicy` on: `metrics` or a route (`httpRoute`, `ingress`) without a source in the policy (or without
+  `routeTrafficAllowedElsewhere: true`), `routeTrafficAllowedElsewhere` without a route,
+  `metricsFromNamespaces` without `metrics`, `fromComponents` or `fromNamespaces` with no `ports`, an `endPort`
+  lower than its port, egress destinations (`toComponents`, `toCIDRs`, `extra`, `dns.cidrs`) listed while
+  `egress.enabled` is `false`.
 
 What fails **at install or upgrade**, when Helm talks to the cluster (rendering does not need the CRD,
 so `helm template` and `helm lint` do not catch it):
@@ -240,6 +279,14 @@ release succeeds):
   kube-prometheus-stack selects on (see [Rules](#rules)).
 - A `scrapeTimeout` greater than `interval`: the operator rejects the monitor
   ([ADR-0038](../adr/0038-one-metrics-endpoint-servicemonitor-or-podmonitor.md)).
+
+What **Helm never reports** about a NetworkPolicy, because only the CNI reads it (the object is created, it is ready
+for Helm as soon as it exists, and the release succeeds):
+
+- A CNI that does not enforce NetworkPolicy: nothing is restricted.
+- An alias in `fromComponents` or `toComponents`, or a namespace, that matches nothing: the peer selects no pod.
+- DNS settings that do not match the cluster, with `egress.enabled`: the pods cannot resolve names.
+- The time the CNI takes to program a new policy: a pod may start before it is enforced.
 
 A **rule whose PromQL does not parse** (or a broken annotation template) depends on the operator's admission
 webhook. Where it is deployed (kube-prometheus-stack deploys it by default, checked on chart version 91.8.2), the

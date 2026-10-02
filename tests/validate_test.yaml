@@ -313,3 +313,266 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: rejects metrics without a monitoring namespace when networkPolicy is on (the policy would block Prometheus)
+    set:
+      metrics.enabled: true
+      networkPolicy.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: 'networkPolicy.ingress.metricsFromNamespaces is empty, but metrics.enabled is true'
+
+  - it: accepts metrics with networkPolicy and a monitoring namespace
+    set:
+      metrics.enabled: true
+      networkPolicy.enabled: true
+      networkPolicy.ingress.metricsFromNamespaces: [monitoring]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects metricsFromNamespaces without metrics.enabled (it would open nothing)
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.ingress.metricsFromNamespaces: [monitoring]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'networkPolicy.ingress.metricsFromNamespaces opens metrics.port, but metrics.enabled is false'
+
+  - it: rejects metricsFromNamespaces on a CronJob, where metrics cannot be enabled
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      networkPolicy.enabled: true
+      networkPolicy.ingress.metricsFromNamespaces: [monitoring]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'networkPolicy.ingress.metricsFromNamespaces opens metrics.port, but metrics.enabled is false'
+
+  - it: rejects an HTTPRoute without a source for its traffic when networkPolicy is on (the route would black-hole)
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - name: platform-gw
+          namespace: gateway
+      networkPolicy.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "networkPolicy with httpRoute.enabled or ingress.enabled needs a source for the route's traffic"
+
+  - it: rejects an Ingress without a source for its traffic when networkPolicy is on
+    set:
+      ingress.enabled: true
+      ingress.className: internal
+      ingress.hosts:
+        - host: sales.internal.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+      networkPolicy.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "networkPolicy with httpRoute.enabled or ingress.enabled needs a source for the route's traffic"
+
+  - it: accepts an HTTPRoute whose proxies' namespace is in fromNamespaces
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - name: platform-gw
+          namespace: gateway
+      networkPolicy.enabled: true
+      networkPolicy.ingress.fromNamespaces: [envoy-gateway-system]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts an HTTPRoute whose source is an extra ingress rule
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - name: platform-gw
+          namespace: gateway
+      networkPolicy.enabled: true
+      networkPolicy.ingress.extra:
+        - from:
+            - ipBlock:
+                cidr: 10.0.0.0/8
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts an HTTPRoute whose traffic is allowed elsewhere (routeTrafficAllowedElsewhere), and the key opens nothing
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - name: platform-gw
+          namespace: gateway
+      networkPolicy.enabled: true
+      networkPolicy.ingress.routeTrafficAllowedElsewhere: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts an Ingress whose traffic is allowed elsewhere (routeTrafficAllowedElsewhere)
+    set:
+      ingress.enabled: true
+      ingress.className: internal
+      ingress.hosts:
+        - host: sales.internal.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+      networkPolicy.enabled: true
+      networkPolicy.ingress.routeTrafficAllowedElsewhere: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: names routeTrafficAllowedElsewhere as a remedy of the route guard
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - name: platform-gw
+          namespace: gateway
+      networkPolicy.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "or set networkPolicy.ingress.routeTrafficAllowedElsewhere: true if a policy the chart cannot express allows the route's traffic"
+
+  - it: accepts routeTrafficAllowedElsewhere together with fromNamespaces
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - name: platform-gw
+          namespace: gateway
+      networkPolicy.enabled: true
+      networkPolicy.ingress.fromNamespaces: [envoy-gateway-system]
+      networkPolicy.ingress.routeTrafficAllowedElsewhere: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects routeTrafficAllowedElsewhere without a route (it has no effect)
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.ingress.routeTrafficAllowedElsewhere: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "networkPolicy.ingress.routeTrafficAllowedElsewhere has no effect without a route: enable httpRoute or ingress, or remove it"
+
+  - it: rejects fromComponents when ports is empty (there is no port to open by name)
+    set:
+      service.enabled: false
+      ports: []
+      networkPolicy.enabled: true
+      networkPolicy.ingress.fromComponents: [web]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'networkPolicy.ingress.fromComponents and fromNamespaces open the entries of ports by name, but ports is empty'
+
+  - it: rejects fromNamespaces when ports is empty
+    set:
+      service.enabled: false
+      ports: []
+      networkPolicy.enabled: true
+      networkPolicy.ingress.fromNamespaces: [gateway]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'networkPolicy.ingress.fromComponents and fromNamespaces open the entries of ports by name, but ports is empty'
+
+  - it: rejects egress destinations while egress.enabled is false (they would restrict nothing)
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.egress.toComponents: [api]
+      networkPolicy.egress.toCIDRs:
+        - cidr: 192.0.2.0/24
+    asserts:
+      - failedTemplate:
+          errorPattern: 'networkPolicy.egress.toComponents, toCIDRs, extra and dns.cidrs only apply with networkPolicy.egress.enabled: true'
+
+  - it: rejects egress.extra while egress.enabled is false
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.egress.extra:
+        - ports:
+            - port: 443
+    asserts:
+      - failedTemplate:
+          errorPattern: 'networkPolicy.egress.toComponents, toCIDRs, extra and dns.cidrs only apply with networkPolicy.egress.enabled: true'
+
+  - it: rejects egress.dns.cidrs while egress.enabled is false
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.egress.dns.cidrs: [169.254.20.10/32]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'networkPolicy.egress.toComponents, toCIDRs, extra and dns.cidrs only apply with networkPolicy.egress.enabled: true'
+
+  - it: rejects an endPort lower than its port in toCIDRs (the API server rejects it)
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.egress.enabled: true
+      networkPolicy.egress.toCIDRs:
+        - cidr: 192.0.2.0/24
+          ports:
+            - port: 443
+            - port: 8100
+              endPort: 8000
+    asserts:
+      - failedTemplate:
+          errorPattern: 'networkPolicy.egress.toCIDRs\[0\].ports\[1\]: endPort \(8000\) must not be lower than port \(8100\)'
+
+  - it: rejects an endPort lower than its port in an extra ingress rule
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.ingress.extra:
+        - ports:
+            - port: 9100
+              endPort: 9000
+    asserts:
+      - failedTemplate:
+          errorPattern: 'networkPolicy.ingress.extra\[0\].ports\[0\]: endPort \(9000\) must not be lower than port \(9100\)'
+
+  - it: rejects an endPort lower than its port in an extra egress rule
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.egress.enabled: true
+      networkPolicy.egress.extra:
+        - ports:
+            - port: 443
+        - ports:
+            - port: 9100
+              endPort: 9000
+    asserts:
+      - failedTemplate:
+          errorPattern: 'networkPolicy.egress.extra\[1\].ports\[0\]: endPort \(9000\) must not be lower than port \(9100\)'
+
+  - it: accepts an endPort equal to its port
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.egress.enabled: true
+      networkPolicy.egress.toCIDRs:
+        - cidr: 192.0.2.0/24
+          ports:
+            - port: 8000
+              endPort: 8000
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: skips the networkPolicy guards while networkPolicy is off
+    set:
+      metrics.enabled: true
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - name: platform-gw
+          namespace: gateway
+      networkPolicy.egress.toCIDRs:
+        - cidr: 192.0.2.0/24
+          ports:
+            - port: 8100
+              endPort: 8000
+      networkPolicy.ingress.routeTrafficAllowedElsewhere: true
+    asserts:
+      - hasDocuments:
+          count: 0

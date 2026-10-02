@@ -220,6 +220,79 @@ must be installed, or the release fails (decision 12). `metrics` is for Deployme
 every workload type, for example to alert on a CronJob's failed runs with kube-state-metrics. The chart checks
 the structure of the rules, not the PromQL.
 
+### Zero-trust inside a domain umbrella (NetworkPolicy)
+
+```yaml
+api:
+  image: {repository: ghcr.io/acme/sales, tag: "1.4.2"}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+  ports:
+    - name: http
+      containerPort: 8080
+    - name: metrics
+      containerPort: 9090
+  httpRoute:
+    enabled: true
+    parentRefs: [{name: platform-gw, namespace: gateway}]
+  metrics: {enabled: true, port: metrics}
+  networkPolicy:
+    enabled: true
+    ingress:
+      fromComponents: [worker]              # the worker's pods, to every entry of ports (by name)
+      fromNamespaces: [envoy-gateway-system]   # where the Gateway's proxy pods run (required with httpRoute)
+      metricsFromNamespaces: [monitoring]   # Prometheus, to the metrics port only (required with metrics)
+worker:
+  image: {repository: ghcr.io/acme/sales, tag: "1.4.2"}
+  args: ["--mode=consumer"]
+  ports: []
+  service: {enabled: false}
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+  networkPolicy:
+    enabled: true                           # no ingress source: nothing reaches it but its node
+    egress:
+      enabled: true                         # the cluster DNS and the destinations below, nothing else
+      toComponents: [api]
+      toCIDRs:
+        - cidr: 10.20.0.0/16                # the Kafka brokers, outside the cluster
+          ports: [{port: 9092}]
+```
+
+Each component gets one NetworkPolicy, `vending-api` and `vending-worker`, that selects only its own pods;
+`fromComponents` and `toComponents` name siblings by alias, and the policy selects their pods in this release.
+`fromNamespaces` lists where the Gateway's proxy pods run: with Envoy Gateway's default mode, the namespace Envoy
+Gateway is installed in (`envoy-gateway-system` in its quickstart), not the namespace of the Gateway resource
+(`gateway` above). `networkPolicy.enabled` isolates ingress (traffic from the pod's own node, such as the kubelet's
+probes, is always allowed); `egress.enabled` isolates egress too and allows DNS to the pods labelled
+`k8s-app: kube-dns` in `kube-system`, on port 53. On OpenShift, set `egress.dns.namespace: openshift-dns`,
+`egress.dns.podSelector: {dns.operator.openshift.io/daemonset-dns: default}` (a map you set replaces the default
+selector, it is not merged with it) and `egress.dns.ports: [{port: 5353, protocol: UDP}, {port: 5353, protocol: TCP}]`
+(every entry needs its protocol, or it would be TCP only and block UDP DNS). With NodeLocal DNSCache, list in
+`egress.dns.cidrs` the address the pods actually query: `169.254.20.10/32` when the kubelet's `clusterDNS` points at
+the NodeLocal address (kube-proxy IPVS mode), the kube-dns Service ClusterIP `/32` in kube-proxy iptables mode; on GKE
+with Dataplane V2 nothing is needed. For a resolver that a namespace and labels cannot select, set
+`egress.dns.enabled: false` and allow it in `egress.extra`. A component that calls the Kubernetes API needs the API
+server's endpoint IPs and port in `toCIDRs` (ports are matched after DNAT: kubeadm listens on 6443, not 443;
+`kubectl get endpointslices -n default -l kubernetes.io/service-name=kubernetes`). Cilium's Ingress and Gateway API
+send traffic with an identity that a standard NetworkPolicy cannot select (a Cilium maintainer said so in December
+2024, for Cilium 1.16; current releases unverified): allow it with a CiliumNetworkPolicy and set
+`networkPolicy.ingress.routeTrafficAllowedElsewhere: true`, which opens nothing and only silences the route guard; a
+`hostNetwork` ingress controller is the same case (an `ipBlock` of the node CIDRs in `extra` may also work).
+Listing egress destinations while `egress.enabled` is `false` fails the render. **The CNI must enforce NetworkPolicy**
+(on EKS, enable it in the VPC CNI): otherwise the objects are created and change nothing. A namespace default-deny is
+the platform's, not the chart's; under one like this, a component without `egress.enabled` opens no connection at all:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+```
+
 ### Worker (e.g. a Kafka consumer)
 
 ```yaml
@@ -324,6 +397,21 @@ sales-migrations:
 | metrics.port | string | `"http"` | Name of the entry of `ports` that serves the metrics: the Service port of that name (ServiceMonitor) or the container port (PodMonitor). A worker must declare it in `ports` too. |
 | metrics.scrapeTimeout | string | `nil` | Scrape timeout, e.g. `10s`. `null` = Prometheus' default. It must not be greater than the interval: the Prometheus Operator rejects such a monitor, and the chart cannot compare durations. |
 | minReadySeconds | int | `nil` | Seconds a new pod must be Ready, without any container crashing, before it counts as available (`spec.minReadySeconds`). `null` = Kubernetes default (0). Must be lower than `progressDeadlineSeconds`. Deployments only. |
+| networkPolicy.egress.dns.cidrs | list | `[]` | Extra DNS destinations by CIDR, on the same ports, for NodeLocal DNSCache (a host-network pod that pod selectors usually do not match): list the address the pods actually query, `169.254.20.10/32` when the kubelet's `clusterDNS` points at the NodeLocal address (kube-proxy IPVS mode), the kube-dns Service ClusterIP `/32` in kube-proxy iptables mode (NodeLocal DNSCache listens on that IP too and the traffic is not DNAT-ed; GKE without Dataplane V2 documents the ClusterIP). On GKE Dataplane V2 nothing is needed, and a Service IP may not be used in an `ipBlock`. |
+| networkPolicy.egress.dns.enabled | bool | `true` | Allow DNS to the cluster DNS pods (`namespace` and `podSelector`) and to `cidrs`, on `ports`. |
+| networkPolicy.egress.dns.namespace | string | `"kube-system"` | Namespace of the cluster DNS pods (OpenShift: `openshift-dns`). |
+| networkPolicy.egress.dns.podSelector | object | `nil` | Labels of the cluster DNS pods. `null` = `{k8s-app: kube-dns}`, the label of the cluster DNS pods on kubeadm (kind), EKS, GKE with kube-dns, AKS and k3s (GKE with Cloud DNS, the Autopilot default, has no such pods: unverified what it needs). A map you set REPLACES it, it is not merged with it. OpenShift: `{dns.operator.openshift.io/daemonset-dns: default}`, with `namespace: openshift-dns` and `ports: [{port: 5353, protocol: UDP}, {port: 5353, protocol: TCP}]`. A resolver that a namespace and labels cannot select: `enabled: false` and an `egress.extra` rule. |
+| networkPolicy.egress.dns.ports | list | `[{"port":53,"protocol":"UDP"},{"port":53,"protocol":"TCP"}]` | DNS ports, by number, each with its protocol (required: an entry without one would be TCP only and block UDP DNS). OpenShift's DNS pods listen on 5353. |
+| networkPolicy.egress.enabled | bool | `false` | Isolate the pods' egress too: only DNS and the destinations below are allowed, every other connection is denied. While `false`, `toComponents`, `toCIDRs`, `extra` and `dns.cidrs` must stay empty (the render fails: they would restrict nothing); a changed DNS namespace, selector or port cannot be detected and is ignored. A component that calls the API server (`serviceAccount.automountToken: true`) needs the API server's endpoint IPs and port in `toCIDRs` (ports are matched after DNAT: kubeadm listens on 6443, not 443): `kubectl get endpointslices -n default -l kubernetes.io/service-name=kubernetes`. |
+| networkPolicy.egress.extra | list | `[]` | Extra egress rules, appended verbatim: the shape of `ingress.extra`, with `to` instead of `from`. |
+| networkPolicy.egress.toCIDRs | list | `[]` | Destinations by CIDR: `[{cidr, except: [...], ports: [{port, endPort, protocol}]}]`, ports by number only; without `ports`, every port. Meant for addresses outside the cluster: some CNIs never match pod traffic with a CIDR. |
+| networkPolicy.egress.toComponents | list | `[]` | Aliases of sibling components of the same release (e.g. `[api]`) whose pods may be reached on any port. |
+| networkPolicy.enabled | bool | `false` | Render a NetworkPolicy (`networking.k8s.io/v1`) named `<fullname>` that selects the component's pods and isolates their ingress: only the sources below may reach them, besides the pod's own node (kubelet probes), which the NetworkPolicy API always allows. Egress is isolated only with `egress.enabled`. On a `job` component it is a hook of the Job's phase, like its ServiceAccount and ConfigMaps. Without a CNI that enforces NetworkPolicy the object is created and changes nothing. |
+| networkPolicy.ingress.extra | list | `[]` | Extra ingress rules, appended verbatim: `[{from: [{podSelector, namespaceSelector} or {ipBlock: {cidr, except}}], ports: [{port, endPort, protocol}]}]`. An omitted `from` or `ports` means every source or port; an empty list is rejected. |
+| networkPolicy.ingress.fromComponents | list | `[]` | Aliases of sibling components of the same release (e.g. `[web]`) whose pods may reach every entry of `ports`, by name. |
+| networkPolicy.ingress.fromNamespaces | list | `[]` | Namespaces, by name (e.g. `[envoy-gateway-system]`), whose pods may reach every entry of `ports`: where the Gateway's proxy pods run (with Envoy Gateway's default mode, the namespace Envoy Gateway runs in, not the Gateway's) or the ingress controller's pods. Required, or `extra`, when `httpRoute` or `ingress` is enabled (or `routeTrafficAllowedElsewhere`). Traffic from Cilium's Ingress or Gateway API does not match a namespace and `extra` cannot allow it: a standard NetworkPolicy cannot select Cilium's `reserved:ingress` identity (a Cilium maintainer, 2024-12-11, Cilium 1.16: it takes a CiliumNetworkPolicy; current releases unverified). Allow it there and set `routeTrafficAllowedElsewhere`. A `hostNetwork` controller is usually treated as node traffic: an `ipBlock` of the node CIDRs in `extra` may allow it, or allow it elsewhere and set the key. |
+| networkPolicy.ingress.metricsFromNamespaces | list | `[]` | Namespaces, by name (e.g. `[monitoring]`), whose pods may reach only `metrics.port`: Prometheus. Required when `metrics.enabled`, rejected without it. A scraper that is not a pod in a namespace (an agent on the host network, a Prometheus outside the cluster) still needs an entry: list the namespace it is deployed in (or one you control) and allow its addresses on `metrics.port` with an `ipBlock` in `extra`. |
+| networkPolicy.ingress.routeTrafficAllowedElsewhere | bool | `false` | Set to `true` when the route's traffic reaches the pods through a policy this chart cannot express (Cilium's Ingress or Gateway API, a `hostNetwork` ingress controller) and you allow it there: it silences the guard that fails a route (`httpRoute` or `ingress`) without a source in `fromNamespaces` or `extra`. It opens nothing; without a route it fails the render (it would have no effect). |
 | nodeSelector | object | `{}` | Node selector. |
 | pdb.enabled | bool | `true` | Render a PodDisruptionBudget (policy/v1). Deployments only. |
 | pdb.maxUnavailable | int or string | `nil` | Max unavailable pods. When neither this nor `minAvailable` is set, `1` is used. |
@@ -392,8 +480,9 @@ code, official docs) and local renders.
    restart, and the next deploy of the domain would fail on someone else's broken component).
    [ADR-0006](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0006-checksum-for-config-reloader-for-secrets.md)
 7. **`workload.type: job` is a Helm hook (`job.phase`).** A Job pod template is immutable, so a plain
-   Job fails on the second deploy with `field is immutable`. Its ServiceAccount, ConfigMaps and
-   ExternalSecret are hooks too (weight `-10`) so they exist, with the new content, before the Job.
+   Job fails on the second deploy with `field is immutable`. Its ServiceAccount, ConfigMaps,
+   ExternalSecret and NetworkPolicy (decision 41) are hooks too (weight `-10`) so they exist, with the new
+   content, before the Job.
    *Rejected:* a plain Job; a Job named after the release revision (no ordering, not blocking).
    [ADR-0007](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0007-jobs-as-helm-hooks.md)
 8. **Names are always `<release>-<alias>`, and too-long names fail.** Uniqueness is guaranteed; names
@@ -555,6 +644,25 @@ code, official docs) and local renders.
     object is created and the operator skips it with a Warning event. *Rejected:* promtool in CI (a download of
     about 112 MB to lint only the chart's own example rule); a pass-through without a schema.
     [ADR-0039](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0039-prometheus-rules-travel-with-the-component.md)
+40. **One opt-in NetworkPolicy per component, siblings referenced by alias.** `networkPolicy.enabled` renders one
+    NetworkPolicy that selects the component's pods and isolates their ingress. Sources: sibling components by alias
+    (`fromComponents`, to the declared ports by name), namespaces by name (`fromNamespaces`: where the Gateway's
+    proxy pods or the ingress controller run), Prometheus' namespaces (`metricsFromNamespaces`, the metrics port only)
+    and validated `extra` rules. Egress is isolated only with `egress.enabled`: DNS (on by default; a DNS pod selector
+    you set replaces the default, it is not merged with it), siblings (`toComponents`), CIDRs and `extra`. An empty
+    `from`, `to` or `ports` list is never rendered (the API reads it as "all"); the render fails on a route or metrics
+    without a source, a metrics source without metrics, sources without ports, an `endPort` below its port, and egress
+    destinations listed while egress is not isolated. A route whose traffic a policy the chart cannot express allows
+    (Cilium's Ingress or Gateway) is acknowledged with `ingress.routeTrafficAllowedElsewhere: true`, which opens
+    nothing and fails without a route. Off by default: without a CNI that enforces it, it changes
+    nothing. *Rejected:* egress isolated by default; a default monitoring namespace; a default DNS selector map that a
+    set map would be merged into; rules passed through without a schema; on by default.
+    [ADR-0040](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0040-networkpolicy-per-component-with-sibling-references.md)
+41. **A job component's NetworkPolicy is a hook of its phase.** Like its ServiceAccount and ConfigMaps (weight `-10`,
+    deleted once the phase succeeds), so it exists before the first pre-deploy Job runs, which a regular object does
+    not. If Helm's `--timeout` expires while the Job still runs, Helm deletes it under the running pod: keep
+    `job.activeDeadlineSeconds` below `--timeout`. *Rejected:* a regular object; a hook kept after the deploy.
+    [ADR-0041](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0041-job-component-networkpolicy-is-a-hook.md)
 
 ## Versioning and releases
 
@@ -596,6 +704,13 @@ cosign verify ghcr.io/jellalshadows/charts/chart-base:X.Y.Z \
 - **Prometheus monitoring** (`metrics`, `prometheusRule`) needs the Prometheus Operator CRDs, and
   kube-prometheus-stack only selects objects labelled `release: <its release name>` by default: set it in
   `metrics.labels` and `prometheusRule.labels`.
+- **NetworkPolicy** (`networkPolicy`) needs a CNI that enforces it (on EKS, enable it in the VPC CNI): otherwise
+  the objects change nothing. List the namespace of the Gateway's proxy pods (with Envoy Gateway's default mode, the
+  namespace Envoy Gateway runs in, not the Gateway's) or of the ingress controller's pods in `fromNamespaces`, and
+  Prometheus' in `metricsFromNamespaces` (the render fails without them); a route allowed by a policy the chart cannot
+  express (Cilium's Ingress or Gateway, a `hostNetwork` controller) takes `routeTrafficAllowedElsewhere: true`
+  instead. On OpenShift or with NodeLocal DNSCache, override `egress.dns`: a `podSelector` you set replaces the default
+  selector, and every `ports` entry needs its protocol.
 - **Turning on `autoscaling` for a running component** removes `spec.replicas`: Kubernetes scales it to 1
   once, then the HPA scales it back up.
 - **Quote image tags** (`tag: "1.10"`): the schema only accepts strings, so an unquoted `1.10` fails
@@ -613,7 +728,8 @@ helm lint --strict . -f ci/full-values.yaml
 
 CI (`.github/workflows/ci.yaml`) runs the unit tests, `helm lint`/`helm template` + kubeconform on
 Helm 3.22 and 4.3, the alias contract (`.github/scripts/alias-contract.sh`), a real install on kind
-(Kubernetes 1.33 and 1.37) in a namespace that enforces Pod Security `restricted`, this README drift
+(Kubernetes 1.33 and 1.37) in a namespace that enforces Pod Security `restricted`, NetworkPolicy enforcement
+checks (with a namespace default-deny, then without it), this README drift
 check, the documentation link check, the PR title check, workflow linting (actionlint + zizmor) and the release signing checks.
 The [development guide](https://github.com/jellalshadows/chart-base/blob/main/docs/guides/development.md) and the [testing guide](https://github.com/jellalshadows/chart-base/blob/main/docs/guides/testing.md)
 explain the TDD loop, every test layer and the local tool setup.

@@ -914,3 +914,325 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "/prometheusRule/groups/0/name': minLength"
+
+  - it: requires networkPolicy.enabled
+    set:
+      networkPolicy.enabled: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy': missing property 'enabled'"
+
+  - it: requires networkPolicy.ingress (the template reads it)
+    set:
+      networkPolicy.ingress: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy': missing property 'ingress'"
+
+  - it: rejects unknown keys under networkPolicy.ingress (there is no ingress.from)
+    set:
+      networkPolicy.ingress.from: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'from' not allowed"
+
+  - it: rejects a fromComponents entry that is not an alias (a typo would select no pod)
+    set:
+      networkPolicy.ingress.fromComponents: [Web]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/ingress/fromComponents/0': 'Web' does not match pattern"
+
+  - it: rejects a fromNamespaces entry that is not a namespace name
+    set:
+      networkPolicy.ingress.fromNamespaces: [kube_system]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/ingress/fromNamespaces/0': 'kube_system' does not match pattern"
+
+  - it: rejects a metricsFromNamespaces entry that is not a namespace name
+    set:
+      networkPolicy.ingress.metricsFromNamespaces: [Monitoring]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/ingress/metricsFromNamespaces/0': 'Monitoring' does not match pattern"
+
+  - it: rejects an empty from list in an extra ingress rule (the API reads it as every source)
+    set:
+      networkPolicy.ingress.extra:
+        - from: []
+          ports:
+            - port: 8080
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/ingress/extra/0/from': minItems"
+
+  - it: rejects an empty ports list in an extra ingress rule (the API reads it as every port)
+    set:
+      networkPolicy.ingress.extra:
+        - from:
+            - podSelector: {}
+          ports: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/ingress/extra/0/ports': minItems"
+
+  - it: rejects the key of the other direction in an extra ingress rule (to)
+    set:
+      networkPolicy.ingress.extra:
+        - to:
+            - podSelector: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'to' not allowed"
+
+  - it: rejects an empty peer (the API requires a selector or an ipBlock)
+    set:
+      networkPolicy.ingress.extra:
+        - from:
+            - {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/ingress/extra/0/from/0': minProperties"
+
+  - it: rejects an ipBlock together with a selector in one peer (the API rejects it)
+    set:
+      networkPolicy.ingress.extra:
+        - from:
+            - ipBlock:
+                cidr: 10.0.0.0/8
+              podSelector: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/ingress/extra/0/from/0': maxProperties"
+
+  - it: rejects an ipBlock cidr that is not a CIDR
+    set:
+      networkPolicy.ingress.extra:
+        - from:
+            - ipBlock:
+                cidr: 10.0.0.0
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/ingress/extra/0/from/0/ipBlock/cidr': '10.0.0.0' does not match pattern"
+
+  - it: rejects an In expression without values (the API rejects it)
+    set:
+      networkPolicy.ingress.extra:
+        - from:
+            - namespaceSelector:
+                matchExpressions:
+                  - key: team
+                    operator: In
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/ingress/extra/0/from/0/namespaceSelector/matchExpressions/0': missing property 'values'"
+
+  - it: rejects an endPort on a named port (the API requires a port number)
+    set:
+      networkPolicy.ingress.extra:
+        - ports:
+            - port: http
+              endPort: 8090
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/ingress/extra/0/ports/0/port': got string, want integer"
+
+  - it: rejects a protocol other than TCP, UDP and SCTP
+    set:
+      networkPolicy.ingress.extra:
+        - ports:
+            - port: 8080
+              protocol: ICMP
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/ingress/extra/0/ports/0/protocol': value must be one of 'TCP', 'UDP', 'SCTP'"
+
+  - it: rejects a port entry without a port (it would open every TCP port)
+    set:
+      networkPolicy.ingress.extra:
+        - ports:
+            - {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/ingress/extra/0/ports/0': missing property 'port'"
+
+  - it: rejects a port entry with only a protocol (a protocol-wide range is port 1 to endPort 65535)
+    set:
+      networkPolicy.ingress.extra:
+        - ports:
+            - protocol: UDP
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/ingress/extra/0/ports/0': missing property 'port'"
+
+  - it: rejects a routeTrafficAllowedElsewhere that is not a boolean
+    set:
+      networkPolicy.ingress.routeTrafficAllowedElsewhere: "yes"
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/ingress/routeTrafficAllowedElsewhere': got string, want boolean"
+
+  - it: accepts complete extra ingress rules (IPv4 and IPv6 blocks, combined selectors, a named port, a port range, every source)
+    set:
+      networkPolicy.ingress.extra:
+        - from:
+            - ipBlock:
+                cidr: 10.0.0.0/8
+                except: [10.1.0.0/16]
+            - ipBlock:
+                cidr: fd00::/8
+            - namespaceSelector:
+                matchLabels:
+                  team: payments
+              podSelector:
+                matchExpressions:
+                  - key: app
+                    operator: Exists
+          ports:
+            - port: http
+            - port: 9000
+              endPort: 9100
+              protocol: UDP
+        - {}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: requires networkPolicy.egress (the template reads it)
+    set:
+      networkPolicy.egress: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy': missing property 'egress'"
+
+  - it: requires networkPolicy.egress.enabled
+    set:
+      networkPolicy.egress.enabled: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress': missing property 'enabled'"
+
+  - it: requires egress.dns.enabled (a null would silently drop the DNS rule)
+    set:
+      networkPolicy.egress.dns.enabled: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/dns': missing property 'enabled'"
+
+  - it: requires egress.dns.namespace
+    set:
+      networkPolicy.egress.dns.namespace: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/dns': missing property 'namespace'"
+
+  - it: requires egress.dns.ports
+    set:
+      networkPolicy.egress.dns.ports: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/dns': missing property 'ports'"
+
+  - it: rejects an empty egress.dns.ports (the API reads an empty list as every port)
+    set:
+      networkPolicy.egress.dns.ports: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/dns/ports': minItems"
+
+  - it: requires a protocol in every egress.dns.ports entry (TCP is the default, and DNS needs UDP too)
+    set:
+      networkPolicy.egress.dns.ports:
+        - port: 5353
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/dns/ports/0': missing property 'protocol'"
+
+  - it: rejects an empty egress.dns.podSelector (it would select every pod of the DNS namespace)
+    set:
+      networkPolicy.egress.dns.podSelector: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/dns/podSelector': minProperties"
+
+  - it: rejects a dns.cidrs entry that is not a CIDR
+    set:
+      networkPolicy.egress.dns.cidrs: [169.254.20.10]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/dns/cidrs/0': '169.254.20.10' does not match pattern"
+
+  - it: rejects a toComponents entry that is not an alias
+    set:
+      networkPolicy.egress.toComponents: [Api]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/toComponents/0': 'Api' does not match pattern"
+
+  - it: requires cidr in every toCIDRs entry
+    set:
+      networkPolicy.egress.toCIDRs:
+        - ports:
+            - port: 443
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/toCIDRs/0': missing property 'cidr'"
+
+  - it: rejects a named port in toCIDRs (a CIDR has no named ports)
+    set:
+      networkPolicy.egress.toCIDRs:
+        - cidr: 192.0.2.0/24
+          ports:
+            - port: https
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/toCIDRs/0/ports/0/port': got string, want integer"
+
+  - it: rejects an empty toCIDRs ports list (the API reads it as every port)
+    set:
+      networkPolicy.egress.toCIDRs:
+        - cidr: 192.0.2.0/24
+          ports: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/toCIDRs/0/ports': minItems"
+
+  - it: rejects an empty toCIDRs except list
+    set:
+      networkPolicy.egress.toCIDRs:
+        - cidr: 192.0.2.0/24
+          except: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/toCIDRs/0/except': minItems"
+
+  - it: rejects the key of the other direction in an extra egress rule (from)
+    set:
+      networkPolicy.egress.extra:
+        - from:
+            - podSelector: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'from' not allowed"
+
+  - it: accepts toCIDRs and extra egress rules (an IPv6 block, a port range, every port)
+    set:
+      networkPolicy.egress.toCIDRs:
+        - cidr: "2001:db8::/32"
+          except: ["2001:db8:1::/48"]
+          ports:
+            - port: 8000
+              endPort: 8100
+        - cidr: 0.0.0.0/0
+      networkPolicy.egress.extra:
+        - to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: kafka
+          ports:
+            - port: 9092
+              protocol: TCP
+    asserts:
+      - hasDocuments:
+          count: 0

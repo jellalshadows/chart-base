@@ -1,0 +1,485 @@
+suite: networkpolicy (every workload type; a hook on a job component)
+templates:
+  - templates/networkpolicy.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+values:
+  - values/base.yaml
+tests:
+  - it: renders no NetworkPolicy by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders one NetworkPolicy that selects the component's pods and isolates their ingress only, with no rule when there is no source
+    set:
+      networkPolicy.enabled: true
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - isAPIVersion:
+          of: networking.k8s.io/v1
+      - equal:
+          path: metadata.name
+          value: vending-chart-base
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: chart-base
+      - equal:
+          path: spec.podSelector
+          value:
+            matchLabels:
+              app.kubernetes.io/name: chart-base
+              app.kubernetes.io/instance: vending
+      - equal:
+          path: spec.policyTypes
+          value:
+            - Ingress
+      - notExists:
+          path: spec.ingress
+      - notExists:
+          path: spec.egress
+      - notExists:
+          path: metadata.annotations
+
+  - it: lets the pods of sibling components of the same release reach every declared port, by name
+    set:
+      ports:
+        - name: http
+          containerPort: 8080
+        - name: management
+          containerPort: 8081
+      networkPolicy.enabled: true
+      networkPolicy.ingress.fromComponents: [web, worker]
+    asserts:
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - podSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: web
+                      app.kubernetes.io/instance: vending
+                - podSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: worker
+                      app.kubernetes.io/instance: vending
+              ports:
+                - port: http
+                  protocol: TCP
+                - port: management
+                  protocol: TCP
+
+  - it: lets the pods of the named namespaces (the Gateway's proxies, the ingress controller) reach every declared port, by name
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.ingress.fromNamespaces: [envoy-gateway-system, ingress-nginx]
+    asserts:
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - namespaceSelector:
+                    matchExpressions:
+                      - key: kubernetes.io/metadata.name
+                        operator: In
+                        values:
+                          - envoy-gateway-system
+                          - ingress-nginx
+              ports:
+                - port: http
+                  protocol: TCP
+
+  - it: lets the pods of the monitoring namespaces reach only metrics.port
+    set:
+      ports:
+        - name: http
+          containerPort: 8080
+        - name: metrics
+          containerPort: 9090
+      metrics.enabled: true
+      metrics.port: metrics
+      networkPolicy.enabled: true
+      networkPolicy.ingress.metricsFromNamespaces: [monitoring]
+    asserts:
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - namespaceSelector:
+                    matchExpressions:
+                      - key: kubernetes.io/metadata.name
+                        operator: In
+                        values:
+                          - monitoring
+              ports:
+                - port: metrics
+                  protocol: TCP
+
+  - it: appends the extra ingress rules verbatim
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.ingress.extra:
+        - from:
+            - ipBlock:
+                cidr: 10.0.0.0/8
+                except: [10.1.0.0/16]
+          ports:
+            - port: 8443
+              endPort: 8444
+              protocol: TCP
+        - {}
+    asserts:
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - ipBlock:
+                    cidr: 10.0.0.0/8
+                    except:
+                      - 10.1.0.0/16
+              ports:
+                - port: 8443
+                  endPort: 8444
+                  protocol: TCP
+            - {}
+
+  - it: renders the rules in order (siblings, namespaces, monitoring, extra), one per source
+    set:
+      ports:
+        - name: http
+          containerPort: 8080
+        - name: metrics
+          containerPort: 9090
+      metrics.enabled: true
+      metrics.port: metrics
+      networkPolicy.enabled: true
+      networkPolicy.ingress.fromComponents: [web]
+      networkPolicy.ingress.fromNamespaces: [gateway]
+      networkPolicy.ingress.metricsFromNamespaces: [monitoring]
+      networkPolicy.ingress.extra:
+        - ports:
+            - port: 8080
+    asserts:
+      - lengthEqual:
+          path: spec.ingress
+          count: 4
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/name"]
+          value: web
+      - equal:
+          path: spec.ingress[1].from[0].namespaceSelector.matchExpressions[0].values
+          value: [gateway]
+      - equal:
+          path: spec.ingress[2].from[0].namespaceSelector.matchExpressions[0].values
+          value: [monitoring]
+      - equal:
+          path: spec.ingress[3]
+          value:
+            ports:
+              - port: 8080
+
+  - it: never renders an empty ports list (the API reads it as every port), so siblings and namespaces get no rule without ports
+    set:
+      ports: []
+      service.enabled: false
+      networkPolicy.enabled: true
+      networkPolicy.ingress.fromComponents: [web]
+      networkPolicy.ingress.fromNamespaces: [gateway]
+    asserts:
+      - hasDocuments:
+          count: 1
+      - notExists:
+          path: spec.ingress
+
+  - it: opens nothing for routeTrafficAllowedElsewhere (the key only acknowledges that the route's traffic is allowed elsewhere)
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - name: platform-gw
+          namespace: gateway
+      networkPolicy.enabled: true
+      networkPolicy.ingress.routeTrafficAllowedElsewhere: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - notExists:
+          path: spec.ingress
+
+  - it: keeps an alias, a namespace and a port named true strings (a plain true is a YAML boolean)
+    set:
+      ports:
+        - name: "true"
+          containerPort: 8080
+      networkPolicy.enabled: true
+      networkPolicy.ingress.fromComponents: ["true"]
+      networkPolicy.ingress.fromNamespaces: ["true"]
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/name"]
+          value: "true"
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: "true"
+      - equal:
+          path: spec.ingress[1].from[0].namespaceSelector.matchExpressions[0].values[0]
+          value: "true"
+
+  - it: is a hook of the Job's phase on a job component, created before the Job (weight -10) and deleted once the phase succeeds
+    set:
+      workload.type: job
+      networkPolicy.enabled: true
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            helm.sh/hook: pre-install,pre-upgrade
+            helm.sh/hook-weight: "-10"
+            helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+      - equal:
+          path: spec.podSelector.matchLabels
+          value:
+            app.kubernetes.io/name: chart-base
+            app.kubernetes.io/instance: vending
+
+  - it: follows job.phase post-deploy
+    set:
+      workload.type: job
+      job.phase: post-deploy
+      networkPolicy.enabled: true
+    asserts:
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: post-install,post-upgrade
+
+  - it: is a regular object on a cronjob component, selecting its pods
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      networkPolicy.enabled: true
+    asserts:
+      - notExists:
+          path: metadata.annotations
+      - equal:
+          path: spec.podSelector.matchLabels
+          value:
+            app.kubernetes.io/name: chart-base
+            app.kubernetes.io/instance: vending
+
+  - it: isolates egress too with egress.enabled, allowing DNS to the cluster DNS pods (kube-system, k8s-app kube-dns, 53 UDP and TCP)
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.egress.enabled: true
+    asserts:
+      - equal:
+          path: spec.policyTypes
+          value:
+            - Ingress
+            - Egress
+      - equal:
+          path: spec.egress
+          value:
+            - to:
+                - namespaceSelector:
+                    matchExpressions:
+                      - key: kubernetes.io/metadata.name
+                        operator: In
+                        values:
+                          - kube-system
+                  podSelector:
+                    matchLabels:
+                      k8s-app: kube-dns
+              ports:
+                - port: 53
+                  protocol: UDP
+                - port: 53
+                  protocol: TCP
+
+  - it: denies every connection out with egress.enabled and nothing allowed (no DNS, no rule)
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.egress.enabled: true
+      networkPolicy.egress.dns.enabled: false
+    asserts:
+      - equal:
+          path: spec.policyTypes
+          value:
+            - Ingress
+            - Egress
+      - notExists:
+          path: spec.egress
+
+  - it: takes the DNS namespace, ports and pod labels from values (a selector map replaces the default, it is not merged), and adds the DNS CIDRs (OpenShift, NodeLocal DNSCache)
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.egress.enabled: true
+      networkPolicy.egress.dns.namespace: openshift-dns
+      networkPolicy.egress.dns.podSelector:
+        dns.operator.openshift.io/daemonset-dns: default
+      networkPolicy.egress.dns.ports:
+        - port: 5353
+          protocol: UDP
+        - port: 5353
+          protocol: TCP
+      networkPolicy.egress.dns.cidrs: [169.254.20.10/32]
+    asserts:
+      - equal:
+          path: spec.egress
+          value:
+            - to:
+                - namespaceSelector:
+                    matchExpressions:
+                      - key: kubernetes.io/metadata.name
+                        operator: In
+                        values:
+                          - openshift-dns
+                  podSelector:
+                    matchLabels:
+                      dns.operator.openshift.io/daemonset-dns: default
+                - ipBlock:
+                    cidr: 169.254.20.10/32
+              ports:
+                - port: 5353
+                  protocol: UDP
+                - port: 5353
+                  protocol: TCP
+
+  - it: selects the pods labelled k8s-app kube-dns while egress.dns.podSelector is null (the default)
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.egress.enabled: true
+      networkPolicy.egress.dns.podSelector: null
+    asserts:
+      - equal:
+          path: spec.egress[0].to[0].podSelector
+          value:
+            matchLabels:
+              k8s-app: kube-dns
+
+  - it: lets the pods reach sibling components of the same release on any port
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.egress.enabled: true
+      networkPolicy.egress.dns.enabled: false
+      networkPolicy.egress.toComponents: [api, payments]
+    asserts:
+      - equal:
+          path: spec.egress
+          value:
+            - to:
+                - podSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: api
+                      app.kubernetes.io/instance: vending
+                - podSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: payments
+                      app.kubernetes.io/instance: vending
+
+  - it: renders one rule per toCIDRs entry, with except, port numbers, endPort, TCP by default, and every port without ports
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.egress.enabled: true
+      networkPolicy.egress.dns.enabled: false
+      networkPolicy.egress.toCIDRs:
+        - cidr: 192.0.2.0/24
+          except: [192.0.2.128/25]
+          ports:
+            - port: 5432
+            - port: 8000
+              endPort: 8100
+              protocol: UDP
+        - cidr: "2001:db8::/32"
+    asserts:
+      - equal:
+          path: spec.egress
+          value:
+            - to:
+                - ipBlock:
+                    cidr: 192.0.2.0/24
+                    except:
+                      - 192.0.2.128/25
+              ports:
+                - port: 5432
+                  protocol: TCP
+                - port: 8000
+                  endPort: 8100
+                  protocol: UDP
+            - to:
+                - ipBlock:
+                    cidr: "2001:db8::/32"
+
+  - it: renders the egress rules in order (DNS, siblings, CIDRs, extra) and appends the extra rules verbatim
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.egress.enabled: true
+      networkPolicy.egress.toComponents: [api]
+      networkPolicy.egress.toCIDRs:
+        - cidr: 192.0.2.0/24
+      networkPolicy.egress.extra:
+        - to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: kafka
+          ports:
+            - port: 9092
+    asserts:
+      - lengthEqual:
+          path: spec.egress
+          count: 4
+      - equal:
+          path: spec.egress[0].ports[0].port
+          value: 53
+      - equal:
+          path: spec.egress[1].to[0].podSelector.matchLabels["app.kubernetes.io/name"]
+          value: api
+      - equal:
+          path: spec.egress[2].to[0].ipBlock.cidr
+          value: 192.0.2.0/24
+      - equal:
+          path: spec.egress[3]
+          value:
+            to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: kafka
+            ports:
+              - port: 9092
+
+  - it: keeps an alias and a DNS namespace named true strings (a plain true is a YAML boolean)
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.egress.enabled: true
+      networkPolicy.egress.dns.namespace: "true"
+      networkPolicy.egress.toComponents: ["true"]
+    asserts:
+      - equal:
+          path: spec.egress[0].to[0].namespaceSelector.matchExpressions[0].values[0]
+          value: "true"
+      - equal:
+          path: spec.egress[1].to[0].podSelector.matchLabels["app.kubernetes.io/name"]
+          value: "true"
+
+  - it: isolates the egress of a job component in its hook policy too
+    set:
+      workload.type: job
+      networkPolicy.enabled: true
+      networkPolicy.egress.enabled: true
+    asserts:
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: pre-install,pre-upgrade
+      - equal:
+          path: spec.policyTypes
+          value:
+            - Ingress
+            - Egress
+      - lengthEqual:
+          path: spec.egress[0].ports
+          count: 2
