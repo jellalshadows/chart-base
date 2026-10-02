@@ -1073,3 +1073,133 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: requires networkPolicy.egress (the template reads it)
+    set:
+      networkPolicy.egress: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy': missing property 'egress'"
+
+  - it: requires networkPolicy.egress.enabled
+    set:
+      networkPolicy.egress.enabled: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress': missing property 'enabled'"
+
+  - it: requires egress.dns.enabled (a null would silently drop the DNS rule)
+    set:
+      networkPolicy.egress.dns.enabled: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/dns': missing property 'enabled'"
+
+  - it: requires egress.dns.namespace
+    set:
+      networkPolicy.egress.dns.namespace: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/dns': missing property 'namespace'"
+
+  - it: requires egress.dns.ports
+    set:
+      networkPolicy.egress.dns.ports: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/dns': missing property 'ports'"
+
+  - it: rejects an empty egress.dns.ports (the API reads an empty list as every port)
+    set:
+      networkPolicy.egress.dns.ports: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/dns/ports': minItems"
+
+  - it: rejects an empty egress.dns.podSelector (it would select every pod of the DNS namespace)
+    set:
+      networkPolicy.egress.dns.podSelector: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/dns/podSelector': minProperties"
+
+  - it: rejects a dns.cidrs entry that is not a CIDR
+    set:
+      networkPolicy.egress.dns.cidrs: [169.254.20.10]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/dns/cidrs/0': '169.254.20.10' does not match pattern"
+
+  - it: rejects a toComponents entry that is not an alias
+    set:
+      networkPolicy.egress.toComponents: [Api]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/toComponents/0': 'Api' does not match pattern"
+
+  - it: requires cidr in every toCIDRs entry
+    set:
+      networkPolicy.egress.toCIDRs:
+        - ports:
+            - port: 443
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/toCIDRs/0': missing property 'cidr'"
+
+  - it: rejects a named port in toCIDRs (a CIDR has no named ports)
+    set:
+      networkPolicy.egress.toCIDRs:
+        - cidr: 192.0.2.0/24
+          ports:
+            - port: https
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/toCIDRs/0/ports/0/port': got string, want integer"
+
+  - it: rejects an empty toCIDRs ports list (the API reads it as every port)
+    set:
+      networkPolicy.egress.toCIDRs:
+        - cidr: 192.0.2.0/24
+          ports: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/toCIDRs/0/ports': minItems"
+
+  - it: rejects an empty toCIDRs except list
+    set:
+      networkPolicy.egress.toCIDRs:
+        - cidr: 192.0.2.0/24
+          except: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "/networkPolicy/egress/toCIDRs/0/except': minItems"
+
+  - it: rejects the key of the other direction in an extra egress rule (from)
+    set:
+      networkPolicy.egress.extra:
+        - from:
+            - podSelector: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'from' not allowed"
+
+  - it: accepts toCIDRs and extra egress rules (an IPv6 block, a port range, every port)
+    set:
+      networkPolicy.egress.toCIDRs:
+        - cidr: "2001:db8::/32"
+          except: ["2001:db8:1::/48"]
+          ports:
+            - port: 8000
+              endPort: 8100
+        - cidr: 0.0.0.0/0
+      networkPolicy.egress.extra:
+        - to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: kafka
+          ports:
+            - port: 9092
+              protocol: TCP
+    asserts:
+      - hasDocuments:
+          count: 0

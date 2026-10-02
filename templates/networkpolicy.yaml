@@ -1,12 +1,13 @@
 {{- /*
 One NetworkPolicy per component, on every workload type. On a job component it is a hook of the Job's
 phase, created before the Job like its support resources (templates/_hooks.tpl): a regular object does not
-exist yet when a pre-install Job runs. In the API an empty or missing `from` or `ports` list means "all", so
-a rule is rendered only when its input is not empty; without any rule the pods accept no connection, except
-from their own node.
+exist yet when a pre-install Job runs. In the API an empty or missing `from`, `to` or `ports` list means
+"all", so a rule is rendered only when its input is not empty; without any rule the pods accept no
+connection, except from their own node, and with egress isolated they open none.
 */}}
 {{- if .Values.networkPolicy.enabled }}
 {{- $in := .Values.networkPolicy.ingress }}
+{{- $eg := .Values.networkPolicy.egress }}
 {{- $fromComponents := and $in.fromComponents .Values.ports }}
 {{- $fromNamespaces := and $in.fromNamespaces .Values.ports }}
 apiVersion: networking.k8s.io/v1
@@ -25,6 +26,9 @@ spec:
       {{- include "chart-base.selectorLabels" . | nindent 6 }}
   policyTypes:
     - Ingress
+    {{- if $eg.enabled }}
+    - Egress
+    {{- end }}
   {{- if or $fromComponents $fromNamespaces $in.metricsFromNamespaces $in.extra }}
   ingress:
     {{- if $fromComponents }}
@@ -55,6 +59,60 @@ spec:
           protocol: TCP
     {{- end }}
     {{- with $in.extra }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
+  {{- if and $eg.enabled (or $eg.dns.enabled $eg.toComponents $eg.toCIDRs $eg.extra) }}
+  egress:
+    {{- if $eg.dns.enabled }}
+    - to:
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - {{ $eg.dns.namespace | quote }}
+          podSelector:
+            matchLabels:
+              {{- toYaml ($eg.dns.podSelector | default (dict "k8s-app" "kube-dns")) | nindent 14 }}
+        {{- range $eg.dns.cidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        {{- range $eg.dns.ports }}
+        - port: {{ .port | int64 }}
+          protocol: {{ .protocol | default "TCP" }}
+        {{- end }}
+    {{- end }}
+    {{- with $eg.toComponents }}
+    - to:
+        {{- range . }}
+        {{- include "chart-base.componentPeer" (list $ .) | nindent 8 }}
+        {{- end }}
+    {{- end }}
+    {{- range $eg.toCIDRs }}
+    - to:
+        - ipBlock:
+            cidr: {{ .cidr | quote }}
+            {{- with .except }}
+            except:
+              {{- range . }}
+              - {{ . | quote }}
+              {{- end }}
+            {{- end }}
+      {{- with .ports }}
+      ports:
+        {{- range . }}
+        - port: {{ .port | int64 }}
+          {{- with .endPort }}
+          endPort: {{ . | int64 }}
+          {{- end }}
+          protocol: {{ .protocol | default "TCP" }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+    {{- with $eg.extra }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
   {{- end }}

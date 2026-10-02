@@ -204,8 +204,9 @@ prometheusRule:
 networkPolicy:
   # -- Render a NetworkPolicy (`networking.k8s.io/v1`) named `<fullname>` that selects the component's pods and isolates
   # their ingress: only the sources below may reach them, besides the pod's own node (kubelet probes), which the
-  # NetworkPolicy API always allows. On a `job` component it is a hook of the Job's phase, like its ServiceAccount and
-  # ConfigMaps. Without a CNI that enforces NetworkPolicy the object is created and changes nothing.
+  # NetworkPolicy API always allows. Egress is isolated only with `egress.enabled`. On a `job` component it is a hook of
+  # the Job's phase, like its ServiceAccount and ConfigMaps. Without a CNI that enforces NetworkPolicy the object is
+  # created and changes nothing.
   enabled: false
   ingress:
     # -- Aliases of sibling components of the same release (e.g. `[web]`) whose pods may reach every entry of `ports`, by name.
@@ -220,6 +221,37 @@ networkPolicy:
     # -- Extra ingress rules, appended verbatim: `[{from: [{podSelector, namespaceSelector} or {ipBlock: {cidr, except}}],
     # ports: [{port, endPort, protocol}]}]`. An omitted `from` or `ports` means every source or port; an empty list is
     # rejected.
+    extra: []
+  egress:
+    # -- Isolate the pods' egress too: only DNS and the destinations below are allowed, every other connection is denied.
+    # While `false`, the other `egress` keys are ignored. A component that calls the API server
+    # (`serviceAccount.automountToken: true`) needs the API server's endpoint IPs in `toCIDRs`.
+    enabled: false
+    dns:
+      # -- Allow DNS to the cluster DNS pods (`namespace` and `podSelector`) and to `cidrs`, on `ports`.
+      enabled: true
+      # -- Namespace of the cluster DNS pods (OpenShift: `openshift-dns`).
+      namespace: kube-system
+      # -- (object) Labels of the cluster DNS pods. `null` = `{k8s-app: kube-dns}`, the label of the cluster DNS pods on
+      # kubeadm (kind), EKS, GKE, AKS and k3s. A map you set REPLACES it, it is not merged with it. OpenShift:
+      # `{dns.operator.openshift.io/daemonset-dns: default}`, with `namespace: openshift-dns` and port 5353. A resolver
+      # that a namespace and labels cannot select: `enabled: false` and an `egress.extra` rule.
+      podSelector: null
+      # -- DNS ports, by number (OpenShift's DNS pods listen on 5353).
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+      # -- Extra DNS destinations by CIDR, on the same ports: NodeLocal DNSCache (e.g. `169.254.20.10/32`, a host-network
+      # pod that pod selectors usually do not match) or the kube-dns Service ClusterIP (`/32`).
+      cidrs: []
+    # -- Aliases of sibling components of the same release (e.g. `[api]`) whose pods may be reached on any port.
+    toComponents: []
+    # -- Destinations by CIDR: `[{cidr, except: [...], ports: [{port, endPort, protocol}]}]`, ports by number only; without
+    # `ports`, every port. Meant for addresses outside the cluster: some CNIs never match pod traffic with a CIDR.
+    toCIDRs: []
+    # -- Extra egress rules, appended verbatim: the shape of `ingress.extra`, with `to` instead of `from`.
     extra: []
 
 cronjob:
