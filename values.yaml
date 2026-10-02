@@ -213,10 +213,14 @@ networkPolicy:
     fromComponents: []
     # -- Namespaces, by name (e.g. `[envoy-gateway-system]`), whose pods may reach every entry of `ports`: where the
     # Gateway's proxy pods run (with Envoy Gateway's default mode, the namespace Envoy Gateway runs in, not the Gateway's)
-    # or the ingress controller's pods. Traffic from a `hostNetwork` controller (usually treated as node traffic) or from
-    # Cilium's Ingress/Gateway may not match a namespace: use `extra` or the CNI's own policies.
+    # or the ingress controller's pods. Required, or `extra`, when `httpRoute` or `ingress` is enabled. Traffic from a
+    # `hostNetwork` controller (usually treated as node traffic) or from Cilium's Ingress/Gateway may not match a
+    # namespace: use `extra` or the CNI's own policies.
     fromNamespaces: []
-    # -- Namespaces, by name (e.g. `[monitoring]`), whose pods may reach only `metrics.port`: Prometheus.
+    # -- Namespaces, by name (e.g. `[monitoring]`), whose pods may reach only `metrics.port`: Prometheus. Required when
+    # `metrics.enabled`, rejected without it. A scraper that is not a pod in a namespace (an agent on the host network, a
+    # Prometheus outside the cluster) still needs an entry: list the namespace it is deployed in (or one you control) and
+    # allow its addresses on `metrics.port` with an `ipBlock` in `extra`.
     metricsFromNamespaces: []
     # -- Extra ingress rules, appended verbatim: `[{from: [{podSelector, namespaceSelector} or {ipBlock: {cidr, except}}],
     # ports: [{port, endPort, protocol}]}]`. An omitted `from` or `ports` means every source or port; an empty list is
@@ -224,8 +228,9 @@ networkPolicy:
     extra: []
   egress:
     # -- Isolate the pods' egress too: only DNS and the destinations below are allowed, every other connection is denied.
-    # While `false`, the other `egress` keys are ignored. A component that calls the API server
-    # (`serviceAccount.automountToken: true`) needs the API server's endpoint IPs in `toCIDRs`.
+    # While `false`, `toComponents`, `toCIDRs`, `extra` and `dns.cidrs` must stay empty (the render fails: they would
+    # restrict nothing); a changed DNS namespace, selector or port cannot be detected and is ignored. A component that
+    # calls the API server (`serviceAccount.automountToken: true`) needs the API server's endpoint IPs in `toCIDRs`.
     enabled: false
     dns:
       # -- Allow DNS to the cluster DNS pods (`namespace` and `podSelector`) and to `cidrs`, on `ports`.

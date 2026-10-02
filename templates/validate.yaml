@@ -60,6 +60,40 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list . (printf "metrics.port %q is not the name of an entry in ports: Prometheus scrapes a named port, so declare it in ports (a worker without a Service too), e.g. ports: [{name: metrics, containerPort: 9090}]" .Values.metrics.port)) -}}
 {{- end -}}
 {{- end -}}
+{{- if .Values.networkPolicy.enabled -}}
+{{- $in := .Values.networkPolicy.ingress -}}
+{{- $eg := .Values.networkPolicy.egress -}}
+{{- if and .Values.metrics.enabled (not $in.metricsFromNamespaces) -}}
+{{- include "chart-base.fail" (list . "networkPolicy.ingress.metricsFromNamespaces is empty, but metrics.enabled is true: the policy would block the scrapes; list the namespaces Prometheus runs in, e.g. [monitoring]") -}}
+{{- end -}}
+{{- if and $in.metricsFromNamespaces (not .Values.metrics.enabled) -}}
+{{- include "chart-base.fail" (list . "networkPolicy.ingress.metricsFromNamespaces opens metrics.port, but metrics.enabled is false (metrics is for Deployments only): remove it, or enable metrics") -}}
+{{- end -}}
+{{- if and (or .Values.httpRoute.enabled .Values.ingress.enabled) (not $in.fromNamespaces) (not $in.extra) -}}
+{{- include "chart-base.fail" (list . "networkPolicy with httpRoute.enabled or ingress.enabled needs a source for the route's traffic: list the namespace of the Gateway's proxy pods (with Envoy Gateway's default mode, the namespace Envoy Gateway runs in, not the Gateway's) or of the ingress controller's pods in networkPolicy.ingress.fromNamespaces (or allow them in networkPolicy.ingress.extra), or the component is unreachable") -}}
+{{- end -}}
+{{- if and (or $in.fromComponents $in.fromNamespaces) (not .Values.ports) -}}
+{{- include "chart-base.fail" (list . "networkPolicy.ingress.fromComponents and fromNamespaces open the entries of ports by name, but ports is empty: declare the ports, or allow the traffic in networkPolicy.ingress.extra") -}}
+{{- end -}}
+{{- /* A destination listed while egress is not isolated restricts nothing (a fail-open): fail instead of ignoring it. */ -}}
+{{- if and (not $eg.enabled) (or $eg.toComponents $eg.toCIDRs $eg.extra $eg.dns.cidrs) -}}
+{{- include "chart-base.fail" (list . "networkPolicy.egress.toComponents, toCIDRs, extra and dns.cidrs only apply with networkPolicy.egress.enabled: true, and egress is not isolated: set it, or clear the lists") -}}
+{{- end -}}
+{{- /* endPort >= port, as the API server requires (ValidateNetworkPolicyPort); a schema cannot compare two keys. Only what is rendered: the egress lists only with egress.enabled. */ -}}
+{{- $portLists := list -}}
+{{- range $i, $rule := $in.extra }}{{ $portLists = append $portLists (list (printf "ingress.extra[%d]" $i) $rule.ports) }}{{ end -}}
+{{- if $eg.enabled -}}
+{{- range $i, $c := $eg.toCIDRs }}{{ $portLists = append $portLists (list (printf "egress.toCIDRs[%d]" $i) $c.ports) }}{{ end -}}
+{{- range $i, $rule := $eg.extra }}{{ $portLists = append $portLists (list (printf "egress.extra[%d]" $i) $rule.ports) }}{{ end -}}
+{{- end -}}
+{{- range $portList := $portLists -}}
+{{- range $j, $p := index $portList 1 -}}
+{{- if and (hasKey $p "endPort") (lt (int64 $p.endPort) (int64 $p.port)) -}}
+{{- include "chart-base.fail" (list $ (printf "networkPolicy.%s.ports[%d]: endPort (%d) must not be lower than port (%d)" (index $portList 0) $j (int64 $p.endPort) (int64 $p.port))) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 
 {{- if kindIs "slice" .Values.env -}}
 {{- include "chart-base.fail" (list . "env is a map of NAME: {valueFrom: ...}, not a Kubernetes env list: literal values belong in config, references in env as a map") -}}
