@@ -164,10 +164,13 @@ Nothing to change, and the same values render the same objects: 0.5.0 adds `netw
   `networkPolicy.ingress.fromNamespaces`, the namespace of the Gateway's proxy pods (with Envoy Gateway's default
   mode, the namespace Envoy Gateway runs in, not the Gateway's) or of the ingress controller's pods, and one with
   `metrics` needs Prometheus' namespace in `networkPolicy.ingress.metricsFromNamespaces`; the render fails without
-  them. Traffic from the pod's own node, such as the kubelet's probes, stays allowed.
-- `networkPolicy.egress.enabled` isolates egress too: list the cluster DNS (the default fits kubeadm-based clusters;
-  OpenShift and NodeLocal DNSCache need an override, and a `dns.podSelector` you set replaces the default selector),
-  the siblings, and every destination outside the cluster, including the API server for a component with
+  them. A route that a policy the chart cannot express allows (Cilium's Ingress or Gateway) takes
+  `networkPolicy.ingress.routeTrafficAllowedElsewhere: true` instead. Traffic from the pod's own node, such as the
+  kubelet's probes, stays allowed.
+- `networkPolicy.egress.enabled` isolates egress too: list the cluster DNS (the default fits kubeadm (kind), EKS, GKE
+  with kube-dns, AKS and k3s; OpenShift and NodeLocal DNSCache need an override, every `dns.ports` entry needs its
+  protocol, and a `dns.podSelector` you set replaces the default selector), the siblings, and every destination
+  outside the cluster, including the API server (its endpoint IPs and port) for a component with
   `serviceAccount.automountToken: true`. Destinations listed while `egress.enabled` is `false` fail the render.
 - On a `job` component the policy is a hook of the Job's phase: keep `job.activeDeadlineSeconds` below Helm's
   `--timeout` ([ADR-0041](adr/0041-job-component-networkpolicy-is-a-hook.md)).

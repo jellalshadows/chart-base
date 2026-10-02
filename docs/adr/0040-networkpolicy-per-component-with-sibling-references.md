@@ -48,14 +48,20 @@ connections from every pod of the cluster and may open any connection. The facts
   traffic of a `hostNetwork` controller is, in the most common implementations, treated as node traffic (the
   documentation allows a plugin to apply selectors to it or not), and Cilium's Ingress and Gateway API send traffic
   from a per-node Envoy with the identity `reserved:ingress`, which Cilium's own policies select (Cilium
-  documentation, *Ingress and Network Policy*; a Cilium maintainer in cilium/cilium#36509: a CiliumNetworkPolicy is
-  required): a namespace selector cannot be relied on for either.
+  documentation, *Ingress and Network Policy*; a Cilium maintainer in cilium/cilium#36509, 2024-12-11, Cilium 1.16:
+  a CiliumNetworkPolicy is required; current releases unverified). A standard NetworkPolicy cannot select that
+  identity, so `extra` cannot allow it either: a namespace selector cannot be relied on for either source, and the
+  Cilium traffic is allowed in a CiliumNetworkPolicy, outside this chart.
 - **Destinations of a component.** The cluster DNS: pods labelled `k8s-app: kube-dns` in `kube-system` on kubeadm
-  (kind), EKS, GKE, AKS and k3s, listening on port 53 on kubeadm and k3s (their manifests); on OpenShift, pods
+  (kind), EKS, GKE with kube-dns, AKS and k3s, listening on port 53 on kubeadm and k3s (their manifests); on OpenShift, pods
   labelled `dns.operator.openshift.io/daemonset-dns: default` in `openshift-dns`, listening on port 5353
   (cluster-dns-operator manifests).
   NodeLocal DNSCache runs on the host network and listens on a link-local address (usually `169.254.20.10`), so a
-  pod selector usually does not match it, and GKE's guide allows it with an `ipBlock` (of the kube-dns ClusterIP).
+  pod selector usually does not match it. The `ipBlock` is the address the pods actually query: `169.254.20.10/32`
+  when the kubelet's `clusterDNS` points at the NodeLocal address (kube-proxy IPVS mode), the kube-dns Service
+  ClusterIP `/32` in kube-proxy iptables mode, where NodeLocal DNSCache also listens on that IP and the traffic is
+  not DNAT-ed (GKE's guide uses the ClusterIP for GKE without Dataplane V2); on GKE Dataplane V2 nothing is needed,
+  and a Service IP may not be used in an `ipBlock`.
   The API server is not a pod (a host-network static pod on kubeadm and kind, a managed endpoint on EKS, GKE and
   AKS): in a standard NetworkPolicy, an `ipBlock` with its endpoint addresses is the portable way to allow it.
 - **Helm merges a map from values into the default map.** A map set under an alias is coalesced with the
@@ -93,9 +99,12 @@ connections from every pod of the cluster and may open any connection. The facts
 - **Egress, with `egress.enabled`, one rule each, in this order:**
   - DNS (`egress.dns`, on by default): one peer that combines the namespace (`kube-system`) and the pod labels
     (`dns.podSelector`, `null` by default, which renders `k8s-app: kube-dns`; a map set there replaces it, it is not
-    merged with it), one `ipBlock` peer per entry of `dns.cidrs`, on `dns.ports` (53 UDP and TCP). OpenShift sets
-    the namespace, the labels and port 5353; NodeLocal DNSCache adds its address to `dns.cidrs`; a resolver that a
-    namespace and labels cannot select takes `dns.enabled: false` and an `egress.extra` rule;
+    merged with it), one `ipBlock` peer per entry of `dns.cidrs`, on `dns.ports` (53 UDP and TCP; every entry
+    carries its protocol, required by the schema, because TCP is the API's default and would silently block UDP
+    DNS). OpenShift sets the namespace (`openshift-dns`), the labels and
+    `ports: [{port: 5353, protocol: UDP}, {port: 5353, protocol: TCP}]`; NodeLocal DNSCache adds the address the pods
+    query to `dns.cidrs` (above); a resolver that a namespace and labels cannot select takes `dns.enabled: false`
+    and an `egress.extra` rule;
   - `egress.toComponents`: aliases of sibling components, to any port of their pods (the sibling's own policy
     restricts its ports, and the chart cannot read them);
   - `egress.toCIDRs`: one rule per entry, `ipBlock` with `except`, ports by number with an optional `endPort` and
@@ -105,11 +114,14 @@ connections from every pod of the cluster and may open any connection. The facts
   namespace rules only when `ports` is not empty. `dns.ports` and `dns.podSelector` must not be empty, and in the
   pass-through rules and in `toCIDRs` a `from`, `to`, `ports`, `except`, `matchLabels` or `matchExpressions` that is
   present must not be empty: an omitted list means "all", and `{}` is how a selector says every pod or namespace.
-- **Every string is quoted** (aliases, the release name, namespace names, port names, CIDRs), so that an alias or a
-  namespace named `on` stays a string.
+- **Every string from values and every peer is quoted** (aliases, the release name, namespace names, port names,
+  CIDRs), so that an alias or a namespace named `on` stays a string; the policy's own `spec.podSelector` uses the
+  shared `chart-base.selectorLabels`.
 - **A strict schema** (`additionalProperties: false`): aliases with the chart's alias rule and at most 63
   characters, namespace names as DNS-1123 labels, CIDRs by shape (IPv4 and IPv6), ports as a number from 1 to
-  65535 or a port name (numbers only in `toCIDRs` and `dns.ports`), `endPort` only with a number, protocols
+  65535 or a port name (numbers only in `toCIDRs` and `dns.ports`) and always present (a port entry without a
+  `port` would open every port of its protocol: a whole protocol is `port: 1` with `endPort: 65535`), `endPort`
+  only with a number, protocols
   `TCP`, `UDP` or `SCTP`, peers with at least one field and an `ipBlock` alone, label selector operators `In`,
   `NotIn` (with values), `Exists` and `DoesNotExist` (without). `networkPolicy`, its `enabled`, `ingress` and
   `egress`, `egress.enabled`, and `enabled`, `namespace` and `ports` of `egress.dns` are `required`
@@ -120,8 +132,11 @@ connections from every pod of the cluster and may open any connection. The facts
     outside the cluster) still needs a namespace listed, and its addresses allowed with an `ipBlock` in `extra`;
   - `metricsFromNamespaces` without `metrics.enabled` fails, also on a CronJob or a Job, where metrics cannot be
     enabled: the list would open nothing;
-  - `httpRoute.enabled` or `ingress.enabled` without `fromNamespaces` and without `ingress.extra` fails: the route
-    would reach a component that refuses its traffic;
+  - `httpRoute.enabled` or `ingress.enabled` without `fromNamespaces`, without `ingress.extra` and without
+    `ingress.routeTrafficAllowedElsewhere: true` fails: the route would reach a component that refuses its traffic.
+    The key (a boolean, `false` by default, the owner's decision of 2026-10-03) is the third remedy, for traffic that
+    a policy this chart cannot express allows (Cilium's Ingress or Gateway, a `hostNetwork` controller): it opens
+    nothing, and it fails without a route, because it would have no effect;
   - `fromComponents` or `fromNamespaces` with `ports: []` fails: there is no port to open by name;
   - `egress.toComponents`, `egress.toCIDRs`, `egress.extra` or `egress.dns.cidrs` set while `egress.enabled` is
     `false` fails: a destination list that looks like a restriction would restrict nothing. Changed DNS scalars
@@ -131,15 +146,18 @@ connections from every pod of the cluster and may open any connection. The facts
     `egress.extra`), as the API server would.
 - **Not validated** (documented in the values, the README and the consuming guide): whether the CNI enforces
   NetworkPolicy; whether a referenced sibling or namespace exists; label keys and values beyond their type; that an
-  `except` is inside its `cidr`; controllers that a namespace selector may not match (Cilium Ingress or Gateway,
-  `hostNetwork`); the DNS of a distribution that differs from the defaults; the API server for components with
+  `except` is inside its `cidr`; whether the route's traffic really is allowed where `routeTrafficAllowedElsewhere`
+  says it is (Cilium Ingress or Gateway, `hostNetwork`); the DNS of a distribution that differs from the defaults; the API server for components with
   `serviceAccount.automountToken: true` once egress is isolated (its endpoint IPs belong in `toCIDRs`).
 
 ## Consequences
 
 - An umbrella can say, per component and by alias, which siblings, namespaces and Prometheus may reach it and,
-  with egress isolated, what it may reach. Values that the API server would reject, or that would open nothing or
-  everything, fail at render time with the component's name.
+  with egress isolated, what it may reach. Most values that the API server would reject, or that would open nothing
+  or everything, fail at render time with the component's name (see "Not validated": an `except` outside its `cidr`
+  is not checked, and `extra: [{}]` deliberately allows everything). A route that Cilium's Ingress or Gateway serves
+  needs a CiliumNetworkPolicy outside the chart and `routeTrafficAllowedElsewhere: true`: the chart cannot check
+  either.
 - With egress off, enabling the policy never breaks an outgoing connection. With egress on, every destination must
   be listed: databases outside the cluster, the API server, a NodeLocal DNSCache. An overlay that turns
   `egress.enabled` off must also clear the destination lists (`[]`).
@@ -153,7 +171,7 @@ connections from every pod of the cluster and may open any connection. The facts
 - kubeconform validates the rendered object's structure in the `lint` job. The e2e proves that the API server
   accepts the `full` scenario's policy and, on kind, under a namespace default-deny: that NetworkPolicy is enforced
   (a deny check first: kindnet fails open), that the chart's rules allow a sibling, a monitoring namespace and DNS by
-  Service name, and that they open nothing more; then, with the default-deny deleted, that an ingress-only policy
+  Service name, and that they open nothing more on the probed paths; then, with the default-deny deleted, that an ingress-only policy
   leaves a pod's egress open and that the chart's own policy isolates a pod's ingress and egress
   ([testing guide](../guides/testing.md#end-to-end-on-kind)).
 

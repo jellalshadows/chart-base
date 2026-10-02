@@ -245,7 +245,7 @@ neither. kindnet fails open, and when its policy controller cannot start it only
 allow checks alone would pass without enforcement, so the **first** check is a deny.
 
 With the default-deny in place, a denial may come from it as well as from the chart, so these checks prove that
-NetworkPolicy is enforced, that the chart's rules allow what they should, and that they open nothing more:
+NetworkPolicy is enforced, that the chart's rules allow what they should, and that they open nothing more on the probed paths:
 
 | Check | Expected |
 |---|---|
