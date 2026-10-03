@@ -100,6 +100,8 @@ tests:
 
   - it: binds an existing ServiceAccount (create false with a name)
     template: templates/rolebinding.yaml
+    release:
+      namespace: "123"
     set:
       serviceAccount.create: false
       serviceAccount.name: sales-runner
@@ -113,7 +115,7 @@ tests:
           value:
             - kind: ServiceAccount
               name: sales-runner
-              namespace: vending
+              namespace: "123"
 
   - it: renders one RoleBinding <fullname>.<ClusterRole> per clusterRoles entry, to that ClusterRole, and no Role
     set:
