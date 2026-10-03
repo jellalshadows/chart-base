@@ -104,6 +104,32 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if eq (.Values.serviceAccount.name | default "") "default" -}}
 {{- include "chart-base.fail" (list . "serviceAccount.name: default is the namespace's default ServiceAccount, which every pod of the namespace without a ServiceAccount of its own runs as, and serviceAccount.create: false without a name already selects it: remove serviceAccount.name, or name a ServiceAccount of this component") -}}
 {{- end -}}
+{{- /* RBAC: for a ServiceAccount of the component only, with a token, and no rule that grants nothing or everything. */ -}}
+{{- $rbac := or .Values.rbac.rules .Values.rbac.clusterRoles -}}
+{{- if and $rbac (not .Values.serviceAccount.create) (not .Values.serviceAccount.name) -}}
+{{- include "chart-base.fail" (list . (printf "rbac.rules and rbac.clusterRoles would be bound to the namespace's default ServiceAccount (serviceAccount.create is false and serviceAccount.name is not set), so every pod of the namespace without a ServiceAccount of its own, other charts' pods included, would get them: set serviceAccount.create: true (the chart creates %s), or set serviceAccount.name to an existing ServiceAccount of this component" $fullname)) -}}
+{{- end -}}
+{{- if and $rbac (not .Values.serviceAccount.automountToken) -}}
+{{- include "chart-base.fail" (list . "rbac.rules and rbac.clusterRoles are permissions of the pods' ServiceAccount token, and serviceAccount.automountToken is false, so the pods get no token: set serviceAccount.automountToken: true, or remove them (a cloud identity such as IRSA or Workload Identity needs neither)") -}}
+{{- end -}}
+{{- /* Kubernetes cannot restrict deletecollection or a top-level create by name (the RBAC documentation): such a rule never allows them. */ -}}
+{{- range $i, $rule := .Values.rbac.rules -}}
+{{- if $rule.resourceNames -}}
+{{- if has "deletecollection" $rule.verbs -}}
+{{- include "chart-base.fail" (list $ (printf "rbac.rules[%d]: deletecollection cannot be restricted by resourceNames, so this rule never allows it: move it to a rule without resourceNames, or remove it" $i)) -}}
+{{- end -}}
+{{- if has "create" $rule.verbs -}}
+{{- range $resource := $rule.resources -}}
+{{- if not (contains "/" $resource) -}}
+{{- include "chart-base.fail" (list $ (printf "rbac.rules[%d]: create on %s cannot be restricted by resourceNames (a create request names no existing object; only a subresource such as pods/exec can be), so this rule never allows it: move it to a rule without resourceNames, or remove it" $i $resource)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if has "cluster-admin" .Values.rbac.clusterRoles -}}
+{{- include "chart-base.fail" (list . "rbac.clusterRoles: cluster-admin is rejected: bound in the namespace, it allows every verb on every resource there, the * that rbac.rules rejects, and a deployer with only the namespace's admin rights cannot bind it: list the rules the component needs in rbac.rules, or bind a narrower ClusterRole such as view") -}}
+{{- end -}}
 
 {{- if kindIs "slice" .Values.env -}}
 {{- include "chart-base.fail" (list . "env is a map of NAME: {valueFrom: ...}, not a Kubernetes env list: literal values belong in config, references in env as a map") -}}

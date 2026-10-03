@@ -603,3 +603,117 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "serviceAccount.name: default is the namespace's default ServiceAccount"
+
+  - it: rejects rbac.rules bound to the namespace's default ServiceAccount (create false without a name)
+    set:
+      serviceAccount.create: false
+      serviceAccount.automountToken: true
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: [get]
+    asserts:
+      - failedTemplate:
+          errorPattern: "rbac.rules and rbac.clusterRoles would be bound to the namespace's default ServiceAccount .* set serviceAccount.create: true \\(the chart creates vending-chart-base\\)"
+
+  - it: rejects rbac.clusterRoles bound to the namespace's default ServiceAccount too
+    set:
+      serviceAccount.create: false
+      serviceAccount.automountToken: true
+      rbac.clusterRoles: [view]
+    asserts:
+      - failedTemplate:
+          errorPattern: "rbac.rules and rbac.clusterRoles would be bound to the namespace's default ServiceAccount"
+
+  - it: accepts rbac for an existing ServiceAccount of the component (create false with a name)
+    set:
+      serviceAccount.create: false
+      serviceAccount.name: sales-runner
+      serviceAccount.automountToken: true
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: [get]
+      rbac.clusterRoles: [view]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts create false without a name when there is no rbac (the pods run as default, with nothing granted)
+    set:
+      serviceAccount.create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects rbac.rules without serviceAccount.automountToken (the pods would get no token)
+    set:
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: [get]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.rules and rbac.clusterRoles are permissions of the pods'' ServiceAccount token, and serviceAccount.automountToken is false'
+
+  - it: rejects rbac.clusterRoles without serviceAccount.automountToken
+    set:
+      rbac.clusterRoles: [view]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.rules and rbac.clusterRoles are permissions of the pods'' ServiceAccount token, and serviceAccount.automountToken is false'
+
+  - it: rejects create with resourceNames on a top-level resource (a create request names no existing object)
+    set:
+      serviceAccount.automountToken: true
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [pods/exec, configmaps]
+          resourceNames: [sales-state]
+          verbs: [create, get]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.rules\[0\]: create on configmaps cannot be restricted by resourceNames'
+
+  - it: accepts create with resourceNames on subresources (pods/exec, serviceaccounts/token)
+    set:
+      serviceAccount.automountToken: true
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [pods/exec, serviceaccounts/token]
+          resourceNames: [sales-0, sales-runner]
+          verbs: [create]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects deletecollection with resourceNames
+    set:
+      serviceAccount.automountToken: true
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: [get]
+        - apiGroups: [""]
+          resources: [configmaps]
+          resourceNames: [sales-state]
+          verbs: [get, deletecollection]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.rules\[1\]: deletecollection cannot be restricted by resourceNames'
+
+  - it: rejects cluster-admin in rbac.clusterRoles (every verb on every resource of the namespace)
+    set:
+      serviceAccount.automountToken: true
+      rbac.clusterRoles: [view, cluster-admin]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.clusterRoles: cluster-admin is rejected'
+
+  - it: accepts the ClusterRoles view, edit and admin (edit and admin are documented escalation paths)
+    set:
+      serviceAccount.automountToken: true
+      rbac.clusterRoles: [view, edit, admin]
+    asserts:
+      - hasDocuments:
+          count: 0

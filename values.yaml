@@ -327,7 +327,7 @@ serviceAccount:
   # -- Mount the ServiceAccount token into the pods. The pods' own `automountServiceAccountToken` is always rendered,
   # so it wins over the ServiceAccount's, an existing one's too. A cloud identity does not need it: EKS IRSA and Pod
   # Identity and Azure Workload Identity inject a token of their own, and GKE Workload Identity's metadata server
-  # requests one itself.
+  # requests one itself. Required, `true`, with `rbac.rules` or `rbac.clusterRoles` (the render fails otherwise).
   automountToken: false
 
 rbac:
@@ -341,14 +341,16 @@ rbac:
   # `watch` reveal them like `get`), creating or changing workloads (a pod may run as any ServiceAccount of the
   # namespace and mount its Secrets), `pods/exec`, `pods/attach` and `pods/ephemeralcontainers` (commands in other
   # pods), `create` on `serviceaccounts/token`, `escalate`, `bind` and `impersonate`. Whoever runs the deploy must hold
-  # every permission granted here.
+  # every permission granted here. Requires `serviceAccount.automountToken: true` and a ServiceAccount of the
+  # component (the chart's, or `serviceAccount.name`), never `default`; `create` and `deletecollection` cannot be
+  # restricted by `resourceNames` (only `create` on a subresource such as `pods/exec` can): such rules fail the render.
   rules: []
   # -- Existing ClusterRoles granted to the pods' ServiceAccount in the release namespace only, one RoleBinding
   # `<fullname>.<ClusterRole>` each (`[view]` renders `<fullname>.view`; a `<fullname>` never contains a `.`, so two
   # components' bindings never share a name). Only the name `cluster-admin` is rejected: a ClusterRole is granted as it
   # is, and other ClusterRoles, Kubernetes' controller roles such as `system:controller:generic-garbage-collector`
   # included, hold wildcard rules; `edit` and `admin` let the pods act as any ServiceAccount of the namespace. A
-  # ClusterRole that does not exist is not detected.
+  # ClusterRole that does not exist is not detected. Same requirements as `rules`.
   clusterRoles: []
 
 # -- Extra pod annotations.
