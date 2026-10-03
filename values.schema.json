@@ -8,6 +8,7 @@
     "image",
     "resources",
     "serviceAccount",
+    "rbac",
     "job",
     "cronjob",
     "autoscaling",
@@ -227,6 +228,24 @@
       "properties": {
         "to": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/networkPolicyPeer" } },
         "ports": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/networkPolicyPort" } }
+      }
+    },
+    "rbacName": {
+      "description": "The name of a Role or a ClusterRole: a path segment name (ValidateRBACName), not . or .., without / or %; and no *, which a roleRef reads as a name, not as a wildcard.",
+      "type": "string",
+      "pattern": "^[^/%*]+$",
+      "not": { "enum": [".", ".."] }
+    },
+    "policyRule": {
+      "description": "A namespaced PolicyRule as the API server validates it (ValidatePolicyRule), and stricter: no nonResourceURLs (a namespaced rule cannot apply to them), verbs, apiGroups and resources required and not empty, resourceNames not empty when present, no * anywhere (a wildcard grants future resources and verbs; in resourceNames it is no wildcard and matches no object) and the standard verbs only.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["apiGroups", "resources", "verbs"],
+      "properties": {
+        "apiGroups": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[^*]*$" } },
+        "resources": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[^*]+$" } },
+        "resourceNames": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[^*]+$" } },
+        "verbs": { "type": "array", "minItems": 1, "items": { "enum": ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection", "use", "bind", "escalate", "impersonate"] } }
       }
     }
   },
@@ -709,6 +728,14 @@
       },
       "if": { "properties": { "create": { "const": true } } },
       "then": { "properties": { "name": { "type": "null" } } }
+    },
+    "rbac": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rules": { "type": "array", "items": { "$ref": "#/definitions/policyRule" } },
+        "clusterRoles": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/definitions/rbacName" } }
+      }
     },
     "podAnnotations": { "type": "object", "additionalProperties": { "type": "string" } },
     "podLabels": {

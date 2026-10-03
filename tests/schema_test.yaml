@@ -1267,3 +1267,211 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "/serviceAccount/name': maxLength: got 254, want 253"
+
+  - it: requires rbac (the templates read it)
+    set:
+      rbac: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "missing property 'rbac'"
+
+  - it: rejects unknown keys under rbac (there is no rbac.create)
+    set:
+      rbac.create: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac': additional properties 'create' not allowed"
+
+  - it: rejects a * in verbs (it grants every verb, future ones included)
+    set:
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: ["*"]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/rules/0/verbs/0': value must be one of 'get', 'list', 'watch', 'create', 'update', 'patch', 'delete', 'deletecollection', 'use', 'bind', 'escalate', 'impersonate'"
+
+  - it: rejects a verb that is not a standard one (the API server accepts a typo such as gett)
+    set:
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: [gett]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/rules/0/verbs/0': value must be one of"
+
+  - it: rejects a * in apiGroups
+    set:
+      rbac.rules:
+        - apiGroups: ["*"]
+          resources: [configmaps]
+          verbs: [get]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/rules/0/apiGroups/0': '\\*' does not match pattern"
+
+  - it: rejects a * anywhere in resources (*/scale is a wildcard too)
+    set:
+      rbac.rules:
+        - apiGroups: [apps]
+          resources: [deployments, "*/scale"]
+          verbs: [update]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/rules/0/resources/1': '\\*/scale' does not match pattern"
+
+  - it: rejects nonResourceURLs (a namespaced rule cannot apply to them)
+    set:
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: [get]
+          nonResourceURLs: [/healthz]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/rules/0': additional properties 'nonResourceURLs' not allowed"
+
+  - it: requires apiGroups in a rule (kubeconform does not check it, the API server rejects the Role)
+    set:
+      rbac.rules:
+        - resources: [configmaps]
+          verbs: [get]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/rules/0': missing property 'apiGroups'"
+
+  - it: requires resources in a rule
+    set:
+      rbac.rules:
+        - apiGroups: [""]
+          verbs: [get]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/rules/0': missing property 'resources'"
+
+  - it: requires verbs in a rule
+    set:
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/rules/0': missing property 'verbs'"
+
+  - it: rejects an empty verbs list
+    set:
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/rules/0/verbs': minItems"
+
+  - it: rejects an empty apiGroups list
+    set:
+      rbac.rules:
+        - apiGroups: []
+          resources: [configmaps]
+          verbs: [get]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/rules/0/apiGroups': minItems"
+
+  - it: rejects an empty resources list
+    set:
+      rbac.rules:
+        - apiGroups: [""]
+          resources: []
+          verbs: [get]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/rules/0/resources': minItems"
+
+  - it: rejects an empty resource (it would match nothing)
+    set:
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [""]
+          verbs: [get]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/rules/0/resources/0': '' does not match pattern"
+
+  - it: rejects an empty resourceNames list (the template would drop it, which means every name)
+    set:
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          resourceNames: []
+          verbs: [get]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/rules/0/resourceNames': minItems"
+
+  - it: rejects a * in resourceNames (it is no wildcard there and would match no object)
+    set:
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          resourceNames: ["*"]
+          verbs: [get]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/rules/0/resourceNames/0': '\\*' does not match pattern"
+
+  - it: rejects a ClusterRole name with a / (not an RBAC name)
+    set:
+      rbac.clusterRoles: [view/x]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/clusterRoles/0': 'view/x' does not match pattern"
+
+  - it: rejects . as a ClusterRole name
+    set:
+      rbac.clusterRoles: ["."]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/clusterRoles/0': 'not' failed"
+
+  - it: rejects * as a ClusterRole name (a roleRef reads it as a name, not as a wildcard)
+    set:
+      rbac.clusterRoles: ["*"]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/clusterRoles/0': '\\*' does not match pattern"
+
+  - it: rejects a ClusterRole listed twice (two RoleBindings with one name)
+    set:
+      rbac.clusterRoles: [view, view]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/clusterRoles': items at 0 and 1 are equal"
+
+  - it: accepts complete rules (the core group, every standard verb, a subresource with resourceNames) and ClusterRole names with a colon
+    set:
+      serviceAccount.automountToken: true
+      rbac.rules:
+        - apiGroups: ["", apps, coordination.k8s.io]
+          resources: [configmaps, deployments, leases]
+          verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+        - apiGroups: [rbac.authorization.k8s.io]
+          resources: [roles]
+          verbs: [bind, escalate]
+        - apiGroups: [""]
+          resources: [pods/exec, serviceaccounts/token]
+          resourceNames: [sales-0, sales-runner]
+          verbs: [create]
+        - apiGroups: [security.openshift.io]
+          resources: [securitycontextconstraints]
+          resourceNames: [restricted-v2]
+          verbs: [use]
+        - apiGroups: [""]
+          resources: [serviceaccounts]
+          verbs: [impersonate]
+      rbac.clusterRoles: [view, "system:aggregate-to-view"]
+    asserts:
+      - hasDocuments:
+          count: 0

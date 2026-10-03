@@ -1,0 +1,13 @@
+{{- /*
+One RoleBinding <fullname> to the component's Role (rbac.rules), and one RoleBinding <fullname>.<name> per entry of
+rbac.clusterRoles: an existing ClusterRole, granted in the release namespace only (templates/_rbac.tpl). A <fullname>
+never contains a `.` (templates/validate.yaml), so no two components' bindings can share a name.
+*/}}
+{{- if .Values.rbac.rules }}
+---
+{{ include "chart-base.roleBinding" (list . (include "chart-base.fullname" .) "Role" (include "chart-base.fullname" .)) }}
+{{- end }}
+{{- range .Values.rbac.clusterRoles }}
+---
+{{ include "chart-base.roleBinding" (list $ (printf "%s.%s" (include "chart-base.fullname" $) .) "ClusterRole" .) }}
+{{- end }}

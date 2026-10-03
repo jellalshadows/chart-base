@@ -330,6 +330,27 @@ serviceAccount:
   # requests one itself.
   automountToken: false
 
+rbac:
+  # -- Namespaced permissions for the pods' ServiceAccount: a Role and a RoleBinding named `<fullname>`, e.g.
+  # `[{apiGroups: [coordination.k8s.io], resources: [leases], verbs: [get, list, watch, create, update, patch]}]`.
+  # Each rule needs `apiGroups` (`""` is the core group), `resources` (a subresource is written `pods/log`) and
+  # `verbs`, and may restrict `resourceNames`. `*` is rejected in every list (it would grant future resources and
+  # verbs; in `resourceNames` it is no wildcard), and the verbs are the standard ones: `get`, `list`, `watch`,
+  # `create`, `update`, `patch`, `delete`, `deletecollection`, `use`, `bind`, `escalate`, `impersonate`. The main
+  # escalation paths (Kubernetes' RBAC Good Practices) grant more than the rule names: reading Secrets (`list` and
+  # `watch` reveal them like `get`), creating or changing workloads (a pod may run as any ServiceAccount of the
+  # namespace and mount its Secrets), `pods/exec`, `pods/attach` and `pods/ephemeralcontainers` (commands in other
+  # pods), `create` on `serviceaccounts/token`, `escalate`, `bind` and `impersonate`. Whoever runs the deploy must hold
+  # every permission granted here.
+  rules: []
+  # -- Existing ClusterRoles granted to the pods' ServiceAccount in the release namespace only, one RoleBinding
+  # `<fullname>.<ClusterRole>` each (`[view]` renders `<fullname>.view`; a `<fullname>` never contains a `.`, so two
+  # components' bindings never share a name). Only the name `cluster-admin` is rejected: a ClusterRole is granted as it
+  # is, and other ClusterRoles, Kubernetes' controller roles such as `system:controller:generic-garbage-collector`
+  # included, hold wildcard rules; `edit` and `admin` let the pods act as any ServiceAccount of the namespace. A
+  # ClusterRole that does not exist is not detected.
+  clusterRoles: []
+
 # -- Extra pod annotations.
 podAnnotations: {}
 
