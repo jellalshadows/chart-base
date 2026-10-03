@@ -305,11 +305,29 @@ job:
   ttlSecondsAfterFinished: 3600
 
 serviceAccount:
-  # -- Create a ServiceAccount named `<fullname>`. When `false`, the namespace `default` ServiceAccount is used.
+  # -- Create a ServiceAccount named `<fullname>` for the pods. When `false`, the pods run as the existing
+  # ServiceAccount `name` or, without a `name`, as the namespace's `default` ServiceAccount.
   create: true
-  # -- ServiceAccount annotations (e.g. GKE Workload Identity).
+  # -- (string) The name of an existing ServiceAccount of the release namespace for the pods (e.g. one that a platform
+  # team created with a cloud identity), only with `create: false`, never `default` (that is `create: false` without a
+  # `name`). It must exist before the pods do: Kubernetes rejects a pod whose ServiceAccount does not exist. Its
+  # `imagePullSecrets` are added to pods that set none, and its deprecated `kubernetes.io/enforce-mountable-secrets`
+  # annotation can reject pods that reference the `externalSecret` Secret. A `pre-deploy` Job runs before the
+  # release's other objects exist: it must not name a ServiceAccount that a sibling component creates. To keep the
+  # chart's own ServiceAccount under its name (`<fullname>`, e.g. for a cloud identity's trust policy), hand it over in
+  # two deploys: first with `create: true` and `annotations: {helm.sh/resource-policy: keep}`, then with
+  # `create: false`, `name: <fullname>` and the annotations removed from the values. In one step Helm deletes it, and
+  # the pods, which do not roll (the pod template does not change), lose it.
+  name: null
+  # -- Annotations of the ServiceAccount the chart creates (e.g. GKE Workload Identity's
+  # `iam.gke.io/gcp-service-account`, EKS IRSA's `eks.amazonaws.com/role-arn`). With `create: false` they fail the
+  # render: the owner of an existing ServiceAccount sets its annotations. An override file clears inherited annotations
+  # with `annotations: null`, not `{}` (maps are merged).
   annotations: {}
-  # -- Mount the ServiceAccount token into the pod.
+  # -- Mount the ServiceAccount token into the pods. The pods' own `automountServiceAccountToken` is always rendered,
+  # so it wins over the ServiceAccount's, an existing one's too. A cloud identity does not need it: EKS IRSA and Pod
+  # Identity and Azure Workload Identity inject a token of their own, and GKE Workload Identity's metadata server
+  # requests one itself.
   automountToken: false
 
 # -- Extra pod annotations.

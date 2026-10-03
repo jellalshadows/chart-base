@@ -97,6 +97,13 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{- /* The ServiceAccount: annotations only on the one the chart creates; default is not a name of its own. */ -}}
+{{- if and (not .Values.serviceAccount.create) .Values.serviceAccount.annotations -}}
+{{- include "chart-base.fail" (list . "serviceAccount.annotations apply only to the ServiceAccount the chart creates, and serviceAccount.create is false: the owner of an existing ServiceAccount sets its annotations (e.g. a cloud identity's role), so set them there and remove them from the values (an override file clears them with serviceAccount.annotations: null; an empty map is merged and clears nothing), or set serviceAccount.create: true") -}}
+{{- end -}}
+{{- if eq (.Values.serviceAccount.name | default "") "default" -}}
+{{- include "chart-base.fail" (list . "serviceAccount.name: default is the namespace's default ServiceAccount, which every pod of the namespace without a ServiceAccount of its own runs as, and serviceAccount.create: false without a name already selects it: remove serviceAccount.name, or name a ServiceAccount of this component") -}}
+{{- end -}}
 
 {{- if kindIs "slice" .Values.env -}}
 {{- include "chart-base.fail" (list . "env is a map of NAME: {valueFrom: ...}, not a Kubernetes env list: literal values belong in config, references in env as a map") -}}

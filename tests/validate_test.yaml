@@ -576,3 +576,30 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: rejects serviceAccount.annotations with create false (the owner of an existing ServiceAccount sets them)
+    set:
+      serviceAccount.create: false
+      serviceAccount.name: sales-runner
+      serviceAccount.annotations:
+        eks.amazonaws.com/role-arn: arn:aws:iam::111122223333:role/sales
+    asserts:
+      - failedTemplate:
+          errorPattern: 'serviceAccount.annotations apply only to the ServiceAccount the chart creates, and serviceAccount.create is false'
+
+  - it: rejects serviceAccount.annotations with create false and no name (the namespace's default ServiceAccount)
+    set:
+      serviceAccount.create: false
+      serviceAccount.annotations:
+        iam.gke.io/gcp-service-account: sales@acme.iam.gserviceaccount.com
+    asserts:
+      - failedTemplate:
+          errorPattern: 'serviceAccount.annotations apply only to the ServiceAccount the chart creates, and serviceAccount.create is false'
+
+  - it: rejects serviceAccount.name default (create false without a name already selects it)
+    set:
+      serviceAccount.create: false
+      serviceAccount.name: default
+    asserts:
+      - failedTemplate:
+          errorPattern: "serviceAccount.name: default is the namespace's default ServiceAccount"

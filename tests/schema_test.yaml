@@ -1236,3 +1236,34 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: accepts the name of an existing ServiceAccount with create false (a DNS-1123 subdomain)
+    set:
+      serviceAccount.create: false
+      serviceAccount.name: sales.runner-1
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects serviceAccount.name with create true (the chart creates <fullname>, and the name would be ignored)
+    set:
+      serviceAccount.name: sales-runner
+    asserts:
+      - failedTemplate:
+          errorPattern: "/serviceAccount/name': got string, want null"
+
+  - it: rejects a serviceAccount.name that is not a DNS-1123 subdomain
+    set:
+      serviceAccount.create: false
+      serviceAccount.name: Sales_Runner
+    asserts:
+      - failedTemplate:
+          errorPattern: "/serviceAccount/name': 'Sales_Runner' does not match pattern"
+
+  - it: rejects a serviceAccount.name longer than 253 characters
+    set:
+      serviceAccount.create: false
+      serviceAccount.name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    asserts:
+      - failedTemplate:
+          errorPattern: "/serviceAccount/name': maxLength: got 254, want 253"

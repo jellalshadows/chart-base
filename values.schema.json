@@ -698,9 +698,17 @@
       "required": ["create", "automountToken"],
       "properties": {
         "create": { "type": "boolean" },
+        "name": {
+          "description": "An existing ServiceAccount, only with create: false: a DNS-1123 subdomain (templates/validate.yaml rejects default).",
+          "type": ["string", "null"],
+          "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?([.][a-z0-9]([-a-z0-9]*[a-z0-9])?)*$",
+          "maxLength": 253
+        },
         "annotations": { "type": "object", "additionalProperties": { "type": "string" } },
         "automountToken": { "type": "boolean" }
-      }
+      },
+      "if": { "properties": { "create": { "const": true } } },
+      "then": { "properties": { "name": { "type": "null" } } }
     },
     "podAnnotations": { "type": "object", "additionalProperties": { "type": "string" } },
     "podLabels": {
