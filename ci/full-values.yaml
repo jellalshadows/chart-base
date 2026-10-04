@@ -98,6 +98,7 @@ ingress:
 serviceAccount:
   annotations:
     iam.gke.io/gcp-service-account: sales@acme.iam.gserviceaccount.com
+  automountToken: true                       # rbac below needs the token
 podAnnotations:
   example.com/team: vending
 podLabels:
@@ -166,3 +167,20 @@ networkPolicy:
         ports:
           - port: 9092
             protocol: TCP
+
+# A Role with every kind of rule (the core group, resourceNames, a subresource) and a RoleBinding to an existing
+# ClusterRole: the API server must accept them (the e2e checks a few fields). The e2e's RBAC checks use an umbrella
+# of their own.
+rbac:
+  rules:
+    - apiGroups: [coordination.k8s.io]
+      resources: [leases]
+      verbs: [get, list, watch, create, update, patch]
+    - apiGroups: [""]
+      resources: [configmaps]
+      resourceNames: [full-chart-base-state]
+      verbs: [get, update]
+    - apiGroups: [""]
+      resources: [pods/log]
+      verbs: [get]
+  clusterRoles: [view]

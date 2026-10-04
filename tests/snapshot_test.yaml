@@ -13,6 +13,8 @@ templates:
   - templates/pdb.yaml
   - templates/podmonitor.yaml
   - templates/prometheusrule.yaml
+  - templates/role.yaml
+  - templates/rolebinding.yaml
   - templates/service.yaml
   - templates/serviceaccount.yaml
   - templates/servicemonitor.yaml
