@@ -327,7 +327,8 @@ serviceAccount:
   # -- Mount the ServiceAccount token into the pods. The pods' own `automountServiceAccountToken` is always rendered,
   # so it wins over the ServiceAccount's, an existing one's too. A cloud identity does not need it: EKS IRSA and Pod
   # Identity and Azure Workload Identity inject a token of their own, and GKE Workload Identity's metadata server
-  # requests one itself. Required, `true`, with `rbac.rules` or `rbac.clusterRoles` (the render fails otherwise).
+  # requests one itself. Required, `true`, with `rbac.clusterRoles` and with any `rbac.rules` verb other than `use`
+  # (the render fails otherwise).
   automountToken: false
 
 rbac:
@@ -341,16 +342,21 @@ rbac:
   # `watch` reveal them like `get`), creating or changing workloads (a pod may run as any ServiceAccount of the
   # namespace and mount its Secrets), `pods/exec`, `pods/attach` and `pods/ephemeralcontainers` (commands in other
   # pods), `create` on `serviceaccounts/token`, `escalate`, `bind` and `impersonate`. Whoever runs the deploy must hold
-  # every permission granted here. Requires `serviceAccount.automountToken: true` and a ServiceAccount of the
-  # component (the chart's, or `serviceAccount.name`), never `default`; `create` and `deletecollection` cannot be
-  # restricted by `resourceNames` (only `create` on a subresource such as `pods/exec` can): such rules fail the render.
+  # every permission granted here. Requires a ServiceAccount of the component (the chart's, or `serviceAccount.name`),
+  # never `default`, and `serviceAccount.automountToken: true` unless `use` is the only verb of every rule (an
+  # admission plugin checks such a grant on the ServiceAccount itself: an OpenShift SecurityContextConstraints, for
+  # example). With `resourceNames`, `deletecollection` fails the render (Kubernetes never matches it by name), and so
+  # does `create` on a resource without `patch` or `update` in the same rule: only a server-side apply or a create
+  # through an update carries the name; `create` on a subresource such as `pods/exec` is matched by name.
   rules: []
   # -- Existing ClusterRoles granted to the pods' ServiceAccount in the release namespace only, one RoleBinding
   # `<fullname>.<ClusterRole>` each (`[view]` renders `<fullname>.view`; a `<fullname>` never contains a `.`, so two
   # components' bindings never share a name). Only the name `cluster-admin` is rejected: a ClusterRole is granted as it
   # is, and other ClusterRoles, Kubernetes' controller roles such as `system:controller:generic-garbage-collector`
   # included, hold wildcard rules; `edit` and `admin` let the pods act as any ServiceAccount of the namespace. A
-  # ClusterRole that does not exist is not detected. Same requirements as `rules`.
+  # ClusterRole that does not exist is not detected. Requires a ServiceAccount of the component and
+  # `serviceAccount.automountToken: true` (the chart does not know a ClusterRole's rules; a grant that needs no token
+  # is written as a `use` rule in `rules`).
   clusterRoles: []
 
 # -- Extra pod annotations.

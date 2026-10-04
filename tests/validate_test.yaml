@@ -654,16 +654,59 @@ tests:
           verbs: [get]
     asserts:
       - failedTemplate:
-          errorPattern: 'rbac.rules and rbac.clusterRoles are permissions of the pods'' ServiceAccount token, and serviceAccount.automountToken is false'
+          errorPattern: 'rbac.clusterRoles and the rbac.rules with a verb other than use are exercised by the pods with their ServiceAccount token, and serviceAccount.automountToken is false'
 
   - it: rejects rbac.clusterRoles without serviceAccount.automountToken
     set:
       rbac.clusterRoles: [view]
     asserts:
       - failedTemplate:
-          errorPattern: 'rbac.rules and rbac.clusterRoles are permissions of the pods'' ServiceAccount token, and serviceAccount.automountToken is false'
+          errorPattern: 'rbac.clusterRoles and the rbac.rules with a verb other than use are exercised by the pods with their ServiceAccount token, and serviceAccount.automountToken is false'
 
-  - it: rejects create with resourceNames on a top-level resource (a create request names no existing object)
+  - it: accepts rbac.rules whose only verb is use without a token (an admission plugin checks the grant on the ServiceAccount)
+    set:
+      rbac.rules:
+        - apiGroups: [security.openshift.io]
+          resources: [securitycontextconstraints]
+          resourceNames: [nonroot-v2]
+          verbs: [use]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a rule with use and another verb without a token
+    set:
+      rbac.rules:
+        - apiGroups: [security.openshift.io]
+          resources: [securitycontextconstraints]
+          resourceNames: [nonroot-v2]
+          verbs: [use, get]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.clusterRoles and the rbac.rules with a verb other than use are exercised by the pods with their ServiceAccount token, and serviceAccount.automountToken is false'
+
+  - it: rejects a use-only rule next to a rule with another verb without a token
+    set:
+      rbac.rules:
+        - apiGroups: [security.openshift.io]
+          resources: [securitycontextconstraints]
+          resourceNames: [nonroot-v2]
+          verbs: [use]
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: [get]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.clusterRoles and the rbac.rules with a verb other than use are exercised by the pods with their ServiceAccount token, and serviceAccount.automountToken is false'
+
+  - it: rejects a ClusterRole without a token and names the use rule (an OpenShift SCC ClusterRole)
+    set:
+      rbac.clusterRoles: ["system:openshift:scc:nonroot-v2"]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'write it in rbac.rules as a rule whose only verb is use'
+
+  - it: rejects create with resourceNames on a resource when the rule has neither patch nor update (a plain create request carries no name)
     set:
       serviceAccount.automountToken: true
       rbac.rules:
@@ -673,7 +716,7 @@ tests:
           verbs: [create, get]
     asserts:
       - failedTemplate:
-          errorPattern: 'rbac.rules\[0\]: create on configmaps cannot be restricted by resourceNames'
+          errorPattern: 'rbac.rules\[0\]: create on configmaps is restricted by resourceNames, which only a server-side apply'
 
   - it: accepts create with resourceNames on subresources (pods/exec, serviceaccounts/token)
     set:
@@ -683,6 +726,30 @@ tests:
           resources: [pods/exec, serviceaccounts/token]
           resourceNames: [sales-0, sales-runner]
           verbs: [create]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts create with resourceNames together with patch (a server-side apply creates the named object)
+    set:
+      serviceAccount.automountToken: true
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          resourceNames: [sales-state]
+          verbs: [get, patch, create]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts create with resourceNames together with update (a create through an update)
+    set:
+      serviceAccount.automountToken: true
+      rbac.rules:
+        - apiGroups: [coordination.k8s.io]
+          resources: [leases]
+          resourceNames: [sales-lock]
+          verbs: [get, update, create]
     asserts:
       - hasDocuments:
           count: 0
