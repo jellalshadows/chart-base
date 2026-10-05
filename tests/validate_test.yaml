@@ -728,7 +728,7 @@ tests:
       - failedTemplate:
           errorPattern: 'write it in rbac.rules as a rule whose only verb is use'
 
-  - it: rejects create with resourceNames on a resource when the rule has neither patch nor update (a plain create request carries no name)
+  - it: rejects create with resourceNames on a resource when the rule has neither patch nor update (the names are never matched for a plain create request)
     set:
       serviceAccount.automountToken: true
       rbac.rules:
@@ -738,7 +738,22 @@ tests:
           verbs: [create, get]
     asserts:
       - failedTemplate:
-          errorPattern: 'rbac.rules\[0\]: create on configmaps is restricted by resourceNames, which only a server-side apply'
+          errorPattern: 'rbac.rules\[0\]: create on configmaps is restricted by resourceNames, which Kubernetes matches only for a server-side apply \(it also needs patch\) or a create through an update \(it also needs update\), never for a plain create request, and this rule grants neither patch nor update \(each rule is checked on its own\): add patch or update to this rule if the component creates the object that way .*, move create to a rule without resourceNames, or remove it'
+
+  - it: rejects create with resourceNames when only another rule grants patch (each rule is checked on its own)
+    set:
+      serviceAccount.automountToken: true
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: [get, patch]
+        - apiGroups: [""]
+          resources: [configmaps]
+          resourceNames: [sales-state]
+          verbs: [create]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.rules\[1\]: create on configmaps is restricted by resourceNames, .*, and this rule grants neither patch nor update \(each rule is checked on its own\): add patch or update to this rule'
 
   - it: accepts create with resourceNames on subresources (pods/exec, serviceaccounts/token)
     set:

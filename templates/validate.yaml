@@ -107,7 +107,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if and .Values.serviceAccount.create .Values.serviceAccount.name -}}
 {{- include "chart-base.fail" (list . (printf "serviceAccount.name (%s) names an existing ServiceAccount, and serviceAccount.create is true, so the chart creates its own, always named %s: set serviceAccount.create: false to run the pods as %s, or remove serviceAccount.name" .Values.serviceAccount.name $fullname .Values.serviceAccount.name)) -}}
 {{- end -}}
-{{- /* RBAC: for a ServiceAccount of the component only, with a token, and no rule that grants nothing or everything. */ -}}
+{{- /* RBAC: only for a ServiceAccount of the component (the chart's or serviceAccount.name, never the namespace's default); with a token, unless no ClusterRole is bound and use is the only verb of every rule; no rule whose resourceNames keep one of its verbs from applying, each rule judged on its own (deletecollection always; create on a resource unless the same rule grants patch or update); and not the ClusterRole cluster-admin. */ -}}
 {{- $rbac := or .Values.rbac.rules .Values.rbac.clusterRoles -}}
 {{- if and $rbac (not .Values.serviceAccount.create) (not .Values.serviceAccount.name) -}}
 {{- include "chart-base.fail" (list . (printf "rbac.rules and rbac.clusterRoles would be bound to the namespace's default ServiceAccount (serviceAccount.create is false and serviceAccount.name is not set), so every pod of the namespace without a ServiceAccount of its own, other charts' pods included, would get them: set serviceAccount.create: true (the chart creates %s), or set serviceAccount.name to an existing ServiceAccount of this component" $fullname)) -}}
@@ -122,7 +122,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if and $needsToken (not .Values.serviceAccount.automountToken) -}}
 {{- include "chart-base.fail" (list . "rbac.clusterRoles and the rbac.rules with a verb other than use are exercised by the pods with their ServiceAccount token, and serviceAccount.automountToken is false, so the pods get no token: set serviceAccount.automountToken: true, or remove them (a cloud identity such as IRSA or Workload Identity needs neither). Only a grant that an admission plugin checks on the ServiceAccount itself needs no token (use on an OpenShift SecurityContextConstraints, for example): write it in rbac.rules as a rule whose only verb is use") -}}
 {{- end -}}
-{{- /* With resourceNames, Kubernetes never matches deletecollection, and matches create on a resource only for a server-side apply (which also needs patch) or a create through an update (which also needs update): a plain create request carries no name (measured on kube-apiserver 1.33 and 1.37). */ -}}
+{{- /* With resourceNames, Kubernetes never matches deletecollection, and matches create on a resource only for a server-side apply (which also needs patch) or a create through an update (which also needs update), never for a plain create request (measured on kube-apiserver 1.33 and 1.37). Kubernetes authorizes a request against all the rules of a Role together, but each rule is checked here on its own: a create restricted by resourceNames fails when its own rule grants neither patch nor update, even when another rule grants one (repeating it in this rule then changes nothing). */ -}}
 {{- range $i, $rule := .Values.rbac.rules -}}
 {{- if $rule.resourceNames -}}
 {{- if has "deletecollection" $rule.verbs -}}
@@ -131,7 +131,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if and (has "create" $rule.verbs) (not (has "patch" $rule.verbs)) (not (has "update" $rule.verbs)) -}}
 {{- range $resource := $rule.resources -}}
 {{- if not (contains "/" $resource) -}}
-{{- include "chart-base.fail" (list $ (printf "rbac.rules[%d]: create on %s is restricted by resourceNames, which only a server-side apply (the rule also needs patch) or a create through an update (the rule also needs update) can match: a plain create request carries no object name, so this rule never allows it: add patch or update if the component creates the object that way, move create to a rule without resourceNames, or remove it" $i $resource)) -}}
+{{- include "chart-base.fail" (list $ (printf "rbac.rules[%d]: create on %s is restricted by resourceNames, which Kubernetes matches only for a server-side apply (it also needs patch) or a create through an update (it also needs update), never for a plain create request, and this rule grants neither patch nor update (each rule is checked on its own): add patch or update to this rule if the component creates the object that way (repeating a verb that another rule already grants changes nothing), move create to a rule without resourceNames, or remove it" $i $resource)) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
