@@ -26,7 +26,7 @@ fail() {
   fi
   if [ "$ns" = rbac ]; then
     # The migrate Job is kept too: its log has the HTTP status of each of its API calls.
-    kubectl logs -n rbac job/ops-migrate --tail=50 >&2 || true
+    kubectl logs -n rbac job/ops-migrate --tail=200 >&2 || true
   fi
   exit 1
 }
@@ -299,8 +299,8 @@ echo "== rbac (an umbrella of three components: an existing ServiceAccount, a Cl
 # kubectl auth can-i exits 1 for "no" and for an error alike (an identity that may not impersonate, for example), and
 # answers "no", with a warning, for a resource type that does not exist and for a verb it does not know: can_i
 # compares stdout and fails on either warning (a typo cannot pass as a "no"), and every "no" comes after a "yes" for
-# the same ServiceAccount and resource type, so the binding is in effect when the "no" is checked. On failure it
-# prints the ServiceAccount's effective rules (can-i --list).
+# the same ServiceAccount and resource type, so the binding is in effect when the "no" is checked. On a wrong answer
+# it prints the ServiceAccount's effective rules (can-i --list); on either warning it prints the warning.
 # can_i yes|no <namespace> <serviceaccount of $ns> <can-i arguments...>: polls every second for up to 10 s.
 can_i() {
   local expect="$1" in_ns="$2" sa="$3" out err deadline=$((SECONDS + 10))
