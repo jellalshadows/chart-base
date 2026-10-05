@@ -585,7 +585,7 @@ tests:
         eks.amazonaws.com/role-arn: arn:aws:iam::111122223333:role/sales
     asserts:
       - failedTemplate:
-          errorPattern: 'serviceAccount.annotations apply only to the ServiceAccount the chart creates, and serviceAccount.create is false'
+          errorPattern: 'serviceAccount.annotations apply only to the ServiceAccount the chart creates, and serviceAccount.create is false, so no ServiceAccount carries them: remove them from the values \(an override file clears them with serviceAccount.annotations: null; an empty map is merged and clears nothing\), or, when the pods run as an existing ServiceAccount \(serviceAccount.name\), have its owner set them on that ServiceAccount'
 
   - it: rejects serviceAccount.annotations with create false and no name (the namespace's default ServiceAccount)
     set:
@@ -594,11 +594,33 @@ tests:
         iam.gke.io/gcp-service-account: sales@acme.iam.gserviceaccount.com
     asserts:
       - failedTemplate:
-          errorPattern: 'serviceAccount.annotations apply only to the ServiceAccount the chart creates, and serviceAccount.create is false'
+          errorPattern: 'serviceAccount.annotations apply only to the ServiceAccount the chart creates, and serviceAccount.create is false, so no ServiceAccount carries them: remove them from the values .*, or set serviceAccount.create: true'
+
+  - it: accepts serviceAccount.annotations on the ServiceAccount the chart creates
+    set:
+      serviceAccount.annotations:
+        eks.amazonaws.com/role-arn: arn:aws:iam::111122223333:role/sales
+    asserts:
+      - hasDocuments:
+          count: 0
 
   - it: rejects serviceAccount.name default (create false without a name already selects it)
     set:
       serviceAccount.create: false
+      serviceAccount.name: default
+    asserts:
+      - failedTemplate:
+          errorPattern: "serviceAccount.name: default is the namespace's default ServiceAccount, .*: remove serviceAccount.name, or name a ServiceAccount of this component"
+
+  - it: rejects serviceAccount.name with create true (the chart creates <fullname>; a name is an existing ServiceAccount's)
+    set:
+      serviceAccount.name: sales-runner
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: serviceAccount.name \(sales-runner\) names an existing ServiceAccount, and serviceAccount.create is true, so the chart creates its own, always named vending-chart-base: set serviceAccount.create: false to run the pods as sales-runner, or remove serviceAccount.name'
+
+  - it: reports serviceAccount.name default as the default ServiceAccount with create true too (create false would only select it again)
+    set:
       serviceAccount.name: default
     asserts:
       - failedTemplate:

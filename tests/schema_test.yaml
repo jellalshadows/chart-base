@@ -1245,13 +1245,6 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: rejects serviceAccount.name with create true (the chart creates <fullname>, and the name would be ignored)
-    set:
-      serviceAccount.name: sales-runner
-    asserts:
-      - failedTemplate:
-          errorPattern: "/serviceAccount/name': got string, want null"
-
   - it: rejects a serviceAccount.name that is not a DNS-1123 subdomain
     set:
       serviceAccount.create: false
@@ -1267,6 +1260,22 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "/serviceAccount/name': maxLength: got 254, want 253"
+
+  - it: accepts a serviceAccount.name of 253 characters (the longest DNS-1123 subdomain)
+    set:
+      serviceAccount.create: false
+      serviceAccount.name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects an empty serviceAccount.name (leave it null to name no ServiceAccount)
+    set:
+      serviceAccount.create: false
+      serviceAccount.name: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "/serviceAccount/name': '' does not match pattern"
 
   - it: requires rbac (the templates read it)
     set:

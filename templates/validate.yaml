@@ -97,12 +97,15 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- end -}}
 {{- end -}}
 {{- end -}}
-{{- /* The ServiceAccount: annotations only on the one the chart creates; default is not a name of its own. */ -}}
+{{- /* The ServiceAccount: annotations only on the one the chart creates; default is not a name of its own; a name only for an existing one (the chart's own is always <fullname>). */ -}}
 {{- if and (not .Values.serviceAccount.create) .Values.serviceAccount.annotations -}}
-{{- include "chart-base.fail" (list . "serviceAccount.annotations apply only to the ServiceAccount the chart creates, and serviceAccount.create is false: the owner of an existing ServiceAccount sets its annotations (e.g. a cloud identity's role), so set them there and remove them from the values (an override file clears them with serviceAccount.annotations: null; an empty map is merged and clears nothing), or set serviceAccount.create: true") -}}
+{{- include "chart-base.fail" (list . "serviceAccount.annotations apply only to the ServiceAccount the chart creates, and serviceAccount.create is false, so no ServiceAccount carries them: remove them from the values (an override file clears them with serviceAccount.annotations: null; an empty map is merged and clears nothing), or, when the pods run as an existing ServiceAccount (serviceAccount.name), have its owner set them on that ServiceAccount (a cloud identity's role, for example), or set serviceAccount.create: true") -}}
 {{- end -}}
 {{- if eq (.Values.serviceAccount.name | default "") "default" -}}
 {{- include "chart-base.fail" (list . "serviceAccount.name: default is the namespace's default ServiceAccount, which every pod of the namespace without a ServiceAccount of its own runs as, and serviceAccount.create: false without a name already selects it: remove serviceAccount.name, or name a ServiceAccount of this component") -}}
+{{- end -}}
+{{- if and .Values.serviceAccount.create .Values.serviceAccount.name -}}
+{{- include "chart-base.fail" (list . (printf "serviceAccount.name (%s) names an existing ServiceAccount, and serviceAccount.create is true, so the chart creates its own, always named %s: set serviceAccount.create: false to run the pods as %s, or remove serviceAccount.name" .Values.serviceAccount.name $fullname .Values.serviceAccount.name)) -}}
 {{- end -}}
 {{- /* RBAC: for a ServiceAccount of the component only, with a token, and no rule that grants nothing or everything. */ -}}
 {{- $rbac := or .Values.rbac.rules .Values.rbac.clusterRoles -}}
