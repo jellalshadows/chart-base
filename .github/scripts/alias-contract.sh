@@ -89,7 +89,9 @@ nightly-cleanup:        # hyphenated alias: values key, condition path and resou
   cronjob: {schedule: "0 * * * *"}
 EOF
 
-render() { helm template vending "$umbrella" --namespace vending --kube-version 1.33.0 "$@"; }
+# The namespace differs from the release name on purpose: a RoleBinding subject built from the release
+# NAME instead of the release NAMESPACE must fail the rbac checks below.
+render() { helm template vending "$umbrella" --namespace platform --kube-version 1.33.0 "$@"; }
 
 rendered="$(render)" || fail "umbrella with valid values did not render"
 pass "renders with global + <alias>.enabled keys present (schema tolerates reserved keys)"
@@ -133,11 +135,11 @@ rb_refs() { # RoleBinding name -> <roleRef kind>/<roleRef name> <subject kind>/<
   echo "$rendered" | yq -N "select(.kind == \"RoleBinding\" and .metadata.name == \"$1\") | .roleRef.kind + \"/\" + .roleRef.name + \" \" + .subjects[0].kind + \"/\" + .subjects[0].namespace + \"/\" + .subjects[0].name" -
 }
 got="$(rb_refs vending-api)"
-[ "$got" = "Role/vending-api ServiceAccount/vending/vending-api" ] || fail "api's RoleBinding must bind its own Role to its own ServiceAccount, got '$got'"
+[ "$got" = "Role/vending-api ServiceAccount/platform/vending-api" ] || fail "api's RoleBinding must bind its own Role to its own ServiceAccount in the release namespace, got '$got'"
 got="$(rb_refs vending-api.view)"
-[ "$got" = "ClusterRole/view ServiceAccount/vending/vending-api" ] || fail "api's RoleBinding to view must bind its own ServiceAccount, got '$got'"
+[ "$got" = "ClusterRole/view ServiceAccount/platform/vending-api" ] || fail "api's RoleBinding to view must bind its own ServiceAccount in the release namespace, got '$got'"
 got="$(rb_refs vending-worker.view)"
-[ "$got" = "ClusterRole/view ServiceAccount/vending/vending-worker-sa" ] || fail "worker's RoleBinding to view must bind the existing ServiceAccount it names, got '$got'"
+[ "$got" = "ClusterRole/view ServiceAccount/platform/vending-worker-sa" ] || fail "worker's RoleBinding to view must bind the existing ServiceAccount it names, in the release namespace, got '$got'"
 api_rules="$(echo "$rendered" | yq -N -o=json -I=0 'select(.kind == "Role" and .metadata.name == "vending-api") | .rules' -)"
 [ "$api_rules" = '[{"apiGroups":["coordination.k8s.io"],"resources":["leases"],"verbs":["get","list","watch","create","update","patch"]}]' ] \
   || fail "api's Role must hold exactly the umbrella's rules (the list replaces the default, nothing is merged into it), got '$api_rules'"
@@ -146,7 +148,7 @@ echo "$names" | grep -qxE "(ServiceAccount|Role|RoleBinding)/vending-worker" \
 echo "$names" | grep -qE "^(Role|RoleBinding)/vending-nightly-cleanup" && fail "nightly-cleanup has no rbac: it must render no Role or RoleBinding"
 got="$(echo "$rendered" | yq -N 'select(.kind == "Deployment" and .metadata.name == "vending-worker") | .spec.template.spec | .serviceAccountName + " " + (.automountServiceAccountToken | tostring)' -)"
 [ "$got" = "vending-worker-sa true" ] || fail "worker's pods must run as vending-worker-sa with the token mounted, got '$got'"
-pass "rbac under an alias: each component's Role and RoleBindings (<release>-<alias>, <release>-<alias>.<ClusterRole>) bind its own ServiceAccount, the chart's or the existing one it names"
+pass "rbac under an alias: each component's Role and RoleBindings (<release>-<alias>, <release>-<alias>.<ClusterRole>) bind its own ServiceAccount, the chart's or the existing one it names, in the release namespace"
 
 worker_container='select(.kind == "Deployment" and .metadata.name == "vending-worker") | .spec.template.spec.containers[0]'
 [ "$(echo "$rendered" | yq -N "$worker_container | .env[0].name" -)" = "POD_NAME" ] || fail "worker must render the env reference"
