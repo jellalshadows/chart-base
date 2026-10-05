@@ -647,6 +647,18 @@ tests:
       - failedTemplate:
           errorPattern: "rbac.rules and rbac.clusterRoles would be bound to the namespace's default ServiceAccount .*, or set serviceAccount.name to an existing ServiceAccount of this component"
 
+  - it: rejects a use-only rule bound to the namespace's default ServiceAccount, without a token too (the token guard exempts use, this one does not)
+    set:
+      serviceAccount.create: false
+      rbac.rules:
+        - apiGroups: [security.openshift.io]
+          resources: [securitycontextconstraints]
+          resourceNames: [nonroot-v2]
+          verbs: [use]
+    asserts:
+      - failedTemplate:
+          errorPattern: "rbac.rules and rbac.clusterRoles would be bound to the namespace's default ServiceAccount"
+
   - it: accepts rbac for an existing ServiceAccount of the component (create false with a name)
     set:
       serviceAccount.create: false
@@ -717,6 +729,32 @@ tests:
         - apiGroups: [""]
           resources: [configmaps]
           verbs: [get]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.clusterRoles and the rbac.rules with a verb other than use are exercised by the pods with their ServiceAccount token, and serviceAccount.automountToken is false'
+
+  - it: rejects a rule with another verb followed by a use-only rule without a token (the last rule does not decide)
+    set:
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: [get]
+        - apiGroups: [security.openshift.io]
+          resources: [securitycontextconstraints]
+          resourceNames: [nonroot-v2]
+          verbs: [use]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.clusterRoles and the rbac.rules with a verb other than use are exercised by the pods with their ServiceAccount token, and serviceAccount.automountToken is false'
+
+  - it: rejects a use-only rule next to a ClusterRole without a token (the ClusterRole needs one)
+    set:
+      rbac.clusterRoles: [view]
+      rbac.rules:
+        - apiGroups: [security.openshift.io]
+          resources: [securitycontextconstraints]
+          resourceNames: [nonroot-v2]
+          verbs: [use]
     asserts:
       - failedTemplate:
           errorPattern: 'rbac.clusterRoles and the rbac.rules with a verb other than use are exercised by the pods with their ServiceAccount token, and serviceAccount.automountToken is false'
@@ -806,6 +844,18 @@ tests:
       - failedTemplate:
           errorPattern: 'rbac.rules\[1\]: deletecollection cannot be restricted by resourceNames, so this rule never allows it: move it to a rule without resourceNames, or remove it'
 
+  - it: rejects deletecollection with resourceNames even when the rule also has patch and update (they exempt create only)
+    set:
+      serviceAccount.automountToken: true
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          resourceNames: [sales-state]
+          verbs: [get, create, patch, update, deletecollection]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.rules\[0\]: deletecollection cannot be restricted by resourceNames'
+
   - it: rejects cluster-admin in rbac.clusterRoles (every verb on every resource of the namespace)
     set:
       serviceAccount.automountToken: true
@@ -818,6 +868,28 @@ tests:
     set:
       serviceAccount.automountToken: true
       rbac.clusterRoles: [view, edit, admin]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders with rbac.rules deleted by a null (an override that removes the rules)
+    set:
+      rbac.rules: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders with rbac.clusterRoles deleted by a null
+    set:
+      rbac.clusterRoles: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders with rbac.rules and rbac.clusterRoles both deleted by a null
+    set:
+      rbac.rules: null
+      rbac.clusterRoles: null
     asserts:
       - hasDocuments:
           count: 0
