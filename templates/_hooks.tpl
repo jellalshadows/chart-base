@@ -9,8 +9,9 @@ pre-install,pre-upgrade
 
 {{/*
 Hook annotations for the support resources of a `job` component (ServiceAccount,
-ConfigMaps, ExternalSecret, NetworkPolicy, Role, RoleBindings): they must exist, with the NEW content, before the Job
-runs (weight -10 < the Job's 0). Empty for any other workload type.
+ConfigMaps, ExternalSecret, NetworkPolicy, Role, RoleBindings): they must exist,
+with the NEW content, before the Job runs (weight -10 < the Job's 0). Empty for
+any other workload type.
 */}}
 {{- define "chart-base.supportHookAnnotations" -}}
 {{- if eq .Values.workload.type "job" }}
