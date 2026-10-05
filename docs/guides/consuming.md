@@ -205,15 +205,57 @@ some CNIs never match pod traffic with a CIDR; the NodeLocal DNSCache address ab
 because it is a host-network address that pod selectors do not match
 ([ADR-0040](../adr/0040-networkpolicy-per-component-with-sibling-references.md)).
 
+**RBAC: a ServiceAccount of the component, a token, and a deployer that holds what it grants.**
+`rbac.rules` renders a Role `<fullname>` and a RoleBinding for the pods' ServiceAccount, and `rbac.clusterRoles` a
+RoleBinding `<fullname>.<ClusterRole>` per existing ClusterRole, in the release namespace only. The render fails
+without `serviceAccount.automountToken: true` (the pods would have no token) and for the namespace's `default`
+ServiceAccount (`create: false` without a `name`), whose permissions every pod of the namespace without a
+ServiceAccount of its own gets. Kubernetes lets a deployer create a Role only if it holds every permission in it, and a
+RoleBinding only if it holds the referenced role's permissions, unless it may `escalate` or `bind`: a CI deployer with
+the namespace's `admin` ClusterRole (the Helm documentation's advice for charts that create Roles) can grant only what
+`admin` holds, never `cluster-admin` or a `*`; Argo CD's and Flux's controllers, bound to cluster-admin-like roles by
+default, can grant more. A ClusterRole is bound by name and not checked: one that does not exist grants nothing, and
+only the name `cluster-admin` is rejected, so any other ClusterRole is granted as it is, wildcard rules included
+(Kubernetes' own controller roles, such as `system:controller:generic-garbage-collector`, hold rules on every resource
+of every group). `edit` and `admin` let the pods act as any ServiceAccount of the namespace. The main ways a rule grants
+more than it names, from Kubernetes' *RBAC Good Practices*: reading Secrets (`list` and `watch` reveal them like `get`),
+creating or changing workloads (a pod may run as any ServiceAccount of the namespace and mount its Secrets), `create`
+on `serviceaccounts/token`, `escalate`, `bind`, `impersonate`, and `patch` on the namespace itself (its Pod Security
+labels); and running commands in other pods, through `pods/exec` and `pods/attach` (escalating resources for
+Kubernetes' own `edit` role) or an ephemeral container (`pods/ephemeralcontainers`)
+([ADR-0042](../adr/0042-existing-serviceaccount-and-namespaced-rbac.md)).
+
+**An existing ServiceAccount: it must exist first, and it brings its own settings.**
+With `serviceAccount.create: false` and `serviceAccount.name`, the pods run as a ServiceAccount the chart does not
+create, for example one that a platform team annotated with a cloud identity. It must exist before the pods: the API
+server rejects them otherwise. Its `imagePullSecrets` are added to pods that set none, and its deprecated
+`kubernetes.io/enforce-mountable-secrets` annotation rejects pods that reference a Secret it does not list, the
+component's `externalSecret` Secret included. Its annotations are its owner's: `serviceAccount.annotations` fails the
+render with `create: false` (an override file clears inherited annotations with `serviceAccount.annotations: null`;
+`{}` is merged and clears nothing), and an annotation change reaches only pods created afterwards (restart the
+Deployment). Keeping the chart's own ServiceAccount under its name, for a cloud identity's trust policy, takes two
+deploys, with `helm.sh/resource-policy: keep` first ([upgrade guide](../upgrading.md#keeping-the-charts-serviceaccount-under-its-name)):
+in one step Helm deletes the ServiceAccount, and the pods, which do not roll, lose it.
+A cloud identity needs no `automountToken`; Azure Workload Identity needs the pod label
+`azure.workload.identity/use: "true"` (in `podLabels`). With `networkPolicy.egress.enabled`, allow what the identity
+calls in `toCIDRs`: EKS Pod Identity's agent at `169.254.170.23` (IPv6 `fd00:ec2::23`) on port 80; on GKE, as its
+documentation says for a strict network policy, `169.254.169.252/32` on port 988, and `169.254.169.254/32` on port 80
+with Dataplane V2. IRSA's AWS STS and Azure's Microsoft Entra ID endpoints are outside the cluster; this guide does not
+cover them.
+
 **Job components: expect them to run as Helm hooks.**
 A component with `workload.type: job` is rendered as a Helm hook (`job.phase: pre-deploy` by default,
-or `post-deploy`), and its ServiceAccount, ConfigMaps, ExternalSecret and NetworkPolicy are hooks of the same phase.
-Hook resources are not part of the release, so `helm uninstall` does not delete them
+or `post-deploy`), and its ServiceAccount, ConfigMaps, ExternalSecret, NetworkPolicy, Role and RoleBindings are hooks
+of the same phase. Hook resources are not part of the release, so `helm uninstall` does not delete them
 ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)). If Helm's `--timeout` expires while the Job still runs, Helm deletes
 those support resources under the running pod, its NetworkPolicy included: keep `job.activeDeadlineSeconds` below
 `--timeout`. With `networkPolicy` on, let the Job retry its first connections for a few seconds: the CNI applies a
 new policy some time after it is created, and a pod may start before that
-([ADR-0041](../adr/0041-job-component-networkpolicy-is-a-hook.md)).
+([ADR-0041](../adr/0041-job-component-networkpolicy-is-a-hook.md)). With `rbac`, the same deletion denies the running
+Job's API calls; a hook that cannot be created (a deployer that does not hold its rules) stops the deploy and leaves
+the hooks created before it, such as the Job's ServiceAccount, until the next deploy; and a pre-deploy Job's
+`serviceAccount.name` must not name a ServiceAccount that a sibling component creates, which does not exist yet when
+the Job runs on the first install ([ADR-0043](../adr/0043-job-component-rbac-is-a-hook.md)).
 The exception is the component's PrometheusRule: it is not a hook but a regular release object, deleted by
 `helm uninstall`, and on the first install it is created only if the pre-deploy hook succeeds
 ([ADR-0039](../adr/0039-prometheus-rules-travel-with-the-component.md)).
@@ -238,7 +280,9 @@ What fails **before the cluster is touched**, at `helm template`, `helm lint` an
   `routeTrafficAllowedElsewhere: true`), `routeTrafficAllowedElsewhere` without a route,
   `metricsFromNamespaces` without `metrics`, `fromComponents` or `fromNamespaces` with no `ports`, an `endPort`
   lower than its port, egress destinations (`toComponents`, `toCIDRs`, `extra`, `dns.cidrs`) listed while
-  `egress.enabled` is `false`.
+  `egress.enabled` is `false`; `serviceAccount.annotations` with `create: false`, `serviceAccount.name: default`,
+  `rbac` for the namespace's `default` ServiceAccount or without `automountToken: true`, `cluster-admin` in
+  `rbac.clusterRoles`, and a `create` (on a top-level resource) or a `deletecollection` restricted by `resourceNames`.
 
 What fails **at install or upgrade**, when Helm talks to the cluster (rendering does not need the CRD,
 so `helm template` and `helm lint` do not catch it):
@@ -246,6 +290,11 @@ so `helm template` and `helm lint` do not catch it):
 - A kind whose CRD is not installed (HTTPRoute, ExternalSecret, ServiceMonitor, PodMonitor,
   PrometheusRule): Helm cannot build the object, so the release fails cleanly. chart-base does not skip
   such objects ([ADR-0012](../adr/0012-no-capabilities-gating.md)).
+- A Role or a RoleBinding that grants a permission the deployer does not hold (unless it may `escalate` or `bind`):
+  the API server rejects it with `is attempting to grant RBAC permissions not currently held`, a RoleBinding whose
+  Role was rejected fails too (`not found`), and the release fails; the objects already created stay. An upgrade that
+  changes a Role needs every rule of it held again
+  ([ADR-0042](../adr/0042-existing-serviceaccount-and-namespaced-rbac.md)).
 
 What fails **at rollout**, in the cluster:
 
@@ -266,6 +315,11 @@ What fails **at rollout**, in the cluster:
   ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)).
 - A slow component that legitimately needs more than 240 seconds must raise
   `progressDeadlineSeconds` under its alias.
+- An existing ServiceAccount (`serviceAccount.name`) that does not exist: the API server rejects every pod
+  (`error looking up service account <namespace>/<name>: serviceaccount "<name>" not found`), so none is created. A
+  Deployment's rollout is then expected to fail after `progressDeadlineSeconds`, and a Job hook to make Helm wait until
+  `--timeout`, as with a PriorityClass that does not exist (not verified for this case: the measurement ran without the
+  controllers).
 - A `priorityClassName` or `runtimeClassName` that names no existing class: the Priority or the
   RuntimeClass admission plugin (both on by default) rejects the pods. A Deployment's rollout fails
   after `progressDeadlineSeconds`; for a `pre-deploy` or `post-deploy` Job hook no pod is ever created, so
@@ -287,6 +341,13 @@ for Helm as soon as it exists, and the release succeeds):
 - An alias in `fromComponents` or `toComponents`, or a namespace, that matches nothing: the peer selects no pod.
 - DNS settings that do not match the cluster, with `egress.enabled`: the pods cannot resolve names.
 - The time the CNI takes to program a new policy: a pod may start before it is enforced.
+
+What **Helm never reports** about RBAC (the objects are created and the release succeeds):
+
+- A resource name or an API group with a typo, or a ClusterRole that does not exist: the rule or the binding grants
+  nothing. `kubectl auth can-i --list --as=system:serviceaccount:<namespace>:<name> -n <namespace>` shows what a
+  ServiceAccount may do.
+- Another workload that runs as the same existing ServiceAccount: it gets the same permissions.
 
 A **rule whose PromQL does not parse** (or a broken annotation template) depends on the operator's admission
 webhook. Where it is deployed (kube-prometheus-stack deploys it by default, checked on chart version 91.8.2), the

@@ -1,6 +1,6 @@
 # ADR-0041: A job component's NetworkPolicy is a hook of its phase
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0043](0043-job-component-rbac-is-a-hook.md) (0.6.0)
 - **Date:** 2026-10-02
 - **Since:** 0.5.0
 - **Related:** [ADR-0007](0007-jobs-as-helm-hooks.md) (amended), [ADR-0039](0039-prometheus-rules-travel-with-the-component.md), [ADR-0040](0040-networkpolicy-per-component-with-sibling-references.md)

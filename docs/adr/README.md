@@ -17,7 +17,7 @@ not published; each record restates every fact it uses.
 | [0004](0004-env-in-configmap-secrets-through-externalsecret.md) | Env vars in a ConfigMap, secrets through ExternalSecret | Amended by 0030, 0031 | 0.1.0 |
 | [0005](0005-configfiles-string-or-map.md) | `configFiles` accepts a string or a map | Accepted | 0.1.0 |
 | [0006](0006-checksum-for-config-reloader-for-secrets.md) | Checksums for config, Reloader for Secrets | Amended by 0033 | 0.1.0 |
-| [0007](0007-jobs-as-helm-hooks.md) | `workload.type: job` is a Helm hook | Amended by 0041 | 0.1.0 |
+| [0007](0007-jobs-as-helm-hooks.md) | `workload.type: job` is a Helm hook | Amended by 0041, 0043 | 0.1.0 |
 | [0008](0008-names-are-release-alias-and-never-truncated.md) | Names are `<release>-<alias>` and never truncated | Accepted | 0.1.0 |
 | [0009](0009-no-name-overrides.md) | No `nameOverride`/`fullnameOverride` | Accepted | 0.1.0 |
 | [0010](0010-chart-version-never-restarts-pods.md) | Bumping chart-base never restarts pods by itself | Amended by 0035 | 0.1.0 |
@@ -51,7 +51,9 @@ not published; each record restates every fact it uses.
 | [0038](0038-one-metrics-endpoint-servicemonitor-or-podmonitor.md) | One metrics endpoint, through a ServiceMonitor or a PodMonitor | Accepted | 0.4.0 |
 | [0039](0039-prometheus-rules-travel-with-the-component.md) | Prometheus rules travel with the component | Accepted | 0.4.0 |
 | [0040](0040-networkpolicy-per-component-with-sibling-references.md) | One opt-in NetworkPolicy per component, with sibling components referenced by alias | Accepted | 0.5.0 |
-| [0041](0041-job-component-networkpolicy-is-a-hook.md) | A job component's NetworkPolicy is a hook of its phase | Accepted | 0.5.0 |
+| [0041](0041-job-component-networkpolicy-is-a-hook.md) | A job component's NetworkPolicy is a hook of its phase | Amended by 0043 | 0.5.0 |
+| [0042](0042-existing-serviceaccount-and-namespaced-rbac.md) | An existing ServiceAccount, and namespaced RBAC whose rules are least privilege by construction | Accepted | 0.6.0 |
+| [0043](0043-job-component-rbac-is-a-hook.md) | A job component's Role and RoleBindings are hooks of its phase | Accepted | 0.6.0 |
 
 ## Adding a record
 

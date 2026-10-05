@@ -88,19 +88,21 @@ Everything at the top level of the repository, and why it is there:
 The object templates are one file per kind (`deployment.yaml`, `cronjob.yaml`, `job.yaml`,
 `service.yaml`, `serviceaccount.yaml`, `configmap-env.yaml`, `configmap-files.yaml`,
 `externalsecret.yaml`, `httproute.yaml`, `ingress.yaml`, `hpa.yaml`, `pdb.yaml`, `servicemonitor.yaml`,
-`podmonitor.yaml`, `prometheusrule.yaml`, `networkpolicy.yaml`). The helpers are split by
+`podmonitor.yaml`, `prometheusrule.yaml`, `networkpolicy.yaml`, `role.yaml`, `rolebinding.yaml`). The helpers are
+split by
 responsibility so that each one can be developed and tested on its own:
 
 | File | Responsibility |
 |---|---|
 | `_names.tpl` | The component name (the alias), `<release>-<component>` and the `fail` helper that prefixes errors with the component. |
 | `_labels.tpl` | Selector labels (frozen from 1.0.0), the labels shared by pods and objects, and `helm.sh/chart`. |
-| `_pod.tpl` | The image reference, the ServiceAccount name and the pod spec shared by Deployment, CronJob and Job. |
+| `_pod.tpl` | The image reference, the pods' ServiceAccount name (the chart's, an existing one, or `default`) and the pod spec shared by Deployment, CronJob and Job. |
 | `_reloader.tpl` | The Reloader annotations for objects that change outside the deploy: the ExternalSecret's Secret and every Secret or ConfigMap referenced in `env` or `envFrom` ([ADR-0033](../adr/0033-component-level-reload-on-change.md)). |
 | `_service.tpl` | The port a Service exposes for a `ports` entry. |
 | `_metrics.tpl` | The single scrape endpoint of the ServiceMonitor and the PodMonitor ([ADR-0038](../adr/0038-one-metrics-endpoint-servicemonitor-or-podmonitor.md)). |
 | `_hooks.tpl` | The Helm hook annotations of `workload.type: job` and of its support resources ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)). |
 | `_networkpolicy.tpl` | The peers of the NetworkPolicy: a sibling component of the release by alias, and namespaces by name ([ADR-0040](../adr/0040-networkpolicy-per-component-with-sibling-references.md)). |
+| `_rbac.tpl` | A RoleBinding of the component, for the pods' ServiceAccount in the release namespace ([ADR-0042](../adr/0042-existing-serviceaccount-and-namespaced-rbac.md)). |
 
 `templates/validate.yaml` renders nothing. It holds the guards, `fail` calls for the rules the schema
 cannot express: the alias and resource-name format and length, the Kubernetes 1.33 floor, and rules that

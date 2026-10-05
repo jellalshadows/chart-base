@@ -293,6 +293,68 @@ spec:
   policyTypes: [Ingress, Egress]
 ```
 
+### A component that calls the Kubernetes API (leader election with leases)
+
+```yaml
+scheduler:
+  image: {repository: ghcr.io/acme/scheduler, tag: "1.2.0"}
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+  serviceAccount:
+    automountToken: true                    # the token its API calls use (required with rbac)
+  rbac:
+    rules:
+      - apiGroups: [coordination.k8s.io]    # leader election
+        resources: [leases]
+        verbs: [get, list, watch, create, update, patch]
+      - apiGroups: [""]                     # "" is the core group
+        resources: [configmaps]
+        resourceNames: [vending-scheduler-state]
+        verbs: [get, update]
+    clusterRoles: [view]                    # read most objects of the namespace (not Secrets)
+```
+
+The chart renders a Role `vending-scheduler` with these rules, a RoleBinding `vending-scheduler` to it and a
+RoleBinding `vending-scheduler.view` to the existing ClusterRole `view`, all for the ServiceAccount `vending-scheduler`,
+in the release namespace only. The render fails on a `*` in any list, a verb that is not a standard one,
+`nonResourceURLs`, the ClusterRole `cluster-admin` (only that name is checked: any other ClusterRole is granted as it
+is), and a `create` or `deletecollection` restricted by `resourceNames`, which Kubernetes would never allow (`create` on
+a subresource such as `pods/exec` can be restricted). RBAC needs
+`serviceAccount.automountToken: true` and a ServiceAccount of the component: the render fails for the namespace's
+`default` ServiceAccount, which every other pod of the namespace without a ServiceAccount of its own runs as too.
+**Whoever runs the deploy must hold every permission it grants** (or may `escalate` and `bind`): Kubernetes rejects a
+Role or a RoleBinding that grants more, with `is attempting to grant RBAC permissions not currently held`. A deployer
+with the namespace's `admin` ClusterRole, which the Helm documentation recommends for charts that create Roles, can
+grant only what `admin` holds. With `networkPolicy.egress.enabled`, the API server's endpoint IPs and port go in
+`toCIDRs`.
+
+### An existing ServiceAccount with a cloud identity (EKS IRSA, GKE and Azure Workload Identity)
+
+```yaml
+reports:
+  image: {repository: ghcr.io/acme/reports, tag: "2.1.0"}
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+  serviceAccount:
+    create: false
+    name: reports-s3                        # the platform team's, annotated with eks.amazonaws.com/role-arn
+```
+
+The pods run as `reports-s3`, which the chart does not create: it must exist before the pods (Kubernetes rejects a pod
+whose ServiceAccount does not exist), and its owner sets its annotations (`serviceAccount.annotations` with
+`create: false` fails the render). The identity needs no `automountToken`: EKS IRSA and Pod Identity and Azure Workload
+Identity inject a token of their own, and GKE Workload Identity's metadata server requests one. Azure mutates only pods
+labelled `azure.workload.identity/use: "true"`: set it in `podLabels`, quoted. On GKE Standard,
+`nodeSelector: {iam.gke.io/gke-metadata-server-enabled: "true"}` keeps the pods on node pools with Workload Identity
+(Autopilot rejects this selector). A change to the ServiceAccount's annotations reaches only pods created afterwards:
+restart the Deployment. Handing the chart's own ServiceAccount over under its name takes two deploys (the
+[upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md#keeping-the-charts-serviceaccount-under-its-name)).
+The ServiceAccount's `imagePullSecrets` are added to pods that set none. With
+`networkPolicy.egress.enabled`, allow the identity's endpoints in `toCIDRs`: EKS Pod Identity's agent at
+`169.254.170.23` (IPv6 `fd00:ec2::23`) on port 80; on GKE, as its documentation says for a strict network policy,
+`169.254.169.252/32` on port 988, and `169.254.169.254/32` on port 80 with Dataplane V2. IRSA calls AWS STS and Azure
+calls Microsoft Entra ID, outside the cluster; their addresses are not covered here.
+
 ### Worker (e.g. a Kafka consumer)
 
 ```yaml
@@ -377,8 +439,8 @@ code, official docs) and local renders.
    [ADR-0006](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0006-checksum-for-config-reloader-for-secrets.md)
 7. **`workload.type: job` is a Helm hook (`job.phase`).** A Job pod template is immutable, so a plain
    Job fails on the second deploy with `field is immutable`. Its ServiceAccount, ConfigMaps,
-   ExternalSecret and NetworkPolicy (decision 41) are hooks too (weight `-10`) so they exist, with the new
-   content, before the Job.
+   ExternalSecret, NetworkPolicy (decision 41), Role and RoleBindings (decision 43) are hooks too (weight `-10`) so
+   they exist, with the new content, before the Job.
    *Rejected:* a plain Job; a Job named after the release revision (no ordering, not blocking).
    [ADR-0007](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0007-jobs-as-helm-hooks.md)
 8. **Names are always `<release>-<alias>`, and too-long names fail.** Uniqueness is guaranteed; names
@@ -559,6 +621,25 @@ code, official docs) and local renders.
     not. If Helm's `--timeout` expires while the Job still runs, Helm deletes it under the running pod: keep
     `job.activeDeadlineSeconds` below `--timeout`. *Rejected:* a regular object; a hook kept after the deploy.
     [ADR-0041](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0041-job-component-networkpolicy-is-a-hook.md)
+42. **An existing ServiceAccount, and namespaced RBAC whose rules are least privilege by construction.**
+    `serviceAccount.name` (only with `create: false`, never `default`) runs the pods as an existing ServiceAccount, and
+    `serviceAccount.annotations` fail with `create: false` (that ServiceAccount's owner sets them; breaking in 0.6.0:
+    0.5.0 ignored them). `rbac.rules` renders a Role and a RoleBinding `<fullname>`, and `rbac.clusterRoles` one
+    RoleBinding `<fullname>.<ClusterRole>` per existing ClusterRole (a `<fullname>` has no `.`, so no two components'
+    bindings share a name), for the pods' ServiceAccount in the release namespace only. Rules are validated as the API
+    server does and more strictly: no `*`, the standard verbs only, no `nonResourceURLs`, no empty list. The render
+    fails on RBAC for the namespace's `default` ServiceAccount, RBAC without `automountToken: true`, the ClusterRole
+    `cluster-admin` (only that name: other ClusterRoles, wildcard rules included, are granted as they are), and a
+    `create` or `deletecollection` restricted by `resourceNames`. Whoever deploys must hold what it grants; a missing
+    ServiceAccount or ClusterRole is not detected. *Rejected:* wildcards with a documented deployer requirement;
+    naming the created ServiceAccount; a `roleRef` set from values; binding names with `-` (they collide across
+    aliases) or `:`; RBAC for `default` behind an opt-in.
+    [ADR-0042](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0042-existing-serviceaccount-and-namespaced-rbac.md)
+43. **A job component's Role and RoleBindings are hooks of its phase.** Like its ServiceAccount (weight `-10`, deleted
+    once the phase succeeds), so a pre-deploy Job can call the API on the first install. If Helm's `--timeout` expires
+    while the Job still runs, Helm deletes them under the running pod, whose API calls are then denied: keep
+    `job.activeDeadlineSeconds` below `--timeout`. *Rejected:* regular objects; no RBAC for job components.
+    [ADR-0043](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0043-job-component-rbac-is-a-hook.md)
 
 ## Versioning and releases
 
@@ -607,6 +688,11 @@ cosign verify ghcr.io/jellalshadows/charts/chart-base:X.Y.Z \
   express (Cilium's Ingress or Gateway, a `hostNetwork` controller) takes `routeTrafficAllowedElsewhere: true`
   instead. On OpenShift or with NodeLocal DNSCache, override `egress.dns`: a `podSelector` you set replaces the default
   selector, and every `ports` entry needs its protocol.
+- **RBAC** (`rbac`) needs `serviceAccount.automountToken: true` and a ServiceAccount of the component, the chart's or
+  an existing one (`serviceAccount.name`), never the namespace's `default`. **Whoever deploys must hold every
+  permission it grants**: a deployer with only the namespace's `admin` ClusterRole can grant no more than `admin`
+  holds. In `clusterRoles` only the name `cluster-admin` is rejected: any other ClusterRole is granted as it is, so
+  read its rules before you bind it.
 - **Turning on `autoscaling` for a running component** removes `spec.replicas`: Kubernetes scales it to 1
   once, then the HPA scales it back up.
 - **Quote image tags** (`tag: "1.10"`): the schema only accepts strings, so an unquoted `1.10` fails
@@ -625,7 +711,8 @@ helm lint --strict . -f ci/full-values.yaml
 CI (`.github/workflows/ci.yaml`) runs the unit tests, `helm lint`/`helm template` + kubeconform on
 Helm 3.22 and 4.3, the alias contract (`.github/scripts/alias-contract.sh`), a real install on kind
 (Kubernetes 1.33 and 1.37) in a namespace that enforces Pod Security `restricted`, NetworkPolicy enforcement
-checks (with a namespace default-deny, then without it), this README drift
+checks (with a namespace default-deny, then without it), RBAC checks (`kubectl auth can-i` as the ServiceAccounts,
+and API calls from the pods with their own tokens), this README drift
 check, the documentation link check, the PR title check, workflow linting (actionlint + zizmor) and the release signing checks.
 The [development guide](https://github.com/jellalshadows/chart-base/blob/main/docs/guides/development.md) and the [testing guide](https://github.com/jellalshadows/chart-base/blob/main/docs/guides/testing.md)
 explain the TDD loop, every test layer and the local tool setup.
