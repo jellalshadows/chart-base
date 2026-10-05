@@ -1331,6 +1331,16 @@ tests:
       - failedTemplate:
           errorPattern: "/rbac/rules/0/resources/1': '\\*/scale' does not match pattern"
 
+  - it: rejects a bare * in resources (every resource of the group, future ones included)
+    set:
+      rbac.rules:
+        - apiGroups: [apps]
+          resources: ["*"]
+          verbs: [get]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/rules/0/resources/0': '\\*' does not match pattern"
+
   - it: rejects nonResourceURLs (a namespaced rule cannot apply to them)
     set:
       rbac.rules:
@@ -1431,6 +1441,17 @@ tests:
       - failedTemplate:
           errorPattern: "/rbac/rules/0/resourceNames/0': '\\*' does not match pattern"
 
+  - it: rejects an empty name in resourceNames (no object has an empty name)
+    set:
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          resourceNames: [sales-state, ""]
+          verbs: [get]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/rules/0/resourceNames/1': '' does not match pattern"
+
   - it: rejects a ClusterRole name with a / (not an RBAC name)
     set:
       rbac.clusterRoles: [view/x]
@@ -1444,6 +1465,27 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "/rbac/clusterRoles/0': 'not' failed"
+
+  - it: rejects .. as a ClusterRole name
+    set:
+      rbac.clusterRoles: [".."]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/clusterRoles/0': 'not' failed"
+
+  - it: rejects a ClusterRole name with a % (not an RBAC name)
+    set:
+      rbac.clusterRoles: ["ops%reader"]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/clusterRoles/0': 'ops%reader' does not match pattern"
+
+  - it: rejects an empty ClusterRole name
+    set:
+      rbac.clusterRoles: [""]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/rbac/clusterRoles/0': '' does not match pattern"
 
   - it: rejects * as a ClusterRole name (a roleRef reads it as a name, not as a wildcard)
     set:

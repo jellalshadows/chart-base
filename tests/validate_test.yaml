@@ -645,7 +645,7 @@ tests:
       rbac.clusterRoles: [view]
     asserts:
       - failedTemplate:
-          errorPattern: "rbac.rules and rbac.clusterRoles would be bound to the namespace's default ServiceAccount"
+          errorPattern: "rbac.rules and rbac.clusterRoles would be bound to the namespace's default ServiceAccount .*, or set serviceAccount.name to an existing ServiceAccount of this component"
 
   - it: accepts rbac for an existing ServiceAccount of the component (create false with a name)
     set:
@@ -676,14 +676,14 @@ tests:
           verbs: [get]
     asserts:
       - failedTemplate:
-          errorPattern: 'rbac.clusterRoles and the rbac.rules with a verb other than use are exercised by the pods with their ServiceAccount token, and serviceAccount.automountToken is false'
+          errorPattern: 'rbac.clusterRoles and the rbac.rules with a verb other than use are exercised by the pods with their ServiceAccount token, and serviceAccount.automountToken is false, so the pods get no token: set serviceAccount.automountToken: true, or remove them'
 
   - it: rejects rbac.clusterRoles without serviceAccount.automountToken
     set:
       rbac.clusterRoles: [view]
     asserts:
       - failedTemplate:
-          errorPattern: 'rbac.clusterRoles and the rbac.rules with a verb other than use are exercised by the pods with their ServiceAccount token, and serviceAccount.automountToken is false'
+          errorPattern: 'rbac.clusterRoles and the rbac.rules with a verb other than use are exercised by the pods with their ServiceAccount token, and serviceAccount.automountToken is false, so the pods get no token: set serviceAccount.automountToken: true, or remove them'
 
   - it: accepts rbac.rules whose only verb is use without a token (an admission plugin checks the grant on the ServiceAccount)
     set:
@@ -789,7 +789,7 @@ tests:
           verbs: [get, deletecollection]
     asserts:
       - failedTemplate:
-          errorPattern: 'rbac.rules\[1\]: deletecollection cannot be restricted by resourceNames'
+          errorPattern: 'rbac.rules\[1\]: deletecollection cannot be restricted by resourceNames, so this rule never allows it: move it to a rule without resourceNames, or remove it'
 
   - it: rejects cluster-admin in rbac.clusterRoles (every verb on every resource of the namespace)
     set:
@@ -797,7 +797,7 @@ tests:
       rbac.clusterRoles: [view, cluster-admin]
     asserts:
       - failedTemplate:
-          errorPattern: 'rbac.clusterRoles: cluster-admin is rejected'
+          errorPattern: 'rbac.clusterRoles: cluster-admin is rejected: .*: list the rules the component needs in rbac.rules, or bind a narrower ClusterRole such as view'
 
   - it: accepts the ClusterRoles view, edit and admin (edit and admin are documented escalation paths)
     set:
