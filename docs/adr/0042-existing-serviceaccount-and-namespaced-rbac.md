@@ -1,4 +1,4 @@
-# ADR-0042: An existing ServiceAccount, and namespaced RBAC with no wildcards, a fixed verb list and no `cluster-admin`
+# ADR-0042: An existing ServiceAccount, and namespaced RBAC: rules with no wildcards and a fixed verb list, no `cluster-admin`
 
 - **Status:** Accepted
 - **Date:** 2026-10-03
@@ -138,12 +138,14 @@ and v1.37.0 source, the Kubernetes documentation, and measurements on kube-apise
   `vending-chart-base.system:aggregate-to-view` are created and take effect on kube-apiserver v1.33.0 and v1.37.0,
   measured). Two releases' `<fullname>`s can be equal, release `shop` with alias `api-web` and release `shop-api`
   with alias `web` for example: then every object collides, not only the bindings, and the second install fails on
-  Helm's ownership check (`invalid ownership metadata`, measured on kube-apiserver v1.37.0), so nothing collides
-  silently.
+  Helm's ownership check for regular objects (`invalid ownership metadata`, measured on kube-apiserver v1.37.0, with a
+  deployment). Hooks are not checked: a `job` component's `before-hook-creation` deletes the other release's object of
+  the same name (a source reading, not run).
   Every RoleBinding has one subject, the pods' ServiceAccount (`<fullname>` or `serviceAccount.name`) in the release
   namespace, and always renders `roleRef.apiGroup: rbac.authorization.k8s.io`. The subject's namespace makes the render
   depend on `--namespace`: without it Helm takes `HELM_NAMESPACE`, then the kubeconfig context's namespace, and
-  `default` when neither is set (`EnvSettings.Namespace`, `pkg/cli/environment.go` at v4.3.0 and v3.22.0; measured on
+  `default` when neither is set (inside a pod, the pod's own namespace: client-go's in-cluster fallback, a source
+  reading) (`EnvSettings.Namespace`, `pkg/cli/environment.go` at v4.3.0 and v3.22.0; measured on
   both versions: no namespace configured, `HELM_NAMESPACE=sales` and a context namespace `team-a` give subjects in
   `default`, `sales` and `team-a`). The RoleBindings carry no `metadata.namespace`, so
   `helm template ... | kubectl apply -n <namespace>` creates them in `<namespace>` and, when Helm took another

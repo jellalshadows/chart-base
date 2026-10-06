@@ -735,7 +735,7 @@ code, official docs) and local renders.
     not. If Helm's `--timeout` expires while the Job still runs, Helm deletes it under the running pod: keep
     `job.activeDeadlineSeconds` below `--timeout`. *Rejected:* a regular object; a hook kept after the deploy.
     [ADR-0041](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0041-job-component-networkpolicy-is-a-hook.md)
-42. **An existing ServiceAccount, and namespaced RBAC with no wildcards, a fixed verb list and no `cluster-admin`.**
+42. **An existing ServiceAccount, and namespaced RBAC: rules with no wildcards and a fixed verb list, no `cluster-admin`.**
     `serviceAccount.name` (only with `create: false`, never `default`; with `create: true` the render fails and names
     both remedies) runs the pods as an existing ServiceAccount, and `serviceAccount.annotations` fail with
     `create: false` (that ServiceAccount's owner sets them; breaking in 0.6.0: 0.5.0 ignored them). `rbac.rules`

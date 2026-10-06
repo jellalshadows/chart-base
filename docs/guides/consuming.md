@@ -209,7 +209,8 @@ because it is a host-network address that pod selectors do not match
 `rbac.rules` renders a Role `<fullname>` and a RoleBinding for the pods' ServiceAccount, and `rbac.clusterRoles` a
 RoleBinding `<fullname>.<ClusterRole>` per existing ClusterRole, in the release namespace only. The subject carries the
 release namespace, so render with the real `--namespace`: without it Helm takes `HELM_NAMESPACE`, then the kubeconfig
-context's namespace, and `default` when neither is set (measured on Helm 4.3.0 and 3.22.0), and piping that render
+context's namespace, and `default` when neither is set (measured on Helm 4.3.0 and 3.22.0; inside a pod, the pod's own
+namespace: client-go's in-cluster fallback, a source reading), and piping that render
 into `kubectl apply -n <namespace>` can grant the roles to a ServiceAccount of another namespace. The render fails for
 the namespace's `default` ServiceAccount (`create: false` without a `name`), whose permissions every pod of the
 namespace without a ServiceAccount of its own gets, and without `serviceAccount.automountToken: true` (the pods would
