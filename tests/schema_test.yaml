@@ -1681,6 +1681,20 @@ tests:
       - failedTemplate:
           errorPattern: "/httpRoute/matches/0/headers/0': missing property 'value'"
 
+  - it: rejects a header match without name (required by the CRD)
+    set:
+      httpRoute.matches: [{headers: [{value: canary}]}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/matches/0/headers/0': missing property 'name'"
+
+  - it: rejects a query parameter match without name (required by the CRD)
+    set:
+      httpRoute.matches: [{queryParams: [{value: gold}]}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/matches/0/queryParams/0': missing property 'name'"
+
   - it: rejects a method that the CRD does not list
     set:
       httpRoute.matches: [{method: get}]
