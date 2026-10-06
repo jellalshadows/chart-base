@@ -271,18 +271,24 @@ The exception is the component's PrometheusRule: it is not a hook but a regular 
 
 ## Failure behavior
 
-What fails **before the cluster is touched**, at `helm template`, `helm lint` and `helm install` /
-`helm upgrade` alike (rendering and schema validation are local):
+What fails **before the cluster is touched**, at `helm template` and at `helm install` / `helm upgrade` alike
+(rendering and schema validation are local). Gate the pipeline on `helm template` with the deploy's real values,
+release name and `--namespace`, not on `helm lint`
+([ADR-0044](../adr/0044-guards-fail-the-render-helm-lint-reports-them.md)):
 
 - A value that breaks the schema: an unknown key, a wrong type, a missing required key, a
   `maxUnavailable` given as a percentage above 100% (an integer above 100 is valid). The error names the
   alias. Keys that apply to one workload type only (`strategy`, `minReadySeconds`, ...) are ignored on the
   others, not rejected; the exceptions are the Deployment-only integrations (`httpRoute`, `ingress`,
-  `autoscaling`, `metrics`), which fail when they are enabled on a CronJob or a Job.
-- A guard that spans several keys or names, for example a name that is not a DNS-1035 label, a name longer than 63
-  characters (52 for a CronJob), a Kubernetes version below 1.33, `autoscaling.minReplicas` greater
-  than `maxReplicas`, a rollout that Kubernetes would reject (`maxSurge` and `maxUnavailable` both 0,
-  `minReadySeconds` not lower than `progressDeadlineSeconds`), a custom
+  `autoscaling`, `metrics`), which fail when they are enabled on a CronJob or a Job. `helm lint` fails on these
+  too when it lints the chart itself; through an umbrella it passed a `null` that deletes a required key
+  (`api.rbac: null`, measured on Helm 4.3.0 and 3.22.0 with a `-f` file), which `helm template` rejects.
+- A guard that spans several keys or names. `helm lint` does not fail on a guard: it prints the message as an INFO
+  line (`funcMap fail` on Helm 4, `[INFO] Fail:` on Helm 3), exits 0, and renders under the placeholder release name
+  `test-release`, so the name guards judge a name the deploy never uses. The guards are, for example, a name that is
+  not a DNS-1035 label, a name longer than 63 characters (52 for a CronJob), a Kubernetes version below 1.33,
+  `autoscaling.minReplicas` greater than `maxReplicas`, a rollout that Kubernetes would reject (`maxSurge` and
+  `maxUnavailable` both 0, `minReadySeconds` not lower than `progressDeadlineSeconds`), a custom
   `lifecycle.preStop` next to the built-in preStop sleep, a lifecycle `sleep` longer than
   `terminationGracePeriodSeconds`, a `metrics.port` that is not the name of an entry in `ports`, and with
   `networkPolicy` on: `metrics` or a route (`httpRoute`, `ingress`) without a source in the policy (or without
@@ -381,11 +387,12 @@ These are practices for the umbrella, not features of chart-base.
    `api:`) is just another unknown key at the root and is silently ignored, and the values under it are never
    applied. A root schema with
    `additionalProperties: false` and the list of aliases catches the typo.
-3. **Lint once with every component enabled.** A disabled component is removed before its values are
+3. **Render once with every component enabled.** A disabled component is removed before its values are
    validated: `helm template` accepts an invalid key under an alias whose `enabled` is `false` (checked
    with Helm 3.19). Keep a values file (or a CI job) that turns every component on, and run
-   `helm lint --strict` and `helm template` with it, so a problem in a component that is off in some
-   environments is still found.
+   `helm template` (with the release name and `--namespace` of a real deploy) and `helm lint --strict` with it,
+   so a problem in a component that is off in some environments is still found. Only `helm template` fails on
+   a guard ([ADR-0044](../adr/0044-guards-fail-the-render-helm-lint-reports-them.md)).
 
 ## Secrets created by operators
 

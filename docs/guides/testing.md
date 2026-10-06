@@ -94,6 +94,13 @@ at once; `port-names` names its only port `on` (see [kubeconform](#manifest-vali
 CI runs the layer on Helm 3.22.0 and 4.3.0, because Helm 3 still receives security fixes and consumers still
 use it ([ADR-0019](../adr/0019-helm-4-first-helm-3-tested.md)).
 
+Lint fails on schema errors, not on guards: in lint mode Helm prints a guard's message as an INFO line
+(`level=INFO msg="funcMap fail"` on Helm 4, `[INFO] Fail:` on Helm 3) and exits 0, and it renders under the
+placeholder release name `test-release` ([ADR-0044](../adr/0044-guards-fail-the-render-helm-lint-reports-them.md)).
+The guards are covered by the unit tests and by the next layer, which renders every scenario with `helm template`.
+An INFO line of that kind in a lint log is a guard that fails the render with those values under the release name
+`test-release`.
+
 **Where it lives.** `ci/*-values.yaml` and the `lint` job of `.github/workflows/ci.yaml`. The matrix
 (`helm: [v3.22.0, v4.3.0]`) is bumped by hand: keep its `4.x` entry equal to `HELM_VERSION`.
 

@@ -119,7 +119,8 @@ and v1.37.0 source, the Kubernetes documentation, and measurements on kube-apise
   guard: that is `create: false` without a name). With `create: true` a guard fails the render and names both
   remedies, `create: false` to run the pods as that ServiceAccount or removing the name (the chart's own is always
   `<fullname>`); `name: default` is answered by the `default` guard first. The schema has no rule for that
-  combination, so `helm lint` (which reports a guard without failing) and tools that only read the schema do not flag
+  combination, so `helm lint` (which reports a guard without failing,
+  [ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md)) and tools that only read the schema do not flag
   it; `helm template`, `helm install` and `helm upgrade` fail. The pods run as the ServiceAccount, and the RoleBindings
   bind it. The name is quoted where it is rendered.
 - **`serviceAccount.annotations` with `create: false` fail the render**: no ServiceAccount the chart renders carries

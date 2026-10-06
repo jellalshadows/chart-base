@@ -1,6 +1,6 @@
 # ADR-0011: Strict draft-07 schema with reserved `global` and `enabled`
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md) (0.6.0)
 - **Date:** 2026-09-27
 - **Since:** 0.1.0
 

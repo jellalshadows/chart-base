@@ -228,6 +228,10 @@ Each of these has already broken something. The reason is the important part.
 - **A unit test does not prove Helm 4 behavior.** helm-unittest embeds its own Helm engine. Anything that
   depends on the real Helm version (lint behavior, dependency handling, hooks, waiting) is covered
   by the `lint`, alias-contract and e2e jobs.
+- **`helm lint` does not fail on a guard.** In lint mode Helm prints a guard's message as an INFO line and exits 0,
+  and it renders under the release name `test-release`. A guard is proven by its unit test and by a render
+  (`helm template`, which `validate-manifests.sh` runs for every scenario), never by lint; lint fails on schema
+  errors ([ADR-0044](../adr/0044-guards-fail-the-render-helm-lint-reports-them.md)).
 
 ## Commits and pull requests
 

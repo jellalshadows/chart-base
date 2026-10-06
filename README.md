@@ -755,6 +755,13 @@ code, official docs) and local renders.
     while the Job still runs, Helm deletes them under the running pod, whose API calls are then denied: keep
     `job.activeDeadlineSeconds` below `--timeout`. *Rejected:* regular objects; no RBAC for job components.
     [ADR-0043](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0043-job-component-rbac-is-a-hook.md)
+44. **Guards fail the render; `helm lint` reports them without failing.** The guards of `templates/validate.yaml` fail
+    `helm template`, `helm install` and `helm upgrade` before anything is applied; in lint mode Helm 4.3 and 3.22 turn
+    `fail` into an INFO line and exit 0 (schema errors do fail lint). Gate on `helm template` with the deploy's real
+    values, release name and `--namespace`: lint renders under the placeholder release `test-release`, and through an
+    umbrella it also passed a `null` that deletes a required key. *Rejected:* making guards fatal under lint (it would
+    fail umbrellas with long aliases that deploy fine under their real release name).
+    [ADR-0044](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0044-guards-fail-the-render-helm-lint-reports-them.md)
 
 ## Versioning and releases
 

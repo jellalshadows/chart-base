@@ -11,7 +11,7 @@ not published; each record restates every fact it uses.
 | ADR | Decision | Status | Since |
 |---|---|---|---|
 | [0000](0000-record-architecture-decisions.md) | Record architecture decisions | Accepted | docs backfill |
-| [0001](0001-application-chart-consumed-through-aliases.md) | Application chart consumed through aliases | Accepted | 0.1.0 |
+| [0001](0001-application-chart-consumed-through-aliases.md) | Application chart consumed through aliases | Amended by 0044 | 0.1.0 |
 | [0002](0002-repository-is-the-chart.md) | The repository is the chart | Accepted | 0.1.0 |
 | [0003](0003-oci-on-ghcr.md) | OCI on GHCR, public and free | Accepted | 0.1.0 |
 | [0004](0004-env-in-configmap-secrets-through-externalsecret.md) | Env vars in a ConfigMap, secrets through ExternalSecret | Amended by 0030, 0031 | 0.1.0 |
@@ -21,14 +21,14 @@ not published; each record restates every fact it uses.
 | [0008](0008-names-are-release-alias-and-never-truncated.md) | Names are `<release>-<alias>` and never truncated | Accepted | 0.1.0 |
 | [0009](0009-no-name-overrides.md) | No `nameOverride`/`fullnameOverride` | Accepted | 0.1.0 |
 | [0010](0010-chart-version-never-restarts-pods.md) | Bumping chart-base never restarts pods by itself | Amended by 0035 | 0.1.0 |
-| [0011](0011-strict-draft-07-schema.md) | Strict draft-07 schema with reserved `global` and `enabled` | Accepted | 0.1.0 |
+| [0011](0011-strict-draft-07-schema.md) | Strict draft-07 schema with reserved `global` and `enabled` | Amended by 0044 | 0.1.0 |
 | [0012](0012-no-capabilities-gating.md) | No `.Capabilities` gating for CRD kinds | Accepted | 0.1.0 |
 | [0013](0013-secure-by-default.md) | Secure by default (Pod Security `restricted`) | Accepted | 0.1.0 |
 | [0014](0014-resource-requests-required.md) | `resources.requests` are required | Accepted | 0.1.0 |
 | [0015](0015-pdb-and-topology-spread-by-default.md) | PDB and topology spread on by default | Accepted | 0.1.0 |
 | [0016](0016-httproute-first-ingress-optional.md) | HTTPRoute first, Ingress optional | Accepted | 0.1.0 |
 | [0017](0017-progress-deadline-240s.md) | `progressDeadlineSeconds: 240` | Accepted | 0.1.0 |
-| [0018](0018-kubernetes-version-floor.md) | Kubernetes version floor `>=1.33.0-0` | Accepted | 0.1.0 |
+| [0018](0018-kubernetes-version-floor.md) | Kubernetes version floor `>=1.33.0-0` | Amended by 0044 | 0.1.0 |
 | [0019](0019-helm-4-first-helm-3-tested.md) | Helm 4 first, Helm 3.22 still tested | Accepted | 0.1.0 |
 | [0020](0020-release-please-and-publish-in-one-workflow.md) | release-please and publishing in one workflow | Accepted | 0.1.0 |
 | [0021](0021-github-app-token-for-release-please.md) | A GitHub App token for release-please | Accepted | 0.1.0 |
@@ -46,7 +46,7 @@ not published; each record restates every fact it uses.
 | [0033](0033-component-level-reload-on-change.md) | Component-level `reloadOnChange` | Accepted | 0.2.0 |
 | [0034](0034-keyless-cosign-signatures.md) | Keyless cosign signatures by digest | Accepted | after 0.2.0 (ci) |
 | [0035](0035-service-links-off-by-default.md) | Service links are off by default | Accepted | 0.3.0 |
-| [0036](0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md) | Rollout and pod runtime knobs are validated pass-throughs | Accepted | 0.3.0 |
+| [0036](0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md) | Rollout and pod runtime knobs are validated pass-throughs | Amended by 0044 | 0.3.0 |
 | [0037](0037-one-prestop-hook.md) | One preStop hook: `lifecycle.preStop` requires `preStopSleepSeconds: 0` | Accepted | 0.3.0 |
 | [0038](0038-one-metrics-endpoint-servicemonitor-or-podmonitor.md) | One metrics endpoint, through a ServiceMonitor or a PodMonitor | Accepted | 0.4.0 |
 | [0039](0039-prometheus-rules-travel-with-the-component.md) | Prometheus rules travel with the component | Accepted | 0.4.0 |
@@ -54,6 +54,7 @@ not published; each record restates every fact it uses.
 | [0041](0041-job-component-networkpolicy-is-a-hook.md) | A job component's NetworkPolicy is a hook of its phase | Amended by 0043 | 0.5.0 |
 | [0042](0042-existing-serviceaccount-and-namespaced-rbac.md) | An existing ServiceAccount, and namespaced RBAC whose rules are least privilege with schema validation on | Accepted | 0.6.0 |
 | [0043](0043-job-component-rbac-is-a-hook.md) | A job component's Role and RoleBindings are hooks of its phase | Accepted | 0.6.0 |
+| [0044](0044-guards-fail-the-render-helm-lint-reports-them.md) | Guards fail the render; `helm lint` reports them without failing | Accepted | 0.6.0 |
 
 ## Adding a record
 
