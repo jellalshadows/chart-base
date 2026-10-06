@@ -171,6 +171,128 @@ pass "schema is enforced per alias ($(echo "$err" | head -1 | cut -c1-80)...)"
 if err="$(render --set api.replica=3 2>&1)"; then fail "unknown key api.replica must fail (additionalProperties)"; fi
 pass "typos under an alias fail"
 
+# What a null does per values layer (docs/guides/consuming.md), on the Helm version that runs this script. Layers:
+# U0 = the null in the umbrella's own values, nothing passed for the alias; U1 = the same plus --set api.replicas=2;
+# F = an override file (-f) over the umbrella's values; S = --set. Helm 4.3 drops a null of the umbrella's own values in
+# U0 only; Helm 3.22 keeps it in every layer. Values with a path go through files (Git Bash rewrites --set a=/x).
+layers="$work/layers"
+make_umbrella "$layers" api
+helm4=false
+case "$(helm version --short)" in v4.*) helm4=true ;; esac
+lrender() { # <the umbrella's api values, indented 2 spaces> [helm args...]: renders the one-alias umbrella
+  local own="$1"; shift
+  case "$own" in *"resources:"*) ;; *) own="  resources: {requests: {cpu: 10m, memory: 32Mi}}
+$own" ;; esac
+  printf 'api:\n  image: {repository: ghcr.io/acme/sales, tag: "1.0.0"}\n%s\n' "$own" > "$layers/values.yaml"
+  helm template vending "$layers" --namespace platform --kube-version 1.33.0 "$@" 2>&1 || true   # a failed render is checked by its output
+}
+over() { printf 'api:\n%s\n' "$1" > "$work/over.yaml"; echo "$work/over.yaml"; }
+files_data() { echo "$1" | yq -N -o=json -I=0 'select(.kind == "ConfigMap" and .metadata.name == "vending-api-files") | .data' - 2>/dev/null || true; }
+pod() { echo "$1" | yq -N -o=json -I=0 "select(.kind == \"Deployment\") | .spec.template$2" - 2>/dev/null || true; }
+expect_fail() { # <rendered output> <text the error must contain> <what failed to fail>
+  echo "$1" | grep -qF "$2" || fail "$3: expected an error with '$2', got: $(echo "$1" | grep -m1 'Error' || echo 'a render without that error')"
+}
+
+nulls='  configFiles:
+    files:
+      app.yaml: {top: keep, nested: {gone: null, stay: x}, bare: , empty: {}, blank: ""}
+      retired.txt: null'
+full='  configFiles:
+    files:
+      app.yaml: {top: keep, nested: {gone: g, stay: x}, bare: b, empty: {}, blank: ""}
+      retired.txt: old'
+want='{"app.yaml":"blank: \"\"\nempty: {}\nnested:\n  stay: x\ntop: keep"}'
+bad_layers=""
+[ "$(files_data "$(lrender "$nulls")")" = "$want" ] || bad_layers="$bad_layers U0"
+[ "$(files_data "$(lrender "$nulls" --set api.replicas=2)")" = "$want" ] || bad_layers="$bad_layers U1"
+f="$(over '  configFiles:
+    files:
+      app.yaml: {nested: {gone: null}, bare: }
+      retired.txt: null')"
+[ "$(files_data "$(lrender "$full" -f "$f")")" = "$want" ] || bad_layers="$bad_layers F"
+[ "$(files_data "$(lrender "$full" --set 'api.configFiles.files.app\.yaml.nested.gone=null' --set 'api.configFiles.files.app\.yaml.bare=null' --set 'api.configFiles.files.retired\.txt=null')")" = "$want" ] || bad_layers="$bad_layers S"
+[ -z "$bad_layers" ] || fail "configFiles: a null or bare key of a map-form file and a null file must be removed, the same in every layer, and the {} and \"\" next to them kept; differs in:$bad_layers"
+pass "configFiles: a null key, a bare key and a null file are removed in U0, U1, F and S, and {} and \"\" are kept (the same bytes in every layer)"
+
+for out in "$(lrender "$full" -f "$(over '  configFiles: {files: null}')")" "$(lrender '  configFiles: {files: {app.yaml: null, b.txt: null}}' --set api.replicas=2)"; do
+  [ -z "$(files_data "$out")" ] || fail "configFiles: files null or every file null must render no ConfigMap vending-api-files"
+  [ "$(pod "$out" '.spec.volumes | map(.name) | join(",")')" = '"tmp"' ] || fail "configFiles: files null or every file null must render only the tmp volume"
+  [ "$(pod "$out" '.metadata.annotations["checksum/config-files"]')" = "null" ] || fail "configFiles: files null or every file null must render no checksum/config-files"
+done
+pass "configFiles: files null (F) and every file null (U1) render no ConfigMap, config-files volume, mount or checksum"
+
+es_on='  externalSecret: {enabled: true, secretStoreRef: {name: vault}'
+msg='chart-base[api]: externalSecret.enabled is true and externalSecret.data has no entry'
+expect_fail "$(lrender "$es_on, data: null}")" "$msg" "externalSecret.data null in U0"
+expect_fail "$(lrender "$es_on, data: null}" --set api.replicas=2)" "$msg" "externalSecret.data null in U1"
+expect_fail "$(lrender "$es_on, data: {DB: {key: db}}}" -f "$(over '  externalSecret: {data: null}')")" "$msg" "externalSecret.data null in F"
+pass "externalSecret: data null fails with the source guard's message in U0, U1 and F"
+
+on='  externalSecret: {enabled: true, secretStoreRef: {name: vault}, data: {DB: {key: db}}}
+  httpRoute: {enabled: true, parentRefs: [{name: gw}]}
+  ingress: {enabled: true, className: nginx, hosts: [{host: a.example.com, paths: [{path: /, pathType: Prefix}]}]}'
+expect_fail "$(lrender '  workload: {type: cronjob}
+  cronjob: {schedule: "0 * * * *"}' --set api.cronjob.schedule=null)" "missing property 'schedule'" "cronjob.schedule null"
+for k in externalSecret.secretStoreRef.kind externalSecret.secretStoreRef.name httpRoute.parentRefs ingress.hosts; do
+  out="$(lrender "$on" --set "api.$k=null")"
+  expect_fail "$out" "missing property '${k##*.}'" "$k null"
+  echo "$out" | grep -q "^api:" || fail "the schema error for $k null must name the alias, got: $(echo "$out" | grep -m1 'Error' || echo 'no error')"
+done
+pass "when-enabled keys: a null cronjob.schedule, secretStoreRef.kind or .name, httpRoute.parentRefs or ingress.hosts fails, naming the alias"
+
+expect_fail "$(lrender '  probes: {readiness: {tcpSocket: {port: http}}, liveness: {tcpSocket: {port: htpp}}}')" \
+  'chart-base[api]: probes.liveness.tcpSocket.port "htpp" is not the name of an entry in ports' "a liveness probe on an undeclared port name"
+pass "probes: a liveness port name that no ports entry declares fails, naming the alias"
+
+limits='  resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {cpu: null, memory: 64Mi}}'
+set_limits='  resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {cpu: 200m, memory: 64Mi}}'
+bad_layers=""
+for out in "$(lrender "$limits")" "$(lrender "$limits" --set api.replicas=2)" \
+           "$(lrender "$set_limits" -f "$(over '  resources: {limits: {cpu: null}}')")" \
+           "$(lrender "$set_limits" --set api.resources.limits.cpu=null)"; do
+  [ "$(pod "$out" '.spec.containers[0].resources.limits')" = '{"memory":"64Mi"}' ] || bad_layers="$bad_layers x"
+done
+[ -z "$bad_layers" ] || fail "resources: a null limit must be removed in U0, U1, F and S"
+pass "resources: a null limit is removed in U0, U1, F and S"
+
+out="$(lrender '' --set 'api.configFiles.files.app\.yaml.id=9007199254740993' --set api.resources.limits.memory=9007199254740993)"
+echo "$out" | grep -q 'id: 9007199254740993' || fail "configFiles: an integer above 2^53 from --set must stay exact in a map-form file (a JSON round trip would turn it into 9007199254740992)"
+echo "$out" | grep -q 'memory: 9007199254740993' || fail "resources: an integer above 2^53 from --set must stay exact in a limit"
+pass "configFiles and resources keep an integer above 2^53 from --set exact (9007199254740993): the pruned copies keep types and precision"
+
+# One check per row of the null table of docs/guides/consuming.md: the -f layer, and U0, whose result depends on Helm.
+out="$(lrender '  serviceAccount: {automountToken: null}')"
+if $helm4; then [ "$(pod "$out" '.spec.automountServiceAccountToken')" = "false" ] || fail "row 1: Helm 4.3 U0 must keep the default automountToken"
+else expect_fail "$out" "missing property 'automountToken'" "row 1, Helm 3 U0"; fi
+expect_fail "$(lrender '' -f "$(over '  serviceAccount: {automountToken: null}')")" "missing property 'automountToken'" "row 1, F"
+pass "null table row 1: a required chart default fails (F$($helm4 || echo ', U0')); Helm 4.3 U0 keeps the default"
+sched='  workload: {type: cronjob}
+  cronjob: {schedule: null}'
+expect_fail "$(lrender "$sched")" "$($helm4 && echo "minLength: got 0, want 1" || echo "missing property 'schedule'")" "row 2, U0"
+expect_fail "$(lrender '  workload: {type: cronjob}
+  cronjob: {schedule: "0 * * * *"}' -f "$(over '  cronjob: {schedule: null}')")" "missing property 'schedule'" "row 2, F"
+pass "null table row 2: a key an enabled block needs fails (F, U0); on Helm 4.3 U0 the default \"\" stays and fails the schema"
+ro='.spec.containers[0].securityContext.readOnlyRootFilesystem'
+out="$(lrender '  securityContext: {readOnlyRootFilesystem: null}')"
+[ "$(pod "$out" "$ro")" = "$($helm4 && echo true || echo null)" ] || fail "row 3: U0 readOnlyRootFilesystem, got $(pod "$out" "$ro")"
+[ "$(pod "$(lrender '' -f "$(over '  securityContext: {readOnlyRootFilesystem: null}')")" "$ro")" = "null" ] || fail "row 3: F must remove the default"
+pass "null table row 3: another chart default is removed (F$($helm4 || echo ', U0')); Helm 4.3 U0 keeps it"
+[ "$(pod "$(lrender '  nodeSelector: {disk: ssd}' -f "$(over '  nodeSelector: null')")" '.spec.nodeSelector')" = "null" ] || fail "row 4: F must clear nodeSelector"
+[ "$(pod "$(lrender '  nodeSelector: null')" '.spec.nodeSelector')" = "null" ] || fail "row 4: U0 must leave no nodeSelector"
+pass "null table row 4: a whole map of the chart's values.yaml is cleared (F, U0)"
+expect_fail "$(lrender '' -f "$(over '  resources: {requests: null}')")" "got null, want object" "row 5, F"
+expect_fail "$(lrender '  resources: {requests: null}')" "$($helm4 && echo "missing property 'requests'" || echo 'got null, want object')" "row 5, U0"
+pass "null table row 5: a map that the chart's values.yaml does not define (resources.requests) fails the schema (F, U0)"
+out="$(lrender '  nodeSelector: {disk: ssd, zone: null}')"
+if $helm4; then [ "$(pod "$out" '.spec.nodeSelector')" = '{"disk":"ssd"}' ] || fail "row 6: Helm 4.3 U0 must drop the null entry"
+else expect_fail "$out" "got null, want string" "row 6, Helm 3 U0"; fi
+expect_fail "$(lrender '  nodeSelector: {disk: ssd, zone: z}' -f "$(over '  nodeSelector: {zone: null}')")" "got null, want string" "row 6, F"
+pass "null table row 6: one entry of a typed map fails the schema (F$($helm4 || echo ', U0')); Helm 4.3 U0 drops it"
+af='.spec.affinity'
+[ "$(pod "$(lrender '  affinity: {nodeAffinity: null}')" "$af")" = "$($helm4 && echo null || echo '{"nodeAffinity":null}')" ] || fail "row 7: U0 affinity"
+[ "$(pod "$(lrender '' -f "$(over '  affinity: {nodeAffinity: null}')")" "$af")" = '{"nodeAffinity":null}' ] || fail "row 7: F must render the null"
+pass "null table row 7: a key inside a pass-through object is rendered as null (F$($helm4 || echo ', U0')); Helm 4.3 U0 drops it"
+
 bad="$work/bad"
 make_umbrella "$bad" Sales
 cat > "$bad/values.yaml" <<'EOF'
