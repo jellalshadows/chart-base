@@ -1,4 +1,4 @@
-# ADR-0042: An existing ServiceAccount, and namespaced RBAC whose rules are least privilege by construction
+# ADR-0042: An existing ServiceAccount, and namespaced RBAC whose rules are least privilege with schema validation on
 
 - **Status:** Accepted
 - **Date:** 2026-10-03
@@ -49,11 +49,30 @@ and v1.37.0 source, the Kubernetes documentation, and measurements on kube-apise
   `is attempting to grant RBAC permissions not currently held`. Argo CD's application controller and Flux's
   controllers are bound to cluster-admin-like roles by default, so the same values install there: the outcome depends
   on the deployer, and shows only at apply time.
+- **A grant belongs to the ServiceAccount, not to its token.** Most grants are exercised by the pods, with their token.
+  A `use` grant on an OpenShift SecurityContextConstraints is checked by admission: OpenShift's SCC admission asks
+  whether the pod's ServiceAccount may `use` an SCC when the pod is created, and the pod presents no token
+  (openshift/apiserver-library-go `sccadmission/scc_authz_check.go` and `sccmatching/matcher.go`; a source reading, not
+  measured on an OpenShift cluster). The chart's default `runAsUser: 65532` needs such a grant there (`nonroot-v2`, for
+  example; same source reading). Measured on kube-apiserver v1.33.0 and v1.37.0 with a SubjectAccessReview carrying
+  the SCC admission's attributes: the Role and RoleBinding the chart renders for a rule with the verb `use` alone on
+  the `securitycontextconstraints` of `security.openshift.io`, `resourceNames: [nonroot-v2]`, allow `use` of
+  `nonroot-v2` for the chart's ServiceAccount in the release namespace, and not in another namespace, for another SCC
+  or for the namespace's `default` ServiceAccount. Creating that Role needs a deployer that itself holds `use` on the
+  SCC: one that may only `bind` the SCC's ClusterRole creates a RoleBinding to it (201) but not the Role (403,
+  `is attempting to grant RBAC permissions not currently held`), measured on both.
 - **`resourceNames` cannot restrict every request.** "You cannot restrict **deletecollection** or top-level **create**
   requests by resource name. ... the **create** limitation applies only to top-level resources, not subresources. For
   example, you can use the `resourceNames` field with `pods/exec`." (*Using RBAC Authorization*, current text; the 1.33
-  text has no subresource sentence). Measured: `create` with `resourceNames` is denied for a ConfigMap, and allowed, by
-  name, for `pods/exec` and `serviceaccounts/token`.
+  text has no subresource sentence). Measured, more precisely, on kube-apiserver v1.33.0 and v1.37.0 as a
+  ServiceAccount whose Role restricts `create` by name: a plain create request (a POST, which carries no name) is
+  denied (403) even with `[get, patch, create]`; a server-side apply that creates the named ConfigMap is allowed (201)
+  with `[get, patch, create]` and denied with `[get, patch]`; a PUT that creates the named Lease, a create through an
+  update, is allowed with `[get, update, create]` and denied with `[get, update]`; `create` on `pods/exec` and
+  `serviceaccounts/token` is allowed by name; `deletecollection` is never matched by name. Kubernetes authorizes a
+  request against all the rules of a Role together: the server-side apply is also allowed when `patch` comes from
+  another rule. Not every resource has a create through an update: a PUT of an absent ConfigMap answers 404, even
+  with `[get, update, create]`.
 - **A binding's `roleRef` cannot change.** "If you do want to change the `roleRef` for a binding, you need to remove the
   binding object and create a replacement" (*Using RBAC Authorization*). No Helm 4.3 or 3.22 flag gets around it
   (measured: server-side apply, a three-way merge patch, `--force` and `--force-replace` all fail with `field is
@@ -96,33 +115,58 @@ and v1.37.0 source, the Kubernetes documentation, and measurements on kube-apise
 ## Decision
 
 - **`serviceAccount.name`** (default `null`): the name of an existing ServiceAccount of the release namespace, only with
-  `serviceAccount.create: false` (with `create: true` the schema requires `null`), a DNS-1123 subdomain of at most 253
-  characters, never `default` (a guard: that is `create: false` without a name). The pods run as it, and the
-  RoleBindings bind it. The name is quoted where it is rendered.
-- **`serviceAccount.annotations` with `create: false` fail the render**: they belong on the existing ServiceAccount, and
-  its owner sets them. With `create: true` they are rendered as before.
+  `serviceAccount.create: false`, a DNS-1123 subdomain of at most 253 characters (the schema), never `default` (a
+  guard: that is `create: false` without a name). With `create: true` a guard fails the render and names both
+  remedies, `create: false` to run the pods as that ServiceAccount or removing the name (the chart's own is always
+  `<fullname>`); `name: default` is answered by the `default` guard first. The schema has no rule for that
+  combination, so `helm lint` (which reports a guard without failing) and tools that only read the schema do not flag
+  it; `helm template`, `helm install` and `helm upgrade` fail. The pods run as the ServiceAccount, and the RoleBindings
+  bind it. The name is quoted where it is rendered.
+- **`serviceAccount.annotations` with `create: false` fail the render**: no ServiceAccount the chart renders carries
+  them. Without `name` the pods run as the namespace's `default` ServiceAccount, and removing the annotations renders
+  what 0.5.0 rendered; with `name` the existing ServiceAccount's owner sets them on it. An override file clears
+  inherited annotations with `serviceAccount.annotations: null`; `{}` is merged and still fails (measured on Helm 4.3.0
+  and 3.22.0). With `create: true` they are rendered as before.
 - **`rbac.rules`**: namespaced PolicyRules, rendered in a Role `<fullname>` and bound by a RoleBinding `<fullname>`.
   **`rbac.clusterRoles`**: existing ClusterRoles, one RoleBinding `<fullname>.<ClusterRole>` each, so that a binding's
   `roleRef` never changes and removing an entry deletes its binding. A `<fullname>` is a DNS-1035 label (the chart's
   name guard), without a `.`, so the first `.` splits every binding name: two components' bindings never share a
   name, in one release or across releases (measured: `vending-chart-base.view` and
-  `vending-chart-base.system:aggregate-to-view` are created and take effect on kube-apiserver v1.33.0 and v1.37.0). Every RoleBinding has one subject, the pods'
-  ServiceAccount (`<fullname>` or `serviceAccount.name`) in the release namespace, and always renders
-  `roleRef.apiGroup: rbac.authorization.k8s.io`. Both lists are empty by default. On a `job` component the Role and
-  RoleBindings are hooks ([ADR-0043](0043-job-component-rbac-is-a-hook.md)). The chart creates no ClusterRole and no
-  ClusterRoleBinding (the roadmap's out-of-scope list).
+  `vending-chart-base.system:aggregate-to-view` are created and take effect on kube-apiserver v1.33.0 and v1.37.0).
+  Every RoleBinding has one subject, the pods' ServiceAccount (`<fullname>` or `serviceAccount.name`) in the release
+  namespace, and always renders `roleRef.apiGroup: rbac.authorization.k8s.io`. The subject's namespace makes the render
+  depend on `--namespace`: `helm template` without it renders the subject in `default` (measured on Helm 4.3.0 and
+  3.22.0; the RoleBindings carry no `metadata.namespace`), so `helm template ... | kubectl apply -n <namespace>` would
+  create the RoleBindings in `<namespace>` and grant the roles to a ServiceAccount of the namespace `default`. Both
+  lists are empty by default. On a `job` component the Role and RoleBindings are hooks
+  ([ADR-0043](0043-job-component-rbac-is-a-hook.md)). The chart creates no ClusterRole and no ClusterRoleBinding (the
+  roadmap's out-of-scope list).
 - **A strict schema for rules** (`policyRule`): `apiGroups` (the core group is `""`), `resources` and `verbs` required and
   not empty, `resourceNames` optional and not empty, nothing else (no `nonResourceURLs`); no `*` in `apiGroups`,
   `resources` (`*/scale` included) or `verbs`, nor in `resourceNames`, where it is no wildcard (`ResourceNameMatches`
   compares names literally) and would match no object; `verbs` among `get`, `list`, `watch`, `create`, `update`, `patch`,
   `delete`, `deletecollection`, `use`, `bind`, `escalate`, `impersonate`. ClusterRole names are RBAC names without a
   `*` (a `roleRef` reads it as a name, not as a wildcard), each listed once. `rbac` is `required` ([ADR-0027](0027-required-keys-in-the-schema.md)).
+  These rules live in the schema only, and hold with schema validation on: with `--skip-schema-validation`, a `*` in
+  `apiGroups`, `resources` or `resourceNames` and a ClusterRole named `*` render (measured on Helm 4.3.0 and 3.22.0: a
+  Role with the `*` and a RoleBinding `<fullname>.*` to the ClusterRole `*`); a `*` verb fails there only because the
+  verbs are rendered unquoted and `- *` is not valid YAML.
 - **Guards** in `templates/validate.yaml`, each naming its remedies:
+  - `serviceAccount.annotations` with `create: false`, `serviceAccount.name: default`, and `serviceAccount.name` with
+    `create: true` fail (above);
   - RBAC with `create: false` and no `name` fails: it would be the namespace's `default` ServiceAccount's;
-  - RBAC without `serviceAccount.automountToken: true` fails: the pods would have no token (cloud identity
-    annotations, which need no token, are not tied to it);
-  - a rule with `resourceNames` and `deletecollection`, or `create` on a top-level resource, fails: it would never allow
-    them;
+  - RBAC without `serviceAccount.automountToken: true` fails when a ClusterRole is bound (the chart does not know its
+    rules) or a rule has a verb other than `use`: the pods would have no token to exercise it (cloud identity
+    annotations, which need no token, are not tied to it). Rules whose only verb is `use` need no token: admission
+    checks such a grant on the ServiceAccount itself (above); the message tells a `clusterRoles` user to write such a
+    grant as a `use` rule;
+  - in a rule with `resourceNames`, `deletecollection` fails (Kubernetes never matches it by name), and so does `create`
+    on a resource (not a subresource) when the same rule grants neither `patch` nor `update`: the rule alone then
+    allows neither a server-side apply nor a create through an update, the only creates that carry a name. Each rule
+    is checked on its own, although Kubernetes authorizes against all the rules of a Role together: a rule that
+    relies on another rule's `patch` fails, and repeating the verb in it changes nothing when the other rule covers
+    the same objects. A rule with `update` and `create` passes for a resource that has no create through an update,
+    such as a ConfigMap (lenient on purpose);
   - the ClusterRole named `cluster-admin` in `rbac.clusterRoles` fails: in a namespace it is the `*` that the schema
     rejects in rules. Only that name is checked: any other ClusterRole is granted as it is, wildcard rules included;
     a deployer with only the namespace's `admin` rights cannot bind those either (a `*` is covered only by a literal
@@ -138,8 +182,9 @@ and v1.37.0 source, the Kubernetes documentation, and measurements on kube-apise
 ## Consequences
 
 - A component that calls the API gets exactly the namespaced permissions its values list, bound only to its own
-  ServiceAccount. Rules the API server would reject, a rule that would never allow what it names, a wildcard and RBAC for
-  `default` fail at render time, with the component's name.
+  ServiceAccount. Rules the API server would reject, a wildcard (with schema validation on), a rule whose
+  `resourceNames` keep one of its verbs from applying (as the chart judges it, rule by rule), RBAC without the token
+  the pods need, and RBAC for `default` fail at render time, with the component's name.
 - A component can run as a ServiceAccount that a platform team owns (a cloud identity), without the chart touching it.
 - Trade-off: a deployer with only the namespace's `admin` rights can install only what `admin` holds, where GitOps
   controllers bound to cluster-admin install more. A rule the deployer does not hold fails at apply time, and an upgrade
@@ -152,6 +197,11 @@ and v1.37.0 source, the Kubernetes documentation, and measurements on kube-apise
   only when the API server rejects the pods.
 - Trade-off: only the name `cluster-admin` is rejected. Any other ClusterRole is granted as it is, wildcard rules
   included; the values reviewer must read the ClusterRole before binding it.
+- Trade-off: a name-restricted `create` with `patch` or `update` in its rule passes even when the component only ever
+  sends plain create requests, which the rule never allows; a Role that grants `patch` in one rule and a
+  name-restricted `create` in another fails although Kubernetes would honor it (add the verb to the `create` rule).
+- Trade-off: without a token, an SCC is granted through a `use` rule in `rbac.rules`, not by binding one of
+  OpenShift's `system:openshift:scc:*` ClusterRoles, and the deployer must hold `use` on that SCC itself.
 - Trade-off: a component that moves to an existing ServiceAccount of the same name, the chart's own `<fullname>` (to
   keep a cloud identity's trust policy, which names the namespace and the ServiceAccount), loses it in one deploy.
   Measured with Helm 4.3.0 and 3.22.0 on kube-apiserver v1.33.0 and v1.37.0: the upgrade reports `deployed`, Helm
@@ -209,6 +259,31 @@ The chart cannot read a ClusterRole's rules (no `lookup`), only its name. A list
 and a prefix rule would also reject roles such as `system:aggregate-to-view` that grant little. `cluster-admin`, the
 name that means every verb on every resource, is the one name rejected; the rest is documented.
 
+### Rejecting every `create` restricted by `resourceNames`
+
+The documentation's sentence suggests it, but Kubernetes honors a name-restricted `create` for a server-side apply
+and for a create through an update (measured, Context): the guard would reject rules that work, such as a ConfigMap
+that a component creates by name with a server-side apply. A rule without `patch` and `update` is still rejected, so
+no permission is widened by the narrower guard.
+
+### Checking `create` against all the rules of the Role
+
+It would match how Kubernetes authorizes, but it needs more template code and still ignores the other rule's API
+groups, resources and names, so it would accept rules that cover different objects. The per-rule check costs a
+repeated verb at most.
+
+### A token for every rule
+
+A `use` grant on an OpenShift SecurityContextConstraints is checked on the ServiceAccount when the pod is created, not
+with the pod's token (Context): requiring a token for it would force a token into pods that never call the API. A
+ClusterRole still requires one: the chart cannot tell what its rules are used for.
+
+### `serviceAccount.name` with `create: true` rejected by the schema
+
+A schema rule (`if create then name is null`) reports only `got string, want null`, with no remedy, for the likeliest
+mistake (the `helm create` convention names the created ServiceAccount with `name`). The guard names both remedies; in
+exchange, `helm lint` and tools that only read the schema no longer flag it.
+
 ### RBAC for the default ServiceAccount behind an opt-in key
 
 A key whose only purpose is to accept a posture that grants the component's permissions to every other pod of the
@@ -239,6 +314,8 @@ stays in the namespace.
   `staging/src/k8s.io/component-helpers/auth/rbac/validation/policy_comparator.go`,
   `staging/src/k8s.io/kubectl/pkg/cmd/auth/cani.go`, `plugin/pkg/auth/authorizer/rbac/bootstrappolicy/policy.go` and
   `controller_policy.go` (https://github.com/kubernetes/kubernetes/tree/v1.37.0)
+- openshift/apiserver-library-go `sccadmission/scc_authz_check.go` and `sccmatching/matcher.go` (the SCC admission's
+  `use` check; read, not run)
 - argoproj/argo-cd v3.5.3 `cmd/argocd/commands/app.go` (`parseSelectedResources`) and v2.7.0, v2.8.0 and v3.5.3
   `util/argo/resource_tracking.go` (`ParseAppInstanceValue`);
   [Microsoft: Naming Files, Paths, and Namespaces](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file)

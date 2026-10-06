@@ -52,7 +52,7 @@ not published; each record restates every fact it uses.
 | [0039](0039-prometheus-rules-travel-with-the-component.md) | Prometheus rules travel with the component | Accepted | 0.4.0 |
 | [0040](0040-networkpolicy-per-component-with-sibling-references.md) | One opt-in NetworkPolicy per component, with sibling components referenced by alias | Accepted | 0.5.0 |
 | [0041](0041-job-component-networkpolicy-is-a-hook.md) | A job component's NetworkPolicy is a hook of its phase | Amended by 0043 | 0.5.0 |
-| [0042](0042-existing-serviceaccount-and-namespaced-rbac.md) | An existing ServiceAccount, and namespaced RBAC whose rules are least privilege by construction | Accepted | 0.6.0 |
+| [0042](0042-existing-serviceaccount-and-namespaced-rbac.md) | An existing ServiceAccount, and namespaced RBAC whose rules are least privilege with schema validation on | Accepted | 0.6.0 |
 | [0043](0043-job-component-rbac-is-a-hook.md) | A job component's Role and RoleBindings are hooks of its phase | Accepted | 0.6.0 |
 
 ## Adding a record

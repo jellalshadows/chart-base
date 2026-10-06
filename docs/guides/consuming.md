@@ -205,13 +205,22 @@ some CNIs never match pod traffic with a CIDR; the NodeLocal DNSCache address ab
 because it is a host-network address that pod selectors do not match
 ([ADR-0040](../adr/0040-networkpolicy-per-component-with-sibling-references.md)).
 
-**RBAC: a ServiceAccount of the component, a token, and a deployer that holds what it grants.**
+**RBAC: a ServiceAccount of the component, a token for what the pods use, and a deployer that holds what it grants.**
 `rbac.rules` renders a Role `<fullname>` and a RoleBinding for the pods' ServiceAccount, and `rbac.clusterRoles` a
-RoleBinding `<fullname>.<ClusterRole>` per existing ClusterRole, in the release namespace only. The render fails
-without `serviceAccount.automountToken: true` (the pods would have no token) and for the namespace's `default`
-ServiceAccount (`create: false` without a `name`), whose permissions every pod of the namespace without a
-ServiceAccount of its own gets. Kubernetes lets a deployer create a Role only if it holds every permission in it, and a
-RoleBinding only if it holds the referenced role's permissions, unless it may `escalate` or `bind`: a CI deployer with
+RoleBinding `<fullname>.<ClusterRole>` per existing ClusterRole, in the release namespace only. The subject carries the
+release namespace, so render with the real `--namespace`: `helm template` without it binds the ServiceAccount of the
+namespace `default`, and piping that into `kubectl apply -n <namespace>` would grant the roles to a ServiceAccount of
+another namespace. The render fails for the namespace's `default` ServiceAccount (`create: false` without a `name`),
+whose permissions every pod of the namespace without a ServiceAccount of its own gets, and without
+`serviceAccount.automountToken: true` (the pods would have no token), unless no ClusterRole is bound and `use` is the
+only verb of every rule. A `use` grant is checked by admission on the ServiceAccount itself, without a token: on
+OpenShift, a SecurityContextConstraints the pods may run under, granted by a rule with
+`apiGroups: [security.openshift.io]`, `resources: [securitycontextconstraints]`, `resourceNames: [nonroot-v2]` and
+`verbs: [use]` (binding one of OpenShift's `system:openshift:scc:*` ClusterRoles instead needs the token, because the
+chart cannot see a ClusterRole's rules). Kubernetes lets a deployer create a Role only if it holds every permission in
+it, and a RoleBinding only if it holds the referenced role's permissions, unless it may `escalate` or `bind`: for the
+`use` rule above the deployer must hold `use` on that SCC (`bind` on the SCC's ClusterRole lets it create a RoleBinding,
+not the Role: 403, measured on kube-apiserver v1.33.0 and v1.37.0), and a CI deployer with
 the namespace's `admin` ClusterRole (the Helm documentation's advice for charts that create Roles) can grant only what
 `admin` holds, never `cluster-admin` or a `*`; Argo CD's and Flux's controllers, bound to cluster-admin-like roles by
 default, can grant more. A ClusterRole is bound by name and not checked: one that does not exist grants nothing, and
@@ -281,8 +290,10 @@ What fails **before the cluster is touched**, at `helm template`, `helm lint` an
   `metricsFromNamespaces` without `metrics`, `fromComponents` or `fromNamespaces` with no `ports`, an `endPort`
   lower than its port, egress destinations (`toComponents`, `toCIDRs`, `extra`, `dns.cidrs`) listed while
   `egress.enabled` is `false`; `serviceAccount.annotations` with `create: false`, `serviceAccount.name: default`,
-  `rbac` for the namespace's `default` ServiceAccount or without `automountToken: true`, `cluster-admin` in
-  `rbac.clusterRoles`, and a `create` (on a top-level resource) or a `deletecollection` restricted by `resourceNames`.
+  `serviceAccount.name` with `create: true`, `rbac` for the namespace's `default` ServiceAccount, `rbac` without
+  `automountToken: true` (unless no ClusterRole is bound and `use` is the only verb of every rule), `cluster-admin` in
+  `rbac.clusterRoles`, and, in a rule with `resourceNames`, a `deletecollection`, or a `create` on a resource when that
+  rule grants neither `patch` nor `update`.
 
 What fails **at install or upgrade**, when Helm talks to the cluster (rendering does not need the CRD,
 so `helm template` and `helm lint` do not catch it):

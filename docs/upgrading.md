@@ -200,9 +200,15 @@ with an error that contains:
 serviceAccount.annotations apply only to the ServiceAccount the chart creates
 ```
 
-Set them on the ServiceAccount the pods run as (its owner's job), and remove them from your values. An override file
-that turns `create` off clears inherited annotations with `serviceAccount.annotations: null`; `{}` does not, because
-Helm merges maps.
+Remove them from the values of that component. An override file that turns `create` off clears inherited annotations
+with `serviceAccount.annotations: null`; `{}` does not and the render still fails, because Helm merges maps.
+
+- **Without `serviceAccount.name`** (the 0.5.x case): the pods run as the namespace's `default` ServiceAccount, which
+  never carried the annotations. With them removed, 0.6.0 renders the same objects as 0.5.0 did with them. If the
+  pods need the annotations (a cloud identity), set `create: true` instead, so that the chart creates `<fullname>`
+  with them; the pods then run as that ServiceAccount and roll once.
+- **With `serviceAccount.name`** (new in 0.6.0): the pods run as that existing ServiceAccount; its owner sets the
+  annotations on it, not the chart.
 
 ### Keeping the chart's ServiceAccount under its name
 
@@ -226,9 +232,14 @@ server rejects after its token cache, and every new pod is rejected because the 
 - `serviceAccount.name` runs the pods as an existing ServiceAccount (with `create: false`). It must exist before the
   pods, and its `imagePullSecrets` and its deprecated `kubernetes.io/enforce-mountable-secrets` annotation apply to
   them.
-- `rbac` needs `serviceAccount.automountToken: true` and a ServiceAccount of the component (the render fails for the
-  namespace's `default` one), and **whoever runs `helm upgrade` must hold every permission it grants**: check the
-  deployer's own permissions first (`kubectl auth can-i --list`). With `networkPolicy.egress.enabled`, a component that
-  calls the API also needs the API server's endpoint IPs and port in `networkPolicy.egress.toCIDRs`.
+- `serviceAccount.name` with `create: true` fails the render (the chart's own ServiceAccount is always `<fullname>`);
+  `helm lint` reports it without failing.
+- `rbac` needs a ServiceAccount of the component (the render fails for the namespace's `default` one) and
+  `serviceAccount.automountToken: true`, unless no ClusterRole is bound and `use` is the only verb of every rule (a
+  grant that admission checks on the ServiceAccount, such as an OpenShift SecurityContextConstraints). Render with
+  the release's real `--namespace`: the RoleBindings' subject is in it. **Whoever runs `helm upgrade` must hold every
+  permission it grants**: check the deployer's own permissions first (`kubectl auth can-i --list`). With
+  `networkPolicy.egress.enabled`, a component that calls the API also needs the API server's endpoint IPs and port in
+  `networkPolicy.egress.toCIDRs`.
 - On a `job` component the Role and RoleBindings are hooks of the Job's phase: keep `job.activeDeadlineSeconds` below
   Helm's `--timeout` ([ADR-0043](adr/0043-job-component-rbac-is-a-hook.md)).
