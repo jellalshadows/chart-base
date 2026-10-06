@@ -1,7 +1,7 @@
 {{- /*
 One RoleBinding <fullname> to the component's Role (rbac.rules), and one RoleBinding <fullname>.<name> per entry of
 rbac.clusterRoles: an existing ClusterRole, granted in the release namespace only (templates/_rbac.tpl). A <fullname>
-never contains a `.` (templates/validate.yaml), so no two components' bindings can share a name.
+never contains a `.` (templates/validate.yaml), so no two components of a release can share a binding name.
 */}}
 {{- if .Values.rbac.rules }}
 ---
