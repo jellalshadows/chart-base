@@ -893,3 +893,106 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: rejects configFiles.mountPath //tmp (/tmp once normalized), with no file
+    set:
+      configFiles.mountPath: //tmp
+    asserts:
+      - failedTemplate:
+          errorPattern: '"//tmp" is /tmp once normalized; choose another directory, such as the default /config'
+
+  - it: rejects configFiles.mountPath /tmp/. (/tmp once normalized), with no file
+    set:
+      configFiles.mountPath: /tmp/.
+    asserts:
+      - failedTemplate:
+          errorPattern: '"/tmp/\." is /tmp once normalized'
+
+  - it: rejects configFiles.mountPath /./tmp (/tmp once normalized), with no file
+    set:
+      configFiles.mountPath: /./tmp
+    asserts:
+      - failedTemplate:
+          errorPattern: '"/\./tmp" is /tmp once normalized'
+
+  - it: rejects configFiles.mountPath /a/../tmp (/tmp once normalized), with no file
+    set:
+      configFiles.mountPath: /a/../tmp
+    asserts:
+      - failedTemplate:
+          errorPattern: '"/a/\.\./tmp" is /tmp once normalized'
+
+  - it: rejects configFiles.mountPath /tmp (/tmp once normalized), with no file
+    set:
+      configFiles.mountPath: /tmp
+    asserts:
+      - failedTemplate:
+          errorPattern: '"/tmp" is /tmp once normalized'
+
+  - it: rejects configFiles.mountPath / (/ once normalized), with no file
+    set:
+      configFiles.mountPath: /
+    asserts:
+      - failedTemplate:
+          errorPattern: 'configFiles.mountPath must not be / \("/" is / once normalized\): the ConfigMap would be mounted at the container.s root; choose a directory, such as the default /config'
+
+  - it: rejects configFiles.mountPath /.. (/ once normalized), with no file
+    set:
+      configFiles.mountPath: /..
+    asserts:
+      - failedTemplate:
+          errorPattern: 'configFiles.mountPath must not be / \("/\.\." is / once normalized\)'
+
+  - it: rejects configFiles.mountPath /var/run/secrets/kubernetes.io/serviceaccount (the token directory) while serviceAccount.automountToken is true
+    set:
+      configFiles.mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      serviceAccount.automountToken: true
+    asserts:
+      - failedTemplate:
+          errorPattern: '"/var/run/secrets/kubernetes.io/serviceaccount" is that directory once normalized\): the ServiceAccount token is mounted there; choose another directory, or set serviceAccount.automountToken: false'
+
+  - it: rejects configFiles.mountPath /var/run/secrets/kubernetes.io/serviceaccount/ (the token directory) while serviceAccount.automountToken is true
+    set:
+      configFiles.mountPath: /var/run/secrets/kubernetes.io/serviceaccount/
+      serviceAccount.automountToken: true
+    asserts:
+      - failedTemplate:
+          errorPattern: '"/var/run/secrets/kubernetes.io/serviceaccount/" is that directory once normalized\): the ServiceAccount token is mounted there'
+
+  - it: rejects configFiles.mountPath //var/run/secrets/kubernetes.io/serviceaccount (the token directory) while serviceAccount.automountToken is true
+    set:
+      configFiles.mountPath: //var/run/secrets/kubernetes.io/serviceaccount
+      serviceAccount.automountToken: true
+    asserts:
+      - failedTemplate:
+          errorPattern: '"//var/run/secrets/kubernetes.io/serviceaccount" is that directory once normalized\): the ServiceAccount token is mounted there'
+
+  - it: accepts the token directory as configFiles.mountPath while serviceAccount.automountToken is false
+    set:
+      configFiles.mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      serviceAccount.automountToken: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts /var/run/secrets as configFiles.mountPath with the token (a parent of the token directory is not checked)
+    set:
+      configFiles.mountPath: /var/run/secrets
+      serviceAccount.automountToken: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts configFiles.mountPath /tmp with a trailing space (another directory once quoted, compared as written)
+    set:
+      configFiles.mountPath: "/tmp "
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts configFiles.mountPath /tmp followed by a space and a hash comment (another directory once quoted)
+    set:
+      configFiles.mountPath: "/tmp #x"
+    asserts:
+      - hasDocuments:
+          count: 0

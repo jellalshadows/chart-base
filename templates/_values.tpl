@@ -35,3 +35,12 @@ Usage: {{- if include "chart-base.hasConfigFiles" . }}
 {{- end -}}
 {{- if $found }}true{{ end -}}
 {{- end -}}
+
+{{/*
+chart-base.cleanPath: a path normalized as the kubelet normalizes a mount path (filepath.Clean("/" + path)), to COMPARE
+paths only: never render it; the caller renders the original value with quote. Whitespace and # are kept.
+Usage: include "chart-base.cleanPath" <path>
+*/}}
+{{- define "chart-base.cleanPath" -}}
+{{- clean (print "/" .) -}}
+{{- end -}}

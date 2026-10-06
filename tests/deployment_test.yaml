@@ -549,3 +549,59 @@ tests:
       - equal:
           path: spec.template.metadata.annotations["checksum/config-files"]
           value: cef2d8649f5626f9397cb461e96675709a32fdbf6db29839d20a413564ca3445
+
+  - it: renders configFiles.mountPath as written, with a hash sign after a space (plain YAML would cut the path there)
+    template: templates/deployment.yaml
+    set:
+      configFiles.mountPath: "/cfg #x"
+      configFiles.files:
+        app.yaml: {a: 1}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: config-files
+            mountPath: "/cfg #x"
+            readOnly: true
+
+  - it: renders configFiles.mountPath as written, a trailing space included
+    template: templates/deployment.yaml
+    set:
+      configFiles.mountPath: "/cfg "
+      configFiles.files:
+        app.yaml: {a: 1}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: config-files
+            mountPath: "/cfg "
+            readOnly: true
+
+  - it: renders a configFiles.mountPath that holds a colon and a space
+    template: templates/deployment.yaml
+    set:
+      configFiles.mountPath: "/a: b"
+      configFiles.files:
+        app.yaml: {a: 1}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: config-files
+            mountPath: "/a: b"
+            readOnly: true
+
+  - it: renders configFiles.mountPath as written, not normalized (a trailing / stays)
+    template: templates/deployment.yaml
+    set:
+      configFiles.mountPath: "/config/"
+      configFiles.files:
+        app.yaml: {a: 1}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: config-files
+            mountPath: "/config/"
+            readOnly: true

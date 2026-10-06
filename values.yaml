@@ -51,7 +51,9 @@ env: {}
 envFrom: []
 
 configFiles:
-  # -- Directory where `configFiles.files` are mounted read-only. Must not be `/tmp`.
+  # -- Directory where `configFiles.files` are mounted read-only. Rendered as written. Must not be `/tmp` or `/` once
+  # normalized (`//tmp` and `/tmp/.` are `/tmp`), nor the ServiceAccount token directory
+  # `/var/run/secrets/kubernetes.io/serviceaccount` while `serviceAccount.automountToken` is true.
   mountPath: /config
   # -- Files rendered into ConfigMap `<fullname>-files`. A string value is written verbatim;
   # a map value is rendered with `toYaml` (so it can be merged per environment). A file set to `null` (also a bare

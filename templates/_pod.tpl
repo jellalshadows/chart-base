@@ -129,7 +129,7 @@ containers:
         mountPath: /tmp
       {{- if include "chart-base.hasConfigFiles" $ }}
       - name: config-files
-        mountPath: {{ $.Values.configFiles.mountPath }}
+        mountPath: {{ $.Values.configFiles.mountPath | quote }}
         readOnly: true
       {{- end }}
 volumes:

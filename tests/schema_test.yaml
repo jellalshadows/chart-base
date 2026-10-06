@@ -1533,3 +1533,10 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "/resources/requests/cpu': got null, want number or string"
+
+  - it: rejects a configFiles.mountPath tmp (relative, before any guard runs)
+    set:
+      configFiles.mountPath: tmp
+    asserts:
+      - failedTemplate:
+          errorPattern: "/configFiles/mountPath': 'tmp' does not match pattern"
