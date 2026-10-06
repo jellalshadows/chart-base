@@ -145,3 +145,27 @@ tests:
       - equal:
           path: spec.ingressClassName
           value: null
+
+  - it: renders every Standard field of a parentRef and of a match, as written
+    template: templates/httproute.yaml
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - {group: gateway.networking.k8s.io, kind: Gateway, namespace: gateway, name: platform-gw, sectionName: https, port: 443}
+      httpRoute.matches:
+        - path: {type: PathPrefix, value: /api}
+          headers: [{name: x-env, type: Exact, value: canary}]
+          queryParams: [{name: tier, type: RegularExpression, value: "gold|silver"}]
+          method: GET
+    asserts:
+      - equal:
+          path: spec.parentRefs
+          value:
+            - {group: gateway.networking.k8s.io, kind: Gateway, namespace: gateway, name: platform-gw, sectionName: https, port: 443}
+      - equal:
+          path: spec.rules[0].matches
+          value:
+            - path: {type: PathPrefix, value: /api}
+              headers: [{name: x-env, type: Exact, value: canary}]
+              queryParams: [{name: tier, type: RegularExpression, value: "gold|silver"}]
+              method: GET

@@ -1617,3 +1617,87 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "/service': missing property 'enabled'"
+
+  - it: rejects a misspelt key in an httpRoute.parentRefs entry (sectioName would attach the route to every listener)
+    set:
+      httpRoute.parentRefs: [{name: gw, sectioName: https}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/parentRefs/0': additional properties 'sectioName' not allowed"
+
+  - it: rejects an httpRoute.parentRefs entry without name (required by the CRD)
+    set:
+      httpRoute.parentRefs: [{namespace: gateway}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/parentRefs/0': missing property 'name'"
+
+  - it: rejects an httpRoute.parentRefs port out of range
+    set:
+      httpRoute.parentRefs: [{name: gw, port: 0}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/parentRefs/0/port': minimum"
+
+  - it: rejects a misspelt key in an httpRoute.matches entry (pathh would match every request)
+    set:
+      httpRoute.matches: [{pathh: {value: /api}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/matches/0': additional properties 'pathh' not allowed"
+
+  - it: rejects a misspelt key in httpRoute.matches[].path
+    set:
+      httpRoute.matches: [{path: {type: PathPrefix, vaule: /api}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/matches/0/path': additional properties 'vaule' not allowed"
+
+  - it: rejects a path type that the CRD does not list
+    set:
+      httpRoute.matches: [{path: {type: Prefix, value: /api}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/matches/0/path/type': value must be one of"
+
+  - it: rejects a misspelt key in httpRoute.matches[].headers[]
+    set:
+      httpRoute.matches: [{headers: [{name: x-env, value: canary, typ: Exact}]}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/matches/0/headers/0': additional properties 'typ' not allowed"
+
+  - it: rejects a misspelt key in httpRoute.matches[].queryParams[]
+    set:
+      httpRoute.matches: [{queryParams: [{name: tier, value: gold, tpye: Exact}]}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/matches/0/queryParams/0': additional properties 'tpye' not allowed"
+
+  - it: rejects a header match without value (required by the CRD)
+    set:
+      httpRoute.matches: [{headers: [{name: x-env}]}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/matches/0/headers/0': missing property 'value'"
+
+  - it: rejects a method that the CRD does not list
+    set:
+      httpRoute.matches: [{method: get}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/matches/0/method': value must be one of"
+
+  - it: rejects an httpRoute.parentRefs port above 65535
+    set:
+      httpRoute.parentRefs: [{name: gw, port: 65536}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/parentRefs/0/port': maximum"
+
+  - it: rejects a header match type that the CRD does not list
+    set:
+      httpRoute.matches: [{headers: [{name: x-env, value: canary, type: Prefix}]}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/matches/0/headers/0/type': value must be one of"

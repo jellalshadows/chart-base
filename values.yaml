@@ -155,10 +155,14 @@ httpRoute:
   # -- Render a Gateway API HTTPRoute (gateway.networking.k8s.io/v1). Requires `service.enabled`.
   enabled: false
   # -- Gateways to attach to (required when enabled), e.g. `[{name: platform-gw, namespace: gateway, sectionName: https}]`.
+  # Each entry takes exactly the fields of a Gateway API `ParentReference` (`group`, `kind`, `namespace`, `name`,
+  # `sectionName`, `port`): an unknown or misspelt key fails the render (the API server would drop it silently).
   parentRefs: []
   # -- Hostnames matched by the route.
   hostnames: []
-  # -- HTTPRoute matches. The backend is always this component's Service (first port).
+  # -- HTTPRoute matches. The backend is always this component's Service (first port). Each entry takes exactly the
+  # fields of a Gateway API `HTTPRouteMatch` (`path`, `headers`, `queryParams`, `method`), at every level: an unknown or
+  # misspelt key fails the render (the API server would drop it silently and the route would match more).
   matches:
     - path:
         type: PathPrefix
