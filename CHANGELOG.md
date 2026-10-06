@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.0](https://github.com/jellalshadows/chart-base/compare/v0.5.0...v0.6.0) (2026-10-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* serviceAccount.annotations together with serviceAccount.create: false now fail the render (0.5.0 ignored them silently: with create: false the chart creates no ServiceAccount to carry them, and the pods run as the namespace's default ServiceAccount). Remove them from that component's values; an override file clears inherited annotations with serviceAccount.annotations: null (an empty map {} is merged and still fails). The same values then render what 0.5.0 rendered; if the pods need the annotations (a cloud identity), set serviceAccount.create: true instead, so that the chart creates the component's own ServiceAccount with them (the pods roll once). See docs/upgrading.md.
+
+### Features
+
+* existing ServiceAccount and namespaced RBAC ([#16](https://github.com/jellalshadows/chart-base/issues/16)) ([bbf2517](https://github.com/jellalshadows/chart-base/commit/bbf2517ad1ade7c3de753e0b8b0e23b573892cd0))
+
 ## [0.5.0](https://github.com/jellalshadows/chart-base/compare/v0.4.1...v0.5.0) (2026-10-02)
 
 
