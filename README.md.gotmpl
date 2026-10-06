@@ -351,7 +351,9 @@ Identity inject a token of their own, and GKE Workload Identity's metadata serve
 labelled `azure.workload.identity/use: "true"`: set it in `podLabels`, quoted. On GKE Standard,
 `nodeSelector: {iam.gke.io/gke-metadata-server-enabled: "true"}` keeps the pods on node pools with Workload Identity
 (Autopilot rejects this selector). A change to the ServiceAccount's annotations reaches only pods created afterwards:
-restart the Deployment. Handing the chart's own ServiceAccount over under its name takes two deploys (the
+restart the Deployment. Handing the chart's own ServiceAccount over under its name takes two deploys on a
+`deployment` or `cronjob` component; on a `job` component, whose ServiceAccount is a hook that Helm deletes whatever
+`helm.sh/resource-policy` says, its owner creates it after a successful deploy instead (the
 [upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md#keeping-the-charts-serviceaccount-under-its-name)).
 The ServiceAccount's `imagePullSecrets` are added to pods that set none. With
 `networkPolicy.egress.enabled`, allow the identity's endpoints in `toCIDRs`: EKS Pod Identity's agent at

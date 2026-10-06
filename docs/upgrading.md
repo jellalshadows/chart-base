@@ -208,7 +208,8 @@ with `serviceAccount.annotations: null`; `{}` does not and the render still fail
   pods need the annotations (a cloud identity), set `create: true` instead, so that the chart creates `<fullname>`
   with them; the pods then run as that ServiceAccount and roll once.
 - **With `serviceAccount.name`** (new in 0.6.0): the pods run as that existing ServiceAccount; its owner sets the
-  annotations on it, not the chart.
+  annotations on it, not the chart. Or remove `name` and set `create: true`, as the error says: the chart then
+  creates `<fullname>` with the annotations, and the pods move to it (`create: true` with `name` still set fails).
 
 ### Keeping the chart's ServiceAccount under its name
 
@@ -217,7 +218,8 @@ deletes the chart's ServiceAccount once the new objects are applied: with `autom
 revision that still run lose API access about 10 seconds later (their token belongs to the deleted ServiceAccount).
 
 To keep the chart's own ServiceAccount, `<fullname>`, and hand it over to its owner (for example because a cloud
-identity's trust policy names the namespace and the ServiceAccount), deploy twice:
+identity's trust policy names the namespace and the ServiceAccount), deploy a `deployment` or `cronjob` component
+twice:
 
 1. With `create: true`, add `helm.sh/resource-policy: keep` to `serviceAccount.annotations`, and deploy.
 2. Set `create: false` and `name: <fullname>`, remove the annotations from the values (`null` in an override file),
@@ -226,6 +228,17 @@ identity's trust policy names the namespace and the ServiceAccount), deploy twic
 In one step instead, the upgrade succeeds and Helm deletes the ServiceAccount, while the pods do not roll (their
 template names the same ServiceAccount): the running pods keep a token of the deleted ServiceAccount, which the API
 server rejects after its token cache, and every new pod is rejected because the ServiceAccount does not exist.
+
+A `job` component's ServiceAccount is a hook of the Job's phase (`before-hook-creation,hook-succeeded`), and Helm
+deletes a hook whatever `helm.sh/resource-policy` says: measured with Helm 4.3.0 and 3.22.0 on kube-apiserver v1.33.0
+and v1.37.0, a hook ServiceAccount annotated `keep` is gone once the phase has succeeded. The two steps above keep
+nothing, and the second deploy's Job pods would name a ServiceAccount that no longer exists, which the API server
+rejects (this follows from the deletion; not run). There is nothing to hand over, so it is one step: after a
+successful deploy, check that the hook ServiceAccount is gone
+(`kubectl get serviceaccount <fullname> -n <namespace> --ignore-not-found` prints nothing), have its owner create
+`<fullname>`, then deploy with `create: false` and `name: <fullname>` (the annotations removed, as above). Do not
+create it while the chart still renders the hook ServiceAccount (`create: true`): the next deploy's
+`before-hook-creation` deletes it by name (Helm's `pkg/action/hooks.go`, a source reading, not run).
 
 ### New and optional: an existing ServiceAccount and RBAC
 

@@ -243,8 +243,12 @@ component's `externalSecret` Secret included. Its annotations are its owner's: `
 render with `create: false` (an override file clears inherited annotations with `serviceAccount.annotations: null`;
 `{}` is merged and clears nothing), and an annotation change reaches only pods created afterwards (restart the
 Deployment). Keeping the chart's own ServiceAccount under its name, for a cloud identity's trust policy, takes two
-deploys, with `helm.sh/resource-policy: keep` first ([upgrade guide](../upgrading.md#keeping-the-charts-serviceaccount-under-its-name)):
-in one step Helm deletes the ServiceAccount, and the pods, which do not roll, lose it.
+deploys on a `deployment` or `cronjob` component, with `helm.sh/resource-policy: keep` first
+([upgrade guide](../upgrading.md#keeping-the-charts-serviceaccount-under-its-name)): in one step Helm deletes the
+ServiceAccount, and the pods, which do not roll, lose it. On a `job` component the ServiceAccount is a hook, which Helm
+deletes once the phase succeeds whatever `resource-policy` says (measured on Helm 4.3.0 and 3.22.0): after a
+successful deploy, once it is gone, its owner creates `<fullname>`, and the next deploy sets `create: false` and
+`name: <fullname>`.
 A cloud identity needs no `automountToken`; Azure Workload Identity needs the pod label
 `azure.workload.identity/use: "true"` (in `podLabels`). With `networkPolicy.egress.enabled`, allow what the identity
 calls in `toCIDRs`: EKS Pod Identity's agent at `169.254.170.23` (IPv6 `fd00:ec2::23`) on port 80; on GKE, as its

@@ -175,10 +175,11 @@ and v1.37.0 source, the Kubernetes documentation, and measurements on kube-apise
 - **Documented, not validated**: whoever deploys must hold every permission it grants (or `escalate` and `bind`); that
   the ServiceAccount or the ClusterRole exists; resource names (custom resources cannot be enumerated); the rules of a
   ClusterRole other than `cluster-admin`; the main escalation paths listed above, and the ClusterRoles `edit` and
-  `admin`; that handing the chart's ServiceAccount over under its own name takes two deploys, with
-  `helm.sh/resource-policy: keep` first (Consequences);
-  an existing ServiceAccount's `imagePullSecrets` and `enforce-mountable-secrets`; what a cloud identity needs on the pod
-  (`podLabels`, `podAnnotations`, `nodeSelector`) and in a NetworkPolicy.
+  `admin`; that handing the chart's ServiceAccount over under its own name takes two deploys on a `deployment` or
+  `cronjob` component, with `helm.sh/resource-policy: keep` first, and one on a `job` component, whose ServiceAccount
+  is a hook: its owner creates `<fullname>` after a deploy (Consequences); an existing ServiceAccount's
+  `imagePullSecrets` and `enforce-mountable-secrets`; what a cloud identity needs on the pod (`podLabels`,
+  `podAnnotations`, `nodeSelector`) and in a NetworkPolicy.
 
 ## Consequences
 
@@ -209,7 +210,14 @@ and v1.37.0 source, the Kubernetes documentation, and measurements on kube-apise
   deletes the ServiceAccount, the Deployment does not roll (its pod template is unchanged), and a new pod is rejected
   because the ServiceAccount no longer exists. Deployed first with the annotation `helm.sh/resource-policy: keep`, the
   ServiceAccount survives the switch with the same UID, and new pods are admitted; the upgrade guide gives the two
-  steps.
+  steps, for a `deployment` or `cronjob` component. A `job` component's ServiceAccount is a hook
+  (`before-hook-creation,hook-succeeded`, [ADR-0043](0043-job-component-rbac-is-a-hook.md)), and Helm deletes a hook
+  without reading `helm.sh/resource-policy` (`pkg/action/hooks.go`, v4.3.0 and v3.22.0). Measured with Helm 4.3.0 and
+  3.22.0 on kube-apiserver v1.33.0 and v1.37.0: a hook ServiceAccount annotated `keep` is gone once the phase has
+  succeeded. So `keep` keeps nothing there, and the second step's Job pods would name a ServiceAccount that no longer
+  exists (this follows from the deletion; not run). The handover is one step: after a successful deploy, once the
+  hook ServiceAccount is gone, its owner creates `<fullname>`, and the next deploy sets `create: false` and
+  `name: <fullname>`; created while the chart still renders the hook, it would be deleted by `before-hook-creation`.
 - Breaking: values that set `serviceAccount.annotations` with `create: false`, which 0.5.0 ignored, fail the render; the
   release is a `feat!`, and the upgrade guide names the remedy (an override file clears the annotations with `null`,
   not with `{}`, because Helm merges maps).
@@ -321,7 +329,8 @@ stays in the namespace.
   `util/argo/resource_tracking.go` (`ParseAppInstanceValue`);
   [Microsoft: Naming Files, Paths, and Namespaces](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file)
 - [Helm: Role-based Access Control](https://helm.sh/docs/topics/rbac/);
-  [Helm: Chart Development Tips and Tricks](https://helm.sh/docs/howto/charts_tips_and_tricks/) (`helm.sh/resource-policy: keep`)
+  [Helm: Chart Development Tips and Tricks](https://helm.sh/docs/howto/charts_tips_and_tricks/) (`helm.sh/resource-policy: keep`);
+  Helm v4.3.0 and v3.22.0 `pkg/action/hooks.go` (`deleteHookByPolicy`: a hook is deleted without reading the policy)
 - aws/amazon-eks-pod-identity-webhook v0.6.17, `README.md` and `pkg/handler/handler.go`;
   [Amazon EKS: EKS Pod Identity](https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html); Azure
   Workload Identity v1.6.3, `docs/book/src/topics/service-account-labels-and-annotations.md` and `pkg/webhook/webhook.go`;
