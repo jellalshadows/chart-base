@@ -317,15 +317,16 @@ scheduler:
 The chart renders a Role `vending-scheduler` with these rules, a RoleBinding `vending-scheduler` to it and a
 RoleBinding `vending-scheduler.view` to the existing ClusterRole `view`, all for the ServiceAccount `vending-scheduler`,
 in the release namespace only. The render fails on a `*` in any list, a verb that is not a standard one,
-`nonResourceURLs`, the ClusterRole `cluster-admin` (only that name is checked: any other ClusterRole is granted as it
-is), and, in a rule with `resourceNames`, on `deletecollection` (Kubernetes never matches it by name) and on `create`
-on a resource when the same rule grants neither `patch` nor `update`: Kubernetes matches a name-restricted `create`
-only for a server-side apply (which also needs `patch`) or a create through an update (which also needs `update`),
-never for a plain create request. Each rule is checked on its own; `create` on a subresource such as `pods/exec` is
-matched by name. RBAC needs a ServiceAccount of the component (the render fails for the namespace's `default`
-ServiceAccount, which every other pod of the namespace without a ServiceAccount of its own runs as too) and
-`serviceAccount.automountToken: true`, unless no ClusterRole is bound and `use` is the only verb of every rule: a `use`
-grant, such as one on an OpenShift SecurityContextConstraints, is checked by admission on the ServiceAccount itself.
+`nonResourceURLs`, the ClusterRole `cluster-admin` (no ClusterRole's rules are checked: any other ClusterRole is
+granted as it is), and, in a rule with `resourceNames`, on `deletecollection` (Kubernetes never matches it by name)
+and on `create` on a resource when the same rule grants neither `patch` nor `update`: Kubernetes matches a
+name-restricted `create` only for a server-side apply (which also needs `patch`) or a create through an update (which
+also needs `update`), never for a plain create request. Each rule is checked on its own; `create` on a subresource
+such as `pods/exec` is matched by name. RBAC needs a ServiceAccount of the component (the render fails for the
+namespace's `default` ServiceAccount, which every other pod of the namespace without a ServiceAccount of its own runs
+as too) and `serviceAccount.automountToken: true`, unless no ClusterRole is bound and `use` is the only verb of every
+rule: a `use` grant, such as one on an OpenShift SecurityContextConstraints, is checked by admission on the
+ServiceAccount itself (OpenShift's SCC admission, read in its source, not run; ADR-0042).
 **Whoever runs the deploy must hold every permission it grants** (or may `escalate` and `bind`): Kubernetes rejects a
 Role or a RoleBinding that grants more, with `is attempting to grant RBAC permissions not currently held`. A deployer
 with the namespace's `admin` ClusterRole, which the Helm documentation recommends for charts that create Roles, can
@@ -498,7 +499,7 @@ sales-migrations:
 | prometheusRule.enabled | bool | `false` | Render a Prometheus Operator PrometheusRule (`monitoring.coreos.com/v1`), on every workload type (e.g. alerts on a CronJob's runs from kube-state-metrics). The CRD must be installed: without it the release fails. |
 | prometheusRule.groups | list | `[]` | Rule groups, rendered verbatim as `spec.groups`: `[{name, interval, rules: [{alert or record, expr, for, keep_firing_for, labels, annotations}]}]`; durations must not be empty and a recording rule takes no `for`, `keep_firing_for` or `annotations`. The structure is validated; PromQL is not: where the operator's admission webhook is deployed (kube-prometheus-stack deploys it by default, checked on chart version 91.8.2) a rule that does not parse is rejected when Helm applies it and the install or upgrade of the whole release fails; without the webhook the object is created and the operator skips it with a Warning event. |
 | prometheusRule.labels | object | `{}` | Extra labels on the PrometheusRule, e.g. `{release: kube-prometheus-stack}`; the chart's own label keys are rejected (see `metrics.labels`). |
-| rbac.clusterRoles | list | `[]` | Existing ClusterRoles granted to the pods' ServiceAccount in the release namespace only, one RoleBinding `<fullname>.<ClusterRole>` each (`[view]` renders `<fullname>.view`; a `<fullname>` never contains a `.`, so two components' bindings never share a name). Only the name `cluster-admin` is rejected: a ClusterRole is granted as it is, and other ClusterRoles, Kubernetes' controller roles such as `system:controller:generic-garbage-collector` included, hold wildcard rules; `edit` and `admin` let the pods act as any ServiceAccount of the namespace. A ClusterRole that does not exist is not detected. Requires a ServiceAccount of the component and `serviceAccount.automountToken: true` (the chart does not know a ClusterRole's rules; a grant that needs no token is written as a `use` rule in `rules`). |
+| rbac.clusterRoles | list | `[]` | Existing ClusterRoles granted to the pods' ServiceAccount in the release namespace only, one RoleBinding `<fullname>.<ClusterRole>` each (`[view]` renders `<fullname>.view`; a `<fullname>` never contains a `.`, so two components of a release never share a binding name). No ClusterRole's rules are checked: only `cluster-admin` is rejected for what it grants (and `*`, which a `roleRef` reads as a name); any other is granted as it is, and ClusterRoles such as Kubernetes' controller role `system:controller:generic-garbage-collector` hold wildcard rules; `edit` and `admin` let the pods act as any ServiceAccount of the namespace. A ClusterRole that does not exist is not detected. Requires a ServiceAccount of the component and `serviceAccount.automountToken: true` (the chart does not know a ClusterRole's rules; a grant that needs no token is written as a `use` rule in `rules`). |
 | rbac.rules | list | `[]` | Namespaced permissions for the pods' ServiceAccount: a Role and a RoleBinding named `<fullname>`, e.g. `[{apiGroups: [coordination.k8s.io], resources: [leases], verbs: [get, list, watch, create, update, patch]}]`. Each rule needs `apiGroups` (`""` is the core group), `resources` (a subresource is written `pods/log`) and `verbs`, and may restrict `resourceNames`. `*` is rejected in every list (it would grant future resources and verbs; in `resourceNames` it is no wildcard), and the verbs are the standard ones: `get`, `list`, `watch`, `create`, `update`, `patch`, `delete`, `deletecollection`, `use`, `bind`, `escalate`, `impersonate`. The main escalation paths (Kubernetes' RBAC Good Practices) grant more than the rule names: reading Secrets (`list` and `watch` reveal them like `get`), creating or changing workloads (a pod may run as any ServiceAccount of the namespace and mount its Secrets), `pods/exec`, `pods/attach` and `pods/ephemeralcontainers` (commands in other pods), `create` on `serviceaccounts/token`, `escalate`, `bind` and `impersonate`. Whoever runs the deploy must hold every permission granted here. Requires a ServiceAccount of the component (the chart's, or `serviceAccount.name`), never `default`, and `serviceAccount.automountToken: true` unless `use` is the only verb of every rule (an admission plugin checks such a grant on the ServiceAccount itself: an OpenShift SecurityContextConstraints, for example). With `resourceNames`, `deletecollection` fails the render (Kubernetes never matches it by name), and so does `create` on a resource without `patch` or `update` in the same rule: only a server-side apply or a create through an update carries the name; `create` on a subresource such as `pods/exec` is matched by name. |
 | reloadOnChange | bool | `true` | Restart Deployments (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is updated: the ExternalSecret's Secret and every Secret/ConfigMap referenced in `env`/`envFrom`. The chart's own ConfigMaps roll pods through checksum annotations instead. |
 | replicas | int | `1` | Deployment replicas. Ignored when `autoscaling.enabled`. |
@@ -734,23 +735,24 @@ code, official docs) and local renders.
     not. If Helm's `--timeout` expires while the Job still runs, Helm deletes it under the running pod: keep
     `job.activeDeadlineSeconds` below `--timeout`. *Rejected:* a regular object; a hook kept after the deploy.
     [ADR-0041](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0041-job-component-networkpolicy-is-a-hook.md)
-42. **An existing ServiceAccount, and namespaced RBAC whose rules are least privilege with schema validation on.**
+42. **An existing ServiceAccount, and namespaced RBAC with no wildcards, a fixed verb list and no `cluster-admin`.**
     `serviceAccount.name` (only with `create: false`, never `default`; with `create: true` the render fails and names
     both remedies) runs the pods as an existing ServiceAccount, and `serviceAccount.annotations` fail with
     `create: false` (that ServiceAccount's owner sets them; breaking in 0.6.0: 0.5.0 ignored them). `rbac.rules`
     renders a Role and a RoleBinding `<fullname>`, and `rbac.clusterRoles` one RoleBinding `<fullname>.<ClusterRole>`
-    per existing ClusterRole (a `<fullname>` has no `.`, so no two components' bindings share a name), for the pods'
-    ServiceAccount in the release namespace only. The schema validates rules as the API server does and more strictly:
-    no `*`, the standard verbs only, no `nonResourceURLs`, no empty list. The render fails on RBAC for the namespace's
-    `default` ServiceAccount; on RBAC without `automountToken: true`, unless no ClusterRole is bound and `use` is the
-    only verb of every rule (a grant that admission checks on the ServiceAccount, such as an OpenShift
-    SecurityContextConstraints); on the ClusterRole `cluster-admin` (only that name: other ClusterRoles, wildcard rules
-    included, are granted as they are); and, with `resourceNames`, on `deletecollection` and on `create` on a resource
-    when the same rule grants neither `patch` nor `update` (each rule is checked on its own). Whoever deploys must hold
-    what it grants; a missing ServiceAccount or ClusterRole is not detected. *Rejected:* wildcards with a documented
-    deployer requirement; naming the created ServiceAccount; a `roleRef` set from values; binding names with `-` (they
-    collide across aliases) or `:`; RBAC for `default` behind an opt-in; a token for every rule; rejecting every
-    name-restricted `create`.
+    per existing ClusterRole (a `<fullname>` has no `.`, so no two components of a release share a binding name), for
+    the pods' ServiceAccount in the release namespace only. The schema validates rules as the API server does and
+    more strictly: no `*`, the standard verbs only, no `nonResourceURLs`, no empty list. The render fails on RBAC for
+    the namespace's `default` ServiceAccount; on RBAC without `automountToken: true`, unless no ClusterRole is bound
+    and `use` is the only verb of every rule (a grant that admission checks on the ServiceAccount, such as an
+    OpenShift SecurityContextConstraints); on the ClusterRole `cluster-admin` (no ClusterRole's rules are checked:
+    other ClusterRoles, wildcard rules included, are granted as they are); and, with `resourceNames`, on
+    `deletecollection` and on `create` on a resource when the same rule grants neither `patch` nor `update` (each rule
+    is checked on its own). This is not least privilege: `escalate`, `bind`, `impersonate` and access to Secrets stay
+    allowed. Whoever deploys must hold what it grants; a missing ServiceAccount or ClusterRole is not detected.
+    *Rejected:* wildcards with a documented deployer requirement; naming the created ServiceAccount; a `roleRef` set
+    from values; binding names with `-` (they collide across aliases) or `:`; RBAC for `default` behind an opt-in; a
+    token for every rule; rejecting every name-restricted `create`.
     [ADR-0042](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0042-existing-serviceaccount-and-namespaced-rbac.md)
 43. **A job component's Role and RoleBindings are hooks of its phase.** Like its ServiceAccount (weight `-10`, deleted
     once the phase succeeds), so a pre-deploy Job can call the API on the first install. If Helm's `--timeout` expires
@@ -815,10 +817,10 @@ cosign verify ghcr.io/jellalshadows/charts/chart-base:X.Y.Z \
 - **RBAC** (`rbac`) needs a ServiceAccount of the component, the chart's or an existing one (`serviceAccount.name`),
   never the namespace's `default`, and `serviceAccount.automountToken: true` unless no ClusterRole is bound and `use`
   is the only verb of every rule. Render with the release's real `--namespace`: the RoleBindings' subject carries
-  it. **Whoever deploys must hold every
-  permission it grants**: a deployer with only the namespace's `admin` ClusterRole can grant no more than `admin`
-  holds. In `clusterRoles` only the name `cluster-admin` is rejected: any other ClusterRole is granted as it is, so
-  read its rules before you bind it.
+  it. **Whoever deploys must hold every permission it grants**: a deployer with only the namespace's `admin`
+  ClusterRole can grant no more than `admin` holds. In `clusterRoles` no ClusterRole's rules are checked, and only
+  `cluster-admin` is rejected for what it grants (and `*`, which a `roleRef` reads as a name): any other ClusterRole
+  is granted as it is, so read its rules before you bind it.
 - **Turning on `autoscaling` for a running component** removes `spec.replicas`: Kubernetes scales it to 1
   once, then the HPA scales it back up.
 - **Quote image tags** (`tag: "1.10"`): the schema only accepts strings, so an unquoted `1.10` fails

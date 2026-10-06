@@ -208,13 +208,14 @@ because it is a host-network address that pod selectors do not match
 **RBAC: a ServiceAccount of the component, a token for what the pods use, and a deployer that holds what it grants.**
 `rbac.rules` renders a Role `<fullname>` and a RoleBinding for the pods' ServiceAccount, and `rbac.clusterRoles` a
 RoleBinding `<fullname>.<ClusterRole>` per existing ClusterRole, in the release namespace only. The subject carries the
-release namespace, so render with the real `--namespace`: `helm template` without it binds the ServiceAccount of the
-namespace `default`, and piping that into `kubectl apply -n <namespace>` would grant the roles to a ServiceAccount of
-another namespace. The render fails for the namespace's `default` ServiceAccount (`create: false` without a `name`),
-whose permissions every pod of the namespace without a ServiceAccount of its own gets, and without
-`serviceAccount.automountToken: true` (the pods would have no token), unless no ClusterRole is bound and `use` is the
-only verb of every rule. A `use` grant is checked by admission on the ServiceAccount itself, without a token: on
-OpenShift, a SecurityContextConstraints the pods may run under, granted by a rule with
+release namespace, so render with the real `--namespace`: without it Helm takes `HELM_NAMESPACE`, then the kubeconfig
+context's namespace, and `default` when neither is set (measured on Helm 4.3.0 and 3.22.0), and piping that render
+into `kubectl apply -n <namespace>` can grant the roles to a ServiceAccount of another namespace. The render fails for
+the namespace's `default` ServiceAccount (`create: false` without a `name`), whose permissions every pod of the
+namespace without a ServiceAccount of its own gets, and without `serviceAccount.automountToken: true` (the pods would
+have no token), unless no ClusterRole is bound and `use` is the only verb of every rule. A `use` grant is checked by
+admission on the ServiceAccount itself, without a token (OpenShift's SCC admission, read in its source, not run;
+ADR-0042): on OpenShift, a SecurityContextConstraints the pods may run under, granted by a rule with
 `apiGroups: [security.openshift.io]`, `resources: [securitycontextconstraints]`, `resourceNames: [nonroot-v2]` and
 `verbs: [use]` (binding one of OpenShift's `system:openshift:scc:*` ClusterRoles instead needs the token, because the
 chart cannot see a ClusterRole's rules). Kubernetes lets a deployer create a Role only if it holds every permission in
@@ -223,15 +224,16 @@ it, and a RoleBinding only if it holds the referenced role's permissions, unless
 not the Role: 403, measured on kube-apiserver v1.33.0 and v1.37.0), and a CI deployer with
 the namespace's `admin` ClusterRole (the Helm documentation's advice for charts that create Roles) can grant only what
 `admin` holds, never `cluster-admin` or a `*`; Argo CD's and Flux's controllers, bound to cluster-admin-like roles by
-default, can grant more. A ClusterRole is bound by name and not checked: one that does not exist grants nothing, and
-only the name `cluster-admin` is rejected, so any other ClusterRole is granted as it is, wildcard rules included
-(Kubernetes' own controller roles, such as `system:controller:generic-garbage-collector`, hold rules on every resource
-of every group). `edit` and `admin` let the pods act as any ServiceAccount of the namespace. The main ways a rule grants
-more than it names, from Kubernetes' *RBAC Good Practices*: reading Secrets (`list` and `watch` reveal them like `get`),
-creating or changing workloads (a pod may run as any ServiceAccount of the namespace and mount its Secrets), `create`
-on `serviceaccounts/token`, `escalate`, `bind`, `impersonate`, and `patch` on the namespace itself (its Pod Security
-labels); and running commands in other pods, through `pods/exec` and `pods/attach` (escalating resources for
-Kubernetes' own `edit` role) or an ephemeral container (`pods/ephemeralcontainers`)
+default, can grant more. A ClusterRole is bound by name and its rules are not checked: one that does not exist grants
+nothing, and only `cluster-admin` is rejected for what it grants (and `*`, which a `roleRef` reads as a name), so any
+other ClusterRole is granted as it is, wildcard rules included (Kubernetes' own controller roles, such as
+`system:controller:generic-garbage-collector`, hold rules on every resource of every group). `edit` and `admin` let
+the pods act as any ServiceAccount of the namespace. The main ways a rule grants more than it names, from Kubernetes'
+*RBAC Good Practices*: reading Secrets (`list` and `watch` reveal them like `get`), creating or changing workloads (a
+pod may run as any ServiceAccount of the namespace and mount its Secrets), `create` on `serviceaccounts/token`,
+`escalate`, `bind`, `impersonate`, and `patch` on the namespace itself (its Pod Security labels); and running commands
+in other pods, through `pods/exec` and `pods/attach` (escalating resources for Kubernetes' own `edit` role) or an
+ephemeral container (`pods/ephemeralcontainers`)
 ([ADR-0042](../adr/0042-existing-serviceaccount-and-namespaced-rbac.md)).
 
 **An existing ServiceAccount: it must exist first, and it brings its own settings.**
@@ -264,8 +266,10 @@ of the same phase. Hook resources are not part of the release, so `helm uninstal
 those support resources under the running pod, its NetworkPolicy included: keep `job.activeDeadlineSeconds` below
 `--timeout`. With `networkPolicy` on, let the Job retry its first connections for a few seconds: the CNI applies a
 new policy some time after it is created, and a pod may start before that
-([ADR-0041](../adr/0041-job-component-networkpolicy-is-a-hook.md)). With `rbac`, the same deletion denies the running
-Job's API calls; a hook that cannot be created (a deployer that does not hold its rules) stops the deploy and leaves
+([ADR-0041](../adr/0041-job-component-networkpolicy-is-a-hook.md)). With `rbac`, let the Job retry its first API
+calls for a few seconds too, since how soon another cluster's authorizer sees a new binding is not known (the e2e's
+Job makes up to 20 attempts, one second apart); the same deletion denies the running Job's API calls; a hook that
+cannot be created (a deployer that does not hold its rules) stops the deploy and leaves
 the hooks created before it, such as the Job's ServiceAccount, until the next deploy; and a pre-deploy Job's
 `serviceAccount.name` must not name a ServiceAccount that a sibling component creates, which does not exist yet when
 the Job runs on the first install ([ADR-0043](../adr/0043-job-component-rbac-is-a-hook.md)).

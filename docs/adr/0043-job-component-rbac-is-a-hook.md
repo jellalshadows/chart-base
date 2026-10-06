@@ -33,7 +33,11 @@ the same phase with weight `-10` ([ADR-0007](0007-jobs-as-helm-hooks.md),
 - **A hook whose creation fails leaves the earlier ones behind.** When Helm cannot create a hook (for example a Role the
   deployer does not hold: `attempting to grant RBAC permissions not currently held`), it returns at once: the hooks it
   created before (the ServiceAccount) stay until the next deploy's `before-hook-creation`, and the Job is never created
-  (measured on both Helm versions). After a failing Job, by contrast, the earlier hooks are deleted (ADR-0041).
+  (measured on both Helm versions). Which hooks came before follows from the order above (a source reading of
+  `hookByWeight`, not run): with `networkPolicy` on, the NetworkPolicy `<fullname>` too, which comes first in the
+  install order; when a RoleBinding `<fullname>.<ClusterRole>` fails (a ClusterRole the deployer may not bind), also
+  the Role and the RoleBinding `<fullname>`, still granted, and the ConfigMaps and ExternalSecret `<fullname>-*`. After
+  a failing Job, by contrast, the earlier hooks are deleted (ADR-0041).
 - **A changed `roleRef` is harmless for a hook**: `before-hook-creation` deletes the binding and creates it again
   (measured on both Helm versions), where a regular binding fails the upgrade
   ([ADR-0042](0042-existing-serviceaccount-and-namespaced-rbac.md)).
@@ -59,11 +63,13 @@ the same phase with weight `-10` ([ADR-0007](0007-jobs-as-helm-hooks.md),
 - A migration can call the API on the first install, with the new rules on every upgrade. The e2e proves it: a
   pre-deploy Job lists ConfigMaps with its own token, which only its hook Role and RoleBinding allow, and they are gone
   once the phase has succeeded.
-- Nothing is left behind after a successful deploy; after a failed Job, only the Job, for its logs.
+- None of its support resources is left behind after a successful deploy (the Job stays for
+  `job.ttlSecondsAfterFinished`); after a failed Job, only the Job, for its logs.
 - Trade-off: when `--timeout` expires while the Job still runs, its API calls are denied (403), and once its
   ServiceAccount is deleted, rejected (401). An `activeDeadlineSeconds` below `--timeout` makes the Job fail first.
 - Trade-off: a hook that cannot be created, typically a Role the deployer does not hold, stops the deploy and leaves the
-  Job's ServiceAccount behind until the next deploy.
+  hooks created before it behind until the next deploy (Context): the ServiceAccount, and with it whatever came
+  before, the NetworkPolicy, or the Role and RoleBinding `<fullname>` when a ClusterRole's binding fails.
 - Trade-off: hooks are not part of the release (`helm uninstall` does not delete them), like the other support
   resources.
 - How Argo CD's own sync semantics treat these deletions is not verified.

@@ -37,7 +37,7 @@ not published; each record restates every fact it uses.
 | [0024](0024-renovate.md) | Renovate for actions and tool versions | Accepted | 0.1.0 |
 | [0025](0025-generated-english-readme.md) | Generated README, in English | Accepted | 0.1.0 |
 | [0026](0026-cronjob-runs-kept-by-history-limits.md) | CronJob runs are kept by the history limits | Accepted | 0.1.0 |
-| [0027](0027-required-keys-in-the-schema.md) | Keys the templates rely on are `required` | Accepted | 0.1.0 |
+| [0027](0027-required-keys-in-the-schema.md) | Keys the templates rely on are `required` | Amended by 0044 | 0.1.0 |
 | [0028](0028-podlabels-cannot-override-selector-labels.md) | `podLabels` cannot override the selector labels | Accepted | 0.1.0 |
 | [0029](0029-publishing-built-for-recovery.md) | Publishing is built for recovery | Amended by 0034 | 0.1.0 |
 | [0030](0030-env-takes-references-only.md) | `env` takes references only | Accepted | 0.2.0 |
@@ -52,7 +52,7 @@ not published; each record restates every fact it uses.
 | [0039](0039-prometheus-rules-travel-with-the-component.md) | Prometheus rules travel with the component | Accepted | 0.4.0 |
 | [0040](0040-networkpolicy-per-component-with-sibling-references.md) | One opt-in NetworkPolicy per component, with sibling components referenced by alias | Accepted | 0.5.0 |
 | [0041](0041-job-component-networkpolicy-is-a-hook.md) | A job component's NetworkPolicy is a hook of its phase | Amended by 0043 | 0.5.0 |
-| [0042](0042-existing-serviceaccount-and-namespaced-rbac.md) | An existing ServiceAccount, and namespaced RBAC whose rules are least privilege with schema validation on | Accepted | 0.6.0 |
+| [0042](0042-existing-serviceaccount-and-namespaced-rbac.md) | An existing ServiceAccount, and namespaced RBAC with no wildcards, a fixed verb list and no `cluster-admin` | Accepted | 0.6.0 |
 | [0043](0043-job-component-rbac-is-a-hook.md) | A job component's Role and RoleBindings are hooks of its phase | Accepted | 0.6.0 |
 | [0044](0044-guards-fail-the-render-helm-lint-reports-them.md) | Guards fail the render; `helm lint` reports them without failing | Accepted | 0.6.0 |
 

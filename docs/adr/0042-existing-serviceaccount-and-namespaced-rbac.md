@@ -1,4 +1,4 @@
-# ADR-0042: An existing ServiceAccount, and namespaced RBAC whose rules are least privilege with schema validation on
+# ADR-0042: An existing ServiceAccount, and namespaced RBAC with no wildcards, a fixed verb list and no `cluster-admin`
 
 - **Status:** Accepted
 - **Date:** 2026-10-03
@@ -26,7 +26,9 @@ and v1.37.0 source, the Kubernetes documentation, and measurements on kube-apise
   ServiceAccount admission plugin; measured, with a deprecation warning).
 - **A missing ServiceAccount is not a render error.** The admission plugin rejects the pod:
   `error looking up service account <namespace>/<name>: serviceaccount "<name>" not found`. The chart cannot check it
-  beforehand: `lookup` returns nothing under `helm template` and `--dry-run`, and Argo CD renders with `helm template`.
+  beforehand: `lookup` returns nothing under `helm template` and a client dry run (`--dry-run`, `--dry-run=client`;
+  with `--dry-run=server` Helm renders against the cluster, `pkg/action/install.go` at v4.3.0 and v3.22.0, a source
+  reading), and Argo CD renders with `helm template`.
 - **Permissions of the `default` ServiceAccount reach every pod.** "Permissions given to the "default" service account
   are available to any pod in the namespace that does not specify a `serviceAccountName`" (*Using RBAC Authorization*),
   and `default` mounts a token unless told otherwise: the pods of other charts in the namespace would get the
@@ -132,26 +134,33 @@ and v1.37.0 source, the Kubernetes documentation, and measurements on kube-apise
   **`rbac.clusterRoles`**: existing ClusterRoles, one RoleBinding `<fullname>.<ClusterRole>` each, so that a binding's
   `roleRef` never changes and removing an entry deletes its binding. A `<fullname>` is a DNS-1035 label (the chart's
   name guard), without a `.`, so the first `.` splits every binding name: two components' bindings never share a
-  name, in one release or across releases (measured: `vending-chart-base.view` and
-  `vending-chart-base.system:aggregate-to-view` are created and take effect on kube-apiserver v1.33.0 and v1.37.0).
+  name, in one release or across releases, unless their `<fullname>`s are equal (`vending-chart-base.view` and
+  `vending-chart-base.system:aggregate-to-view` are created and take effect on kube-apiserver v1.33.0 and v1.37.0,
+  measured). Two releases' `<fullname>`s can be equal, release `shop` with alias `api-web` and release `shop-api`
+  with alias `web` for example: then every object collides, not only the bindings, and the second install fails on
+  Helm's ownership check (`invalid ownership metadata`, measured on kube-apiserver v1.37.0), so nothing collides
+  silently.
   Every RoleBinding has one subject, the pods' ServiceAccount (`<fullname>` or `serviceAccount.name`) in the release
   namespace, and always renders `roleRef.apiGroup: rbac.authorization.k8s.io`. The subject's namespace makes the render
-  depend on `--namespace`: `helm template` without it renders the subject in `default` (measured on Helm 4.3.0 and
-  3.22.0; the RoleBindings carry no `metadata.namespace`), so `helm template ... | kubectl apply -n <namespace>` would
-  create the RoleBindings in `<namespace>` and grant the roles to a ServiceAccount of the namespace `default`. Both
-  lists are empty by default. On a `job` component the Role and RoleBindings are hooks
-  ([ADR-0043](0043-job-component-rbac-is-a-hook.md)). The chart creates no ClusterRole and no ClusterRoleBinding (the
-  roadmap's out-of-scope list).
+  depend on `--namespace`: without it Helm takes `HELM_NAMESPACE`, then the kubeconfig context's namespace, and
+  `default` when neither is set (`EnvSettings.Namespace`, `pkg/cli/environment.go` at v4.3.0 and v3.22.0; measured on
+  both versions: no namespace configured, `HELM_NAMESPACE=sales` and a context namespace `team-a` give subjects in
+  `default`, `sales` and `team-a`). The RoleBindings carry no `metadata.namespace`, so
+  `helm template ... | kubectl apply -n <namespace>` creates them in `<namespace>` and, when Helm took another
+  namespace, grants the roles to a ServiceAccount of that namespace. Both lists are empty by default. On a `job`
+  component the Role and RoleBindings are hooks ([ADR-0043](0043-job-component-rbac-is-a-hook.md)). The chart creates
+  no ClusterRole and no ClusterRoleBinding (the roadmap's out-of-scope list).
 - **A strict schema for rules** (`policyRule`): `apiGroups` (the core group is `""`), `resources` and `verbs` required and
   not empty, `resourceNames` optional and not empty, nothing else (no `nonResourceURLs`); no `*` in `apiGroups`,
   `resources` (`*/scale` included) or `verbs`, nor in `resourceNames`, where it is no wildcard (`ResourceNameMatches`
   compares names literally) and would match no object; `verbs` among `get`, `list`, `watch`, `create`, `update`, `patch`,
   `delete`, `deletecollection`, `use`, `bind`, `escalate`, `impersonate`. ClusterRole names are RBAC names without a
-  `*` (a `roleRef` reads it as a name, not as a wildcard), each listed once. `rbac` is `required` ([ADR-0027](0027-required-keys-in-the-schema.md)).
-  These rules live in the schema only, and hold with schema validation on: with `--skip-schema-validation`, a `*` in
-  `apiGroups`, `resources` or `resourceNames` and a ClusterRole named `*` render (measured on Helm 4.3.0 and 3.22.0: a
-  Role with the `*` and a RoleBinding `<fullname>.*` to the ClusterRole `*`); a `*` verb fails there only because the
-  verbs are rendered unquoted and `- *` is not valid YAML.
+  `*` (a `roleRef` reads it as a name, not as a wildcard), each listed once. `rbac` is `required`
+  ([ADR-0027](0027-required-keys-in-the-schema.md)). These rules live in the schema only, and hold with schema
+  validation on: with `--skip-schema-validation`, a `*` in `apiGroups`, `resources` or `resourceNames` and a
+  ClusterRole named `*` render (measured on Helm 4.3.0 and 3.22.0: a Role with the `*` and a RoleBinding
+  `<fullname>.*` to the ClusterRole `*`); a `*` verb fails there only because the verbs are rendered unquoted and
+  `- *` is not valid YAML.
 - **Guards** in `templates/validate.yaml`, each naming its remedies:
   - `serviceAccount.annotations` with `create: false`, `serviceAccount.name: default`, and `serviceAccount.name` with
     `create: true` fail (above);
@@ -169,9 +178,14 @@ and v1.37.0 source, the Kubernetes documentation, and measurements on kube-apise
     the same objects. A rule with `update` and `create` passes for a resource that has no create through an update,
     such as a ConfigMap (lenient on purpose);
   - the ClusterRole named `cluster-admin` in `rbac.clusterRoles` fails: in a namespace it is the `*` that the schema
-    rejects in rules. Only that name is checked: any other ClusterRole is granted as it is, wildcard rules included;
-    a deployer with only the namespace's `admin` rights cannot bind those either (a `*` is covered only by a literal
-    `*`), and a cluster-admin-like GitOps controller can.
+    rejects in rules. No ClusterRole's rules are checked: only `cluster-admin` is rejected for what it grants (the
+    schema also rejects the name `*`, above), and any other ClusterRole is granted as it is, wildcard rules
+    included; a deployer with only the namespace's `admin` rights cannot bind those either (a `*` is covered only by
+    a literal `*`), and a cluster-admin-like GitOps controller can.
+- **What this enforces is not least privilege.** The chart enforces rules without wildcards (with schema validation
+  on), a fixed list of verbs and no `cluster-admin`, and nothing more: it does not stop `escalate`, `bind`,
+  `impersonate` or access to Secrets, nor the other escalation paths above, and whether a rule is the least the
+  component needs only the values author can tell.
 - **Documented, not validated**: whoever deploys must hold every permission it grants (or `escalate` and `bind`); that
   the ServiceAccount or the ClusterRole exists; resource names (custom resources cannot be enumerated); the rules of a
   ClusterRole other than `cluster-admin`; the main escalation paths listed above, and the ClusterRoles `edit` and
@@ -197,8 +211,9 @@ and v1.37.0 source, the Kubernetes documentation, and measurements on kube-apise
 - Trade-off: a typo in a resource name grants nothing, silently; a ClusterRole that does not exist is bound and grants
   nothing (`kubectl auth can-i` answers `no`, with a reason that names the missing role); a missing ServiceAccount shows
   only when the API server rejects the pods.
-- Trade-off: only the name `cluster-admin` is rejected. Any other ClusterRole is granted as it is, wildcard rules
-  included; the values reviewer must read the ClusterRole before binding it.
+- Trade-off: no ClusterRole's rules are checked, and only `cluster-admin` is rejected for what it grants (`*` is
+  rejected as a name). Any other ClusterRole is granted as it is, wildcard rules included; the values reviewer must
+  read the ClusterRole before binding it.
 - Trade-off: a name-restricted `create` with `patch` or `update` in its rule passes even when the component only ever
   sends plain create requests, which the rule never allows; a Role that grants `patch` in one rule and a
   name-restricted `create` in another fails although Kubernetes would honor it (add the verb to the `create` rule).
@@ -266,7 +281,7 @@ Namespaces*). A `.` is valid in an RBAC name and appears in neither problem.
 
 The chart cannot read a ClusterRole's rules (no `lookup`), only its name. A list of names to reject is never complete,
 and a prefix rule would also reject roles such as `system:aggregate-to-view` that grant little. `cluster-admin`, the
-name that means every verb on every resource, is the one name rejected; the rest is documented.
+name that means every verb on every resource, is the one name rejected for what it grants; the rest is documented.
 
 ### Rejecting every `create` restricted by `resourceNames`
 
@@ -300,8 +315,8 @@ namespace that runs as `default`.
 
 ### Checking that the ServiceAccount and the ClusterRole exist
 
-`lookup` returns nothing under `helm template`, `--dry-run` and Argo CD: the check would fail or pass depending on how
-the chart is rendered.
+`lookup` returns nothing under `helm template`, a client dry run (`--dry-run=client`) and Argo CD: the check would
+fail or pass depending on how the chart is rendered.
 
 ### ClusterRoles and ClusterRoleBindings
 

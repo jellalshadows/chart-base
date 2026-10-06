@@ -354,10 +354,11 @@ rbac:
   rules: []
   # -- Existing ClusterRoles granted to the pods' ServiceAccount in the release namespace only, one RoleBinding
   # `<fullname>.<ClusterRole>` each (`[view]` renders `<fullname>.view`; a `<fullname>` never contains a `.`, so two
-  # components' bindings never share a name). Only the name `cluster-admin` is rejected: a ClusterRole is granted as it
-  # is, and other ClusterRoles, Kubernetes' controller roles such as `system:controller:generic-garbage-collector`
-  # included, hold wildcard rules; `edit` and `admin` let the pods act as any ServiceAccount of the namespace. A
-  # ClusterRole that does not exist is not detected. Requires a ServiceAccount of the component and
+  # components of a release never share a binding name). No ClusterRole's rules are checked: only `cluster-admin` is
+  # rejected for what it grants (and `*`, which a `roleRef` reads as a name); any other is granted as it is, and
+  # ClusterRoles such as Kubernetes' controller role `system:controller:generic-garbage-collector` hold wildcard
+  # rules; `edit` and `admin` let the pods act as any ServiceAccount of the namespace. A ClusterRole that does not
+  # exist is not detected. Requires a ServiceAccount of the component and
   # `serviceAccount.automountToken: true` (the chart does not know a ClusterRole's rules; a grant that needs no token
   # is written as a `use` rule in `rules`).
   clusterRoles: []

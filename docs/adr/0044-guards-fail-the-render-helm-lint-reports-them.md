@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-06
 - **Since:** 0.6.0 (recorded with 0.6.0; Helm has behaved this way for every release since 0.1.0)
-- **Related:** [ADR-0001](0001-application-chart-consumed-through-aliases.md) (amended), [ADR-0008](0008-names-are-release-alias-and-never-truncated.md), [ADR-0011](0011-strict-draft-07-schema.md) (amended), [ADR-0018](0018-kubernetes-version-floor.md) (amended), [ADR-0027](0027-required-keys-in-the-schema.md), [ADR-0036](0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md) (amended), [ADR-0042](0042-existing-serviceaccount-and-namespaced-rbac.md)
+- **Related:** [ADR-0001](0001-application-chart-consumed-through-aliases.md) (amended), [ADR-0008](0008-names-are-release-alias-and-never-truncated.md), [ADR-0011](0011-strict-draft-07-schema.md) (amended), [ADR-0018](0018-kubernetes-version-floor.md) (amended), [ADR-0027](0027-required-keys-in-the-schema.md) (amended), [ADR-0036](0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md) (amended), [ADR-0042](0042-existing-serviceaccount-and-namespaced-rbac.md)
 
 ## Context
 
@@ -35,15 +35,16 @@ with Helm 4.3.0 and 3.22.0, the guards do not:
   `podLabels` key and `serviceAccount.automountToken: null` fail `helm lint --strict` on both versions
   (`Error: 1 chart(s) linted, 1 chart(s) failed`). Through an umbrella, an unknown key, a wrong type and a missing key
   under an alias fail it too, but a `null` that deletes a required key (`api.serviceAccount.automountToken: null`,
-  `api.rbac: null`) passed lint on both versions when it came from a `-f` file; from the umbrella's own `values.yaml`,
-  Helm 3.22.0 caught it and Helm 4.3.0 did not. `helm template` fails in every case, on both versions.
+  `api.rbac: null`) passed lint on both versions when it came from a `-f` file, where `helm template` rejects it
+  (`missing property 'automountToken'`, `missing property 'rbac'`). From the umbrella's own `values.yaml`, Helm 3.22.0
+  rejects it in lint and template alike, and Helm 4.3.0 ignores the `null` (the chart's default stays), so neither
+  fails.
 - **Lint renders under a placeholder release name.** Lint always uses the release name `test-release`
   ([ADR-0008](0008-names-are-release-alias-and-never-truncated.md); `helm lint --help` offers no flag to change it, on
   either version), so the messages read `... always named test-release-api ...`, and the name guards judge a name the
-  deploy never uses. Measured on both
-  versions: an umbrella `shop` whose alias has 51 characters renders under its release name (`shop-<alias>`, 56
-  characters), while `helm lint --strict` prints `resource name "test-release-<alias>" is 64 chars, max is 63` as an
-  INFO line.
+  deploy never uses. Measured on both versions: an umbrella `shop` whose alias has 51 characters renders under its
+  release name (`shop-<alias>`, 56 characters), while `helm lint --strict` prints
+  `resource name "test-release-<alias>" is 64 chars, max is 63` as an INFO line.
 - **Install and upgrade fail like `helm template`.** Helm renders every template before it creates anything
   ([ADR-0012](0012-no-capabilities-gating.md)). Measured with Helm 4.3.0's `helm install --dry-run=client`, without a
   cluster: `Error: INSTALLATION FAILED: execution error at (chart-base/templates/validate.yaml:108:4): ...`. Helm
@@ -79,10 +80,11 @@ with Helm 4.3.0 and 3.22.0, the guards do not:
 - The records that said a guard fails at `helm lint` are amended by this one:
   [ADR-0001](0001-application-chart-consumed-through-aliases.md), [ADR-0011](0011-strict-draft-07-schema.md),
   [ADR-0018](0018-kubernetes-version-floor.md) and
-  [ADR-0036](0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md). Their statements about the schema stay
-  true for a chart linted directly, and so do those of [ADR-0027](0027-required-keys-in-the-schema.md) and
-  [ADR-0028](0028-podlabels-cannot-override-selector-labels.md), which are not amended; through an umbrella, the
-  `null` of ADR-0027 is the gap described above.
+  [ADR-0036](0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md). So is
+  [ADR-0027](0027-required-keys-in-the-schema.md), which says that a `null` deleting a required key fails `helm lint`:
+  true for the chart linted directly, but through an umbrella a `null` from a `-f` file passes lint, and
+  `helm template` catches it (the gap above). Their statements about the schema stay true for a chart linted
+  directly, and so do those of [ADR-0028](0028-podlabels-cannot-override-selector-labels.md), which is not amended.
 
 ## Alternatives considered
 
