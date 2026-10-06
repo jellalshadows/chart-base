@@ -28,7 +28,8 @@ command: []
 args: []
 
 # -- Container ports. Each entry also becomes a Service port when a Service is rendered.
-# `servicePort` is optional and defaults to `containerPort`.
+# `servicePort` is optional and defaults to `containerPort`. A probe port given by name (`httpGet.port`,
+# `tcpSocket.port` in `probes`) must be one of these names: the render fails otherwise.
 ports:
   - name: http
     containerPort: 8080
@@ -107,11 +108,11 @@ service:
   type: ClusterIP
 
 probes:
-  # -- Startup probe (Kubernetes probe object). Empty = not rendered.
+  # -- Startup probe (Kubernetes probe object). Empty = not rendered. A port given by name must be a `ports` name.
   startup: {}
-  # -- Liveness probe (Kubernetes probe object). Empty = not rendered.
+  # -- Liveness probe (Kubernetes probe object). Empty = not rendered. A port given by name must be a `ports` name.
   liveness: {}
-  # -- Readiness probe (Kubernetes probe object). Empty = not rendered.
+  # -- Readiness probe (Kubernetes probe object). Empty = not rendered. A port given by name must be a `ports` name.
   readiness: {}
 
 autoscaling:

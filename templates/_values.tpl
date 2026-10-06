@@ -44,3 +44,35 @@ Usage: include "chart-base.cleanPath" <path>
 {{- define "chart-base.cleanPath" -}}
 {{- clean (print "/" .) -}}
 {{- end -}}
+
+{{/*
+chart-base.validateProbePorts: a probe port given by NAME (httpGet.port, tcpSocket.port) must be the name of an entry of
+the container's ports: the kubelet resolves the name among that container's ports only. Renders nothing; fails through
+chart-base.fail. A probe that is not a map is skipped, and so is a nil handler; a port that is not a string (a number, an
+absent port) and the exec and grpc handlers are not checked; a handler that is neither a map nor nil fails.
+Usage: include "chart-base.validateProbePorts" (dict "ctx" $ "path" "probes" "probes" .Values.probes "portNames" <list of
+the container's port names> "portsPath" "ports"). `path` and `portsPath` name the values in the messages; the note about
+the Service and the NetworkPolicy is printed only for the main container (portsPath "ports").
+*/}}
+{{- define "chart-base.validateProbePorts" -}}
+{{- $note := "" -}}
+{{- if eq .portsPath "ports" }}{{ $note = " (a ports entry also becomes a Service port when a Service is rendered, and is opened by networkPolicy.ingress.fromComponents/fromNamespaces)" }}{{ end -}}
+{{- $probes := .probes | default dict -}}
+{{- range $kind := list "startup" "liveness" "readiness" -}}
+{{- $probe := get $probes $kind -}}
+{{- if kindIs "map" $probe -}}
+{{- range $handler := list "httpGet" "tcpSocket" -}}
+{{- if hasKey $probe $handler -}}
+{{- $h := index $probe $handler -}}
+{{- if kindIs "map" $h -}}
+{{- if and (kindIs "string" $h.port) (not (has $h.port $.portNames)) -}}
+{{- include "chart-base.fail" (list $.ctx (printf "%s.%s.%s.port %q is not the name of an entry in %s: the kubelet cannot resolve it and never runs the probe. Use the port number, or declare the name in %s%s, or remove the probe" $.path $kind $handler $h.port $.portsPath $.portsPath $note)) -}}
+{{- end -}}
+{{- else if not (kindIs "invalid" $h) -}}
+{{- include "chart-base.fail" (list $.ctx (printf "%s.%s.%s must be a map, e.g. {port: 8080}, got %s" $.path $kind $handler (kindOf $h))) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

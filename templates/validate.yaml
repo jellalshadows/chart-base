@@ -69,6 +69,10 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list . (printf "metrics.port %q is not the name of an entry in ports: Prometheus scrapes a named port, so declare it in ports (a worker without a Service too), e.g. ports: [{name: metrics, containerPort: 9090}]" .Values.metrics.port)) -}}
 {{- end -}}
 {{- end -}}
+{{- /* A main-container probe port given by NAME must be the name of an entry of ports, on every workload type. */ -}}
+{{- $mainPortNames := list -}}
+{{- range (.Values.ports | default list) }}{{ $mainPortNames = append $mainPortNames .name }}{{ end -}}
+{{- include "chart-base.validateProbePorts" (dict "ctx" . "path" "probes" "probes" .Values.probes "portNames" $mainPortNames "portsPath" "ports") -}}
 {{- if .Values.networkPolicy.enabled -}}
 {{- $in := .Values.networkPolicy.ingress -}}
 {{- $eg := .Values.networkPolicy.egress -}}
