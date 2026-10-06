@@ -30,8 +30,12 @@ patterns, lengths, item counts, CEL rules and defaults: the API server checks th
 
 ## Consequences
 
-- A misspelt key fails the schema at `helm lint`, `helm template`, install and upgrade, with the path of the key.
+- A misspelt key fails the schema at `helm template`, install and upgrade, with the path of the key, and at `helm lint`
+  (on Helm 4, only in an umbrella with a template: [consuming guide](../guides/consuming.md#recommendations-for-umbrella-authors)).
   Values that rendered with such a key now fail (the upgrade guide lists it).
+- A `null` field inside an entry (`sectionName: null`) fails the schema too, because the definitions type every field.
+  On 0.6.0 such a route rendered; on Helm 3.22 the API server dropped the `null`, and Helm 4.3's server-side apply
+  rejected it (measured on kube-apiserver 1.33.0 and 1.37.0). The remedy is to remove the key.
 - A field that a later Gateway API release adds, or an Experimental-channel field, fails until the schema adds it.
 
 ## Alternatives considered

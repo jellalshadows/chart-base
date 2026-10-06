@@ -503,7 +503,7 @@ sales-migrations:
 | rbac.rules | list | `[]` | Namespaced permissions for the pods' ServiceAccount: a Role and a RoleBinding named `<fullname>`, e.g. `[{apiGroups: [coordination.k8s.io], resources: [leases], verbs: [get, list, watch, create, update, patch]}]`. Each rule needs `apiGroups` (`""` is the core group), `resources` (a subresource is written `pods/log`) and `verbs`, and may restrict `resourceNames`. `*` is rejected in every list (it would grant future resources and verbs; in `resourceNames` it is no wildcard), and the verbs are the standard ones: `get`, `list`, `watch`, `create`, `update`, `patch`, `delete`, `deletecollection`, `use`, `bind`, `escalate`, `impersonate`. The main escalation paths (Kubernetes' RBAC Good Practices) grant more than the rule names: reading Secrets (`list` and `watch` reveal them like `get`), creating or changing workloads (a pod may run as any ServiceAccount of the namespace and mount its Secrets), `pods/exec`, `pods/attach` and `pods/ephemeralcontainers` (commands in other pods), `create` on `serviceaccounts/token`, `escalate`, `bind` and `impersonate`. Whoever runs the deploy must hold every permission granted here. Requires a ServiceAccount of the component (the chart's, or `serviceAccount.name`), never `default`, and `serviceAccount.automountToken: true` unless `use` is the only verb of every rule (an admission plugin checks such a grant on the ServiceAccount itself: an OpenShift SecurityContextConstraints, for example). With `resourceNames`, `deletecollection` fails the render (Kubernetes never matches it by name), and so does `create` on a resource without `patch` or `update` in the same rule: only a server-side apply or a create through an update carries the name; `create` on a subresource such as `pods/exec` is matched by name. |
 | reloadOnChange | bool | `true` | Restart Deployments (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is updated: the ExternalSecret's Secret and every Secret/ConfigMap referenced in `env`/`envFrom`. The chart's own ConfigMaps roll pods through checksum annotations instead. |
 | replicas | int | `1` | Deployment replicas. Ignored when `autoscaling.enabled`. |
-| resources | object | `{}` | Required: `requests.cpu` and `requests.memory`. Container resources. A `null` entry of `limits` or `requests`, and `limits: null`, mean absent: no such limit or request is rendered (the API server would store a null as `"0"`). |
+| resources | object | `{}` | Required: `requests.cpu` and `requests.memory`. Container resources. A `null` entry of `limits` or `requests` (other than `requests.cpu` and `requests.memory`, which stay required), and `limits: null`, mean absent: no such limit or request is rendered (the API server would store a null as `"0"`). |
 | revisionHistoryLimit | int | `nil` | Old ReplicaSets kept for `kubectl rollout undo` (`spec.revisionHistoryLimit`). `null` = Kubernetes default (10). Deployments only. |
 | runtimeClassName | string | `nil` | RuntimeClass of the pods (`runtimeClassName`), e.g. `gvisor`; it must exist. `null` = the default runtime handler. |
 | securityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true,"runAsNonRoot":true}` | Container security context. `readOnlyRootFilesystem` is extra hardening (an emptyDir is always mounted at `/tmp`). |
@@ -772,8 +772,8 @@ code, official docs) and local renders.
 45. **A `null` in `configFiles` removes the file or the key; a `null` resource quantity is absent.** chart-base reads
     `configFiles.files` and `resources` through a pruned deep copy: every key whose value is `null` (or empty, `key:`)
     is removed, in maps reached through maps, the same from every values layer and on Helm 3.22 and 4.3; a list is
-    rendered as written, and `false`, `0`, `""`, `[]` and `{}` are kept. The cost: a map-form file cannot carry an
-    empty value outside a list (write `{}` or `""`). *Rejected:* documenting Helm's behaviour (it differs by layer and
+    rendered as written, and `false`, `0`, `""`, `[]` and `{}` are kept. The cost: a map-form file cannot carry a
+    `null` or a bare `key:` outside a list. *Rejected:* documenting Helm's behaviour (it differs by layer and
     by Helm version); failing on such a `null` (it could not be uniform either).
     [ADR-0045](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0045-null-in-configfiles-and-resources-is-absent.md)
 46. **`configFiles.mountPath` is compared normalized and rendered as written.** The guards compare
@@ -801,7 +801,7 @@ code, official docs) and local renders.
 - [release-please](https://github.com/googleapis/release-please) keeps a Release PR open with the next
   version and `CHANGELOG.md`. Merging it tags `vX.Y.Z` and publishes
   `oci://ghcr.io/jellalshadows/charts/chart-base:X.Y.Z`. Nothing else ever publishes.
-- Before 1.0: `fix:` → patch, `feat:` → minor, `feat!:` → minor. 1.0.0 will be declared on purpose,
+- Before 1.0: `fix:` → patch, `feat:` → minor, `feat!:` and `fix!:` → minor. 1.0.0 will be declared on purpose,
   and from then on the selector labels are frozen forever.
 - An existing version is never overwritten: the publish job fails if the tag already exists.
 - Every breaking release (`feat!`) has migration steps in the [upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md).

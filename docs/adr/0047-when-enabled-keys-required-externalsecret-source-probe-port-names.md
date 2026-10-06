@@ -24,7 +24,8 @@ not verified at runtime).
 
 ## Decision
 
-- Every when-enabled rule of the schema's `allOf` also requires its key: `cronjob.schedule` on a cronjob,
+- Every when-enabled rule of the schema's `allOf` except `ingress.className` (below) also requires
+  its key: `cronjob.schedule` on a cronjob,
   `externalSecret.secretStoreRef.kind` and `.name`, `httpRoute.parentRefs`, `ingress.hosts`, next to `ports` and
   `prometheusRule.groups`, which were already required. A unit test nulls the key of every rule and expects a failure.
   `ingress.className` is not required: `null` keeps rendering an Ingress without a class, an open decision.
@@ -39,8 +40,10 @@ not verified at runtime).
 ## Consequences
 
 - Values that rendered a broken object fail at `helm template`, install and upgrade: the `required` keys as schema
-  errors, which fail `helm lint` too, and the two guards with their remedies, which do not fail `helm lint`
-  ([ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md)).
+  errors, which also fail `helm lint` of the chart itself (through an umbrella, a `null` from `-f` or `--set` passes
+  lint, and Helm 4.3 lints no subchart schema when the umbrella has no `templates/`:
+  [ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md)), and the two guards with their remedies, which do
+  not fail `helm lint`. The gate is `helm template` with the deploy's real values.
 - `externalSecret.secretStoreRef.kind: null` may have fallen back to ESO's own default `SecretStore` on Helm 3.22
   (unverified); it now fails, because it silently flips the chart's default `ClusterSecretStore`.
 - Schema-only tooling (an IDE, `helm lint`) no longer flags an enabled ExternalSecret without `data`.

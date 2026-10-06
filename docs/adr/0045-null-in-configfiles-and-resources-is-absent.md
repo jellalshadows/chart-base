@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-06
 - **Since:** 0.7.0
-- **Related:** [ADR-0005](0005-configfiles-string-or-map.md) (amended), [ADR-0014](0014-resource-requests-required.md), [ADR-0027](0027-required-keys-in-the-schema.md)
+- **Related:** [ADR-0005](0005-configfiles-string-or-map.md) (amended), [ADR-0014](0014-resource-requests-required.md) (amended), [ADR-0027](0027-required-keys-in-the-schema.md)
 
 ## Context
 

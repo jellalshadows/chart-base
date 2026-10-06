@@ -24,7 +24,7 @@ not published; each record restates every fact it uses.
 | [0011](0011-strict-draft-07-schema.md) | Strict draft-07 schema with reserved `global` and `enabled` | Amended by 0044 | 0.1.0 |
 | [0012](0012-no-capabilities-gating.md) | No `.Capabilities` gating for CRD kinds | Accepted | 0.1.0 |
 | [0013](0013-secure-by-default.md) | Secure by default (Pod Security `restricted`) | Accepted | 0.1.0 |
-| [0014](0014-resource-requests-required.md) | `resources.requests` are required | Accepted | 0.1.0 |
+| [0014](0014-resource-requests-required.md) | `resources.requests` are required | Amended by 0045 | 0.1.0 |
 | [0015](0015-pdb-and-topology-spread-by-default.md) | PDB and topology spread on by default | Accepted | 0.1.0 |
 | [0016](0016-httproute-first-ingress-optional.md) | HTTPRoute first, Ingress optional | Accepted | 0.1.0 |
 | [0017](0017-progress-deadline-240s.md) | `progressDeadlineSeconds: 240` | Accepted | 0.1.0 |

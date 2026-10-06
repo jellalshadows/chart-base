@@ -665,8 +665,8 @@ code, official docs) and local renders.
 45. **A `null` in `configFiles` removes the file or the key; a `null` resource quantity is absent.** chart-base reads
     `configFiles.files` and `resources` through a pruned deep copy: every key whose value is `null` (or empty, `key:`)
     is removed, in maps reached through maps, the same from every values layer and on Helm 3.22 and 4.3; a list is
-    rendered as written, and `false`, `0`, `""`, `[]` and `{}` are kept. The cost: a map-form file cannot carry an
-    empty value outside a list (write `{}` or `""`). *Rejected:* documenting Helm's behaviour (it differs by layer and
+    rendered as written, and `false`, `0`, `""`, `[]` and `{}` are kept. The cost: a map-form file cannot carry a
+    `null` or a bare `key:` outside a list. *Rejected:* documenting Helm's behaviour (it differs by layer and
     by Helm version); failing on such a `null` (it could not be uniform either).
     [ADR-0045](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0045-null-in-configfiles-and-resources-is-absent.md)
 46. **`configFiles.mountPath` is compared normalized and rendered as written.** The guards compare
@@ -694,7 +694,7 @@ code, official docs) and local renders.
 - [release-please](https://github.com/googleapis/release-please) keeps a Release PR open with the next
   version and `CHANGELOG.md`. Merging it tags `vX.Y.Z` and publishes
   `oci://ghcr.io/jellalshadows/charts/chart-base:X.Y.Z`. Nothing else ever publishes.
-- Before 1.0: `fix:` → patch, `feat:` → minor, `feat!:` → minor. 1.0.0 will be declared on purpose,
+- Before 1.0: `fix:` → patch, `feat:` → minor, `feat!:` and `fix!:` → minor. 1.0.0 will be declared on purpose,
   and from then on the selector labels are frozen forever.
 - An existing version is never overwritten: the publish job fails if the tag already exists.
 - Every breaking release (`feat!`) has migration steps in the [upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md).

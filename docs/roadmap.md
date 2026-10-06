@@ -10,7 +10,7 @@ These apply to every release.
 
 - **Integrations are off by default.** Anything that needs another system (Prometheus Operator, KEDA, NetworkPolicy, Gateway API, External Secrets Operator, ...) is activated only with an explicit `enabled: true`.
 - **Posture is on by default.** Pod Security `restricted`, PodDisruptionBudget, topology spread, preStop, `progressDeadlineSeconds` and mandatory resource requests. Lowering the posture is explicit, key by key.
-- **The contract is curated.** Every new key comes with a schema using `additionalProperties: false`, `required` wherever a `null` would silently change a default, and `fail` guards for cross-key rules. A new key is additive (minor); changing a default, renaming a key or rejecting values that an earlier release accepted is a `feat!`.
+- **The contract is curated.** Every new key comes with a schema using `additionalProperties: false`, `required` wherever a `null` would silently change a default, and `fail` guards for cross-key rules. A new key is additive (minor); changing a default, renaming a key or rejecting or changing a value that an earlier release accepted is a breaking change (`feat!`, or `fix!` when it fixes released behaviour, as the first PR of 0.7.0).
 - **One workload per alias.** No feature introduces several workloads or several Services per alias, because that would break alias-safety.
 - **Every feature ships complete.** helm-unittest tests written test-first (negative cases included), a scenario in `ci/` (or an extension of an existing one), a check in `e2e.sh` against the real system in kind whenever an operator or CRD is installed in the e2e, updated snapshots, rows in the values table, and its documentation in the repository: new ADRs in `docs/adr/` with context, decision, consequences and rejected alternatives, plus updates to this roadmap, to the affected guides and runbooks, and to the summarized decision in the README.
 - **Every new CI dependency is pinned and maintained.** Each operator or CRD installed in CI is pinned by version and kept current by Renovate, and the rejected list in [Out of scope](#out-of-scope) is respected.
@@ -44,7 +44,7 @@ Each numbered release row is one squash-merged `feat:` PR, which is a minor rele
   entry of a typed map (`config`, the main container's `env`, `podLabels`, `podAnnotations`, `ingress.annotations`,
   `serviceAccount.annotations`, `metrics.labels`, `prometheusRule.labels`, `nodeSelector`,
   `networkPolicy.egress.dns.podSelector`) and an optional member of a closed object (`lifecycle.<hook>`,
-  `strategy.rollingUpdate`, `dnsConfig.nameservers`, `.searches`, `.options`), schema errors today; a key inside a
+  `strategy.rollingUpdate.maxSurge` and `.maxUnavailable`, `dnsConfig.nameservers`, `.searches`, `.options`), schema errors today; a key inside a
   pass-through object (`probes.<probe>.<key>`, `affinity.<key>`, the keys of `podSecurityContext` and
   `securityContext` that `values.yaml` does not define), rendered as `null` today, so converting it changes the
   manifest; `httpRoute.matches` (0.11.0 replaces it); the maps that 0.11.0 and 0.12.0 add. Converting a map

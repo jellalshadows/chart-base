@@ -286,17 +286,22 @@ deploy uses before you upgrade.
   string form of the file for a literal `null`; a `null` inside a list stays as written. Whether `{}` or `""` is
   equivalent to the `null` depends on the application (checked for OpenTelemetry Collector 0.162.0 and Spring Boot
   3.5.6 only). A `null` file (also a bare `name:`) is now no file instead of a schema error.
-- **A `null` resource quantity is absent.** A `null` entry of `resources.limits` or `resources.requests`, and
-  `resources.limits: null`, render no such limit or request (ADR-0045). 0.6.0 rendered `<k>: null`, which the API
+- **A `null` resource quantity is absent.** A `null` entry of `resources.limits`, or of `resources.requests`
+  other than the required `cpu` and `memory`, and `resources.limits: null` (a schema error in 0.6.0), render no such
+  limit or request (ADR-0045; a `null` `requests.cpu` or `requests.memory` stays a schema error). 0.6.0 rendered `<k>: null`, which the API
   server stores as `"0"`: an install with a request for the same resource was rejected (`limit of 0`), and a limit
-  without a request became a zero limit (measured on kube-apiserver 1.33.0 and 1.37.0). A `null` limit that stored a
-  zero limit (Helm 4.3) is now removed, which is what Helm 3.22 already did on upgrade.
+  without a request became a zero limit (measured on kube-apiserver 1.33.0 and 1.37.0). A `null` limit stored as a zero
+  limit (on install with either Helm version, on upgrade with Helm 4.3) is no longer rendered (what the upgrade then
+  stores was not measured); Helm 3.22 already removed it on upgrade.
 - **`configFiles.mountPath` is sent as written** ([ADR-0046](adr/0046-configfiles-mountpath-compared-normalized-rendered-as-written.md)): a path with trailing whitespace
   or a ` #` comment was cut there by 0.6.0 and is now another directory (the mount moves; remove them); a path that
   contains `: ` failed the render and now renders. `mountPath: /config` is now rendered `"/config"`, the same object.
 
-**What now fails at render** (`helm template`, install and upgrade; the schema rules among them, the `required` keys
-and the closed route entries, fail `helm lint` too, the guards do not): fix the values before you upgrade.
+**What now fails at render** (`helm template`, install and upgrade. `helm lint` of chart-base itself also fails on the
+schema rules among them, the `required` keys and the closed route entries; through an umbrella, a `null` from `-f` or
+`--set` that deletes a required key passes lint ([ADR-0044](adr/0044-guards-fail-the-render-helm-lint-reports-them.md)),
+Helm 4.3 lints no subchart schema when the umbrella has no `templates/`, and no guard fails lint: gate on `helm template`
+with the deploy's real values): fix the values before you upgrade.
 
 - A `configFiles.mountPath` that is `/tmp` or `/` once normalized (`//tmp`, `/tmp/.`, `/./tmp`, `/a/../tmp`, `/..`),
   or the ServiceAccount token directory `/var/run/secrets/kubernetes.io/serviceaccount` (also `//var/...` or with a
@@ -325,8 +330,11 @@ and the closed route entries, fail `helm lint` too, the guards do not): fix the 
   Service port when a Service is rendered, and is opened by networkPolicy.ingress.fromComponents/fromNamespaces), or
   remove the probe`. After the fix a liveness probe runs for the first time: check its path and thresholds before you
   roll out. In an umbrella, one such component blocks the render of the whole release.
-- **An unknown or misspelt key in an entry of `httpRoute.parentRefs` or `httpRoute.matches`**, at any level
+- **An unknown or misspelt key, or a `null` value, in an entry of `httpRoute.parentRefs` or `httpRoute.matches`**, at any level
   ([ADR-0048](adr/0048-httproute-parentrefs-and-matches-are-closed.md)): `additional properties 'sectioName' not allowed`, with the path of the key.
-  0.6.0 rendered it and the API server dropped the field, which widened the route (`pathh: /api` matched every
-  request; `sectioName: https` attached the route to every listener). Fix the key's spelling; the entries take exactly
-  the fields of the Gateway API v1.6.2 Standard CRD.
+  0.6.0 rendered it; on Helm 3.22, and on Helm 4.3 for a release first installed by Helm 3, the API server dropped
+  the field, which widened the route (`pathh: /api` matched every request; `sectioName: https` attached the route to
+  every listener). Fix the key's spelling; the entries take exactly the fields of the Gateway API v1.6.2 Standard CRD.
+  A `null` field in such an entry (`sectionName: null`) now fails the schema too: on 0.6.0 it rendered, and on Helm 3.22
+  the API server dropped the `null` (the route was the same without it), while Helm 4.3's server-side apply rejected it
+  (measured on kube-apiserver 1.33.0 and 1.37.0). Remove the key.
