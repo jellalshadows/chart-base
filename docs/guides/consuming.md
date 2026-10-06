@@ -9,6 +9,7 @@ Contents:
 - [The model](#the-model)
 - [The umbrella `Chart.yaml`](#the-umbrella-chartyaml)
 - [Values: nested under the alias](#values-nested-under-the-alias)
+- [What a null does in each values layer](#what-a-null-does-in-each-values-layer)
 - [Rules](#rules)
 - [Failure behavior](#failure-behavior)
 - [Recommendations for umbrella authors](#recommendations-for-umbrella-authors)
@@ -103,9 +104,39 @@ machines:
   an ignored value ([ADR-0011](../adr/0011-strict-draft-07-schema.md)). Required keys such as
   `image.repository`, an image tag or digest, and `resources.requests` must be present
   ([ADR-0014](../adr/0014-resource-requests-required.md)).
-- **Setting a key to `null` deletes it** (this is Helm's behavior). chart-base's schema marks as
-  `required` the keys whose deletion would silently change a default, so such a `null` fails instead of
-  flipping the default ([ADR-0027](../adr/0027-required-keys-in-the-schema.md)).
+- **A `null` does not always delete a key**: what it does depends on the values layer and on the map
+  ([next section](#what-a-null-does-in-each-values-layer)). chart-base's schema marks as `required` the keys whose
+  deletion would silently change a default, so such a `null` fails instead of flipping the default
+  ([ADR-0027](../adr/0027-required-keys-in-the-schema.md)).
+
+## What a null does in each values layer
+
+Helm deletes a key on `null` only when the chart's own `values.yaml` defines it, and Helm 4.3 drops a `null` written in
+the umbrella's own values while nothing is passed for that component. Measured on Helm 3.22.0 and 4.3.0; each row is
+pinned by one check of the alias contract, on both Helm versions
+([testing guide](testing.md#the-alias-contract)):
+
+| The `null` is written on | From `-f`/`--set`; from the umbrella's own values on Helm 3.22; from the umbrella's own values on Helm 4.3 when a `-f`/`--set` value names that alias | From the umbrella's own values on Helm 4.3 when nothing is passed for that alias |
+|---|---|---|
+| a chart default the schema requires ([ADR-0027](../adr/0027-required-keys-in-the-schema.md): `serviceAccount.automountToken`, `job.ttlSecondsAfterFinished`, `podSecurityContext`) | Helm removes it; the render fails (`missing property`) | ignored: the default stays (nothing fails when the default is valid; `resources` and `image.repository` then fail the schema like the next row) |
+| a key that an enabled block needs ([ADR-0047](../adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md): `cronjob.schedule`, `externalSecret.secretStoreRef.kind` (its default `ClusterSecretStore` then renders) and `.name`, `httpRoute.parentRefs`, `ingress.hosts`) | Helm removes it; the render fails (`missing property`) | ignored: the default (`""`, `[]`) stays and fails the schema (`minLength: got 0, want 1`, `minItems`) |
+| any other chart default (`podSecurityContext.runAsUser`, `securityContext.readOnlyRootFilesystem`, `ingress.className`) | the default is gone | ignored: the default stays |
+| a whole map that the chart's `values.yaml` defines (`config`, `env`, `podLabels`, `podAnnotations`, `nodeSelector`, `configFiles.files`) | cleared | same result |
+| a whole map that the chart's `values.yaml` does not define (`resources.requests`) | schema error `got null, want object` | Helm drops it, and the required `requests` is then missing (`missing property 'requests'`) |
+| one entry of a typed map (`config.<KEY>`, `env.<NAME>`, `externalSecret.data.<KEY>`, labels, annotations, `nodeSelector.<key>`), or an optional member of a closed object (`lifecycle.postStart`, `strategy.rollingUpdate`, `dnsConfig.options`) | schema error `got null, want …` | Helm drops the entry (an ExternalSecret left without a `data` entry then fails the source guard) |
+| a key inside a pass-through object (`affinity.<key>`, a key of a probe) | rendered as `null` in the manifest | dropped |
+| a file of `configFiles.files` or a key of a map-form file (maps reached through maps); an entry of `resources.limits`, an entry of `resources.requests` other than `cpu` and `memory`, or `resources.limits` itself | removed by chart-base ([ADR-0045](../adr/0045-null-in-configfiles-and-resources-is-absent.md)) | removed |
+
+`externalSecret.data: null` with `externalSecret.enabled: true` is cleared and then fails the source guard
+([ADR-0047](../adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md)). In `configFiles.files`, a `null` file is no file, and in a map-form
+file a key whose value is `null` or empty (`key:`) is removed; a list inside it is rendered as written. This is a rule
+of these maps, not of every map.
+
+An overlay can add entries to a map, and can clear with `null` a whole map that the chart's `values.yaml` defines; it
+cannot remove one entry, except where this guide says so per map (in 0.7.0: a file of `configFiles.files`, a key of a
+map-form file, and an entry of `resources.limits` or `resources.requests`, other than `requests.cpu` and `requests.memory`, which stay required): keep the entries that differ per
+environment in the overlays. On Helm 4, lint and template an umbrella with the same `-f`/`--set` values the deploy
+uses: a `null` in the umbrella's own values is ignored until a value is passed for that component.
 
 ## Rules
 
@@ -299,7 +330,10 @@ release name and `--namespace`, not on `helm lint`
   `autoscaling.minReplicas` greater than `maxReplicas`, a rollout that Kubernetes would reject (`maxSurge` and
   `maxUnavailable` both 0, `minReadySeconds` not lower than `progressDeadlineSeconds`), a custom
   `lifecycle.preStop` next to the built-in preStop sleep, a lifecycle `sleep` longer than
-  `terminationGracePeriodSeconds`, a `metrics.port` that is not the name of an entry in `ports`, and with
+  `terminationGracePeriodSeconds`, a `metrics.port` that is not the name of an entry in `ports`, a probe
+  `httpGet.port` or `tcpSocket.port` given by a name that no `ports` entry declares (or a probe handler that is not a
+  map), a `configFiles.mountPath` that is `/tmp` or `/` once normalized (or the ServiceAccount token directory while
+  `serviceAccount.automountToken` is true), `externalSecret.enabled` with no entry in `externalSecret.data`, and with
   `networkPolicy` on: `metrics` or a route (`httpRoute`, `ingress`) without a source in the policy (or without
   `routeTrafficAllowedElsewhere: true`), `routeTrafficAllowedElsewhere` without a route,
   `metricsFromNamespaces` without `metrics`, `fromComponents` or `fromNamespaces` with no `ports`, an `endPort`

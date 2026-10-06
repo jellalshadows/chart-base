@@ -180,3 +180,52 @@ tests:
       - equal:
           path: spec.template.spec.serviceAccountName
           value: "true"
+
+  - it: renders no limit for a null limit, with a request for the same resource
+    template: templates/deployment.yaml
+    set:
+      resources:
+        requests: {cpu: 100m, memory: 128Mi}
+        limits: {cpu: null, memory: 256Mi}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 256Mi}
+
+  - it: renders no limit for a null limit without a request for that resource (a CronJob)
+    template: templates/cronjob.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      resources:
+        limits: {ephemeral-storage: null, memory: 256Mi}
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].resources
+          value:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 256Mi}
+
+  - it: renders no limits for resources.limits null (a Job)
+    template: templates/job.yaml
+    set:
+      workload.type: job
+      resources.limits: null
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests: {cpu: 100m, memory: 128Mi}
+
+  - it: renders no request for a null extra request (resources.requests.<k>)
+    template: templates/deployment.yaml
+    set:
+      resources:
+        requests: {cpu: 100m, memory: 128Mi, ephemeral-storage: null}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests: {cpu: 100m, memory: 128Mi}

@@ -1,0 +1,11 @@
+# configFiles written with bare keys (YAML nulls), as an umbrella's values or an override file may write them
+# (tests/configmap_test.yaml): a bare key inside a map-form file and a bare file name.
+configFiles:
+  files:
+    otel.yaml:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+            http: {}
+    retired.yaml:

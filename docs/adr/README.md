@@ -15,7 +15,7 @@ not published; each record restates every fact it uses.
 | [0002](0002-repository-is-the-chart.md) | The repository is the chart | Accepted | 0.1.0 |
 | [0003](0003-oci-on-ghcr.md) | OCI on GHCR, public and free | Accepted | 0.1.0 |
 | [0004](0004-env-in-configmap-secrets-through-externalsecret.md) | Env vars in a ConfigMap, secrets through ExternalSecret | Amended by 0030, 0031 | 0.1.0 |
-| [0005](0005-configfiles-string-or-map.md) | `configFiles` accepts a string or a map | Accepted | 0.1.0 |
+| [0005](0005-configfiles-string-or-map.md) | `configFiles` accepts a string or a map | Amended by 0045, 0046 | 0.1.0 |
 | [0006](0006-checksum-for-config-reloader-for-secrets.md) | Checksums for config, Reloader for Secrets | Amended by 0033 | 0.1.0 |
 | [0007](0007-jobs-as-helm-hooks.md) | `workload.type: job` is a Helm hook | Amended by 0041, 0043 | 0.1.0 |
 | [0008](0008-names-are-release-alias-and-never-truncated.md) | Names are `<release>-<alias>` and never truncated | Accepted | 0.1.0 |
@@ -24,7 +24,7 @@ not published; each record restates every fact it uses.
 | [0011](0011-strict-draft-07-schema.md) | Strict draft-07 schema with reserved `global` and `enabled` | Amended by 0044 | 0.1.0 |
 | [0012](0012-no-capabilities-gating.md) | No `.Capabilities` gating for CRD kinds | Accepted | 0.1.0 |
 | [0013](0013-secure-by-default.md) | Secure by default (Pod Security `restricted`) | Accepted | 0.1.0 |
-| [0014](0014-resource-requests-required.md) | `resources.requests` are required | Accepted | 0.1.0 |
+| [0014](0014-resource-requests-required.md) | `resources.requests` are required | Amended by 0045 | 0.1.0 |
 | [0015](0015-pdb-and-topology-spread-by-default.md) | PDB and topology spread on by default | Accepted | 0.1.0 |
 | [0016](0016-httproute-first-ingress-optional.md) | HTTPRoute first, Ingress optional | Accepted | 0.1.0 |
 | [0017](0017-progress-deadline-240s.md) | `progressDeadlineSeconds: 240` | Accepted | 0.1.0 |
@@ -37,7 +37,7 @@ not published; each record restates every fact it uses.
 | [0024](0024-renovate.md) | Renovate for actions and tool versions | Accepted | 0.1.0 |
 | [0025](0025-generated-english-readme.md) | Generated README, in English | Accepted | 0.1.0 |
 | [0026](0026-cronjob-runs-kept-by-history-limits.md) | CronJob runs are kept by the history limits | Accepted | 0.1.0 |
-| [0027](0027-required-keys-in-the-schema.md) | Keys the templates rely on are `required` | Amended by 0044 | 0.1.0 |
+| [0027](0027-required-keys-in-the-schema.md) | Keys the templates rely on are `required` | Amended by 0044, 0047 | 0.1.0 |
 | [0028](0028-podlabels-cannot-override-selector-labels.md) | `podLabels` cannot override the selector labels | Accepted | 0.1.0 |
 | [0029](0029-publishing-built-for-recovery.md) | Publishing is built for recovery | Amended by 0034 | 0.1.0 |
 | [0030](0030-env-takes-references-only.md) | `env` takes references only | Accepted | 0.2.0 |
@@ -55,6 +55,10 @@ not published; each record restates every fact it uses.
 | [0042](0042-existing-serviceaccount-and-namespaced-rbac.md) | An existing ServiceAccount, and namespaced RBAC: rules with no wildcards and a fixed verb list, no `cluster-admin` | Accepted | 0.6.0 |
 | [0043](0043-job-component-rbac-is-a-hook.md) | A job component's Role and RoleBindings are hooks of its phase | Accepted | 0.6.0 |
 | [0044](0044-guards-fail-the-render-helm-lint-reports-them.md) | Guards fail the render; `helm lint` reports them without failing | Accepted | 0.6.0 |
+| [0045](0045-null-in-configfiles-and-resources-is-absent.md) | A `null` in `configFiles` removes the file or the key; a `null` resource quantity is absent | Accepted | 0.7.0 |
+| [0046](0046-configfiles-mountpath-compared-normalized-rendered-as-written.md) | `configFiles.mountPath` is compared normalized and rendered as written | Accepted | 0.7.0 |
+| [0047](0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md) | When-enabled keys are required, an ExternalSecret needs a source, and a probe port name must be declared | Accepted | 0.7.0 |
+| [0048](0048-httproute-parentrefs-and-matches-are-closed.md) | The entries of `httpRoute.parentRefs` and `httpRoute.matches` are closed objects | Accepted | 0.7.0 |
 
 ## Adding a record
 

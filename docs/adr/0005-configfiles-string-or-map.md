@@ -1,6 +1,6 @@
 # ADR-0005: `configFiles` accepts a string or a map
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0045](0045-null-in-configfiles-and-resources-is-absent.md) and [ADR-0046](0046-configfiles-mountpath-compared-normalized-rendered-as-written.md) (0.7.0)
 - **Date:** 2026-09-27
 - **Since:** 0.1.0
 

@@ -479,3 +479,129 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].ports[0].name
           value: "true"
+
+  - it: renders no config-files volume, mount, checksum or pod annotations when every file is null
+    template: templates/deployment.yaml
+    set:
+      configFiles.files:
+        app.yaml: null
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - name: tmp
+              emptyDir: {}
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - name: tmp
+              mountPath: /tmp
+      - notExists:
+          path: spec.template.metadata.annotations
+
+  - it: renders no checksum/config-files when every file is null, next to the config checksum
+    template: templates/deployment.yaml
+    set:
+      config.APP_MODE: api
+      configFiles.files:
+        app.yaml: null
+    asserts:
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/config-env"]
+          pattern: ^[a-f0-9]{64}$
+      - notExists:
+          path: spec.template.metadata.annotations["checksum/config-files"]
+
+  - it: renders no config-files volume or mount for configFiles.files null
+    template: templates/deployment.yaml
+    set:
+      configFiles.files: null
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - name: tmp
+              emptyDir: {}
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - name: tmp
+              mountPath: /tmp
+      - notExists:
+          path: spec.template.metadata.annotations
+
+  - it: hashes the rendered file, so a removed null key changes no checksum (keep 1)
+    template: templates/deployment.yaml
+    set:
+      configFiles.files:
+        app.yaml: {keep: 1}
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config-files"]
+          value: cef2d8649f5626f9397cb461e96675709a32fdbf6db29839d20a413564ca3445
+
+  - it: hashes the rendered file, so a removed null key changes no checksum (keep 1, gone null)
+    template: templates/deployment.yaml
+    set:
+      configFiles.files:
+        app.yaml: {keep: 1, gone: null}
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config-files"]
+          value: cef2d8649f5626f9397cb461e96675709a32fdbf6db29839d20a413564ca3445
+
+  - it: renders configFiles.mountPath as written, with a hash sign after a space (plain YAML would cut the path there)
+    template: templates/deployment.yaml
+    set:
+      configFiles.mountPath: "/cfg #x"
+      configFiles.files:
+        app.yaml: {a: 1}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: config-files
+            mountPath: "/cfg #x"
+            readOnly: true
+
+  - it: renders configFiles.mountPath as written, a trailing space included
+    template: templates/deployment.yaml
+    set:
+      configFiles.mountPath: "/cfg "
+      configFiles.files:
+        app.yaml: {a: 1}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: config-files
+            mountPath: "/cfg "
+            readOnly: true
+
+  - it: renders a configFiles.mountPath that holds a colon and a space
+    template: templates/deployment.yaml
+    set:
+      configFiles.mountPath: "/a: b"
+      configFiles.files:
+        app.yaml: {a: 1}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: config-files
+            mountPath: "/a: b"
+            readOnly: true
+
+  - it: renders configFiles.mountPath as written, not normalized (a trailing / stays)
+    template: templates/deployment.yaml
+    set:
+      configFiles.mountPath: "/config/"
+      configFiles.files:
+        app.yaml: {a: 1}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: config-files
+            mountPath: "/config/"
+            readOnly: true

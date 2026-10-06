@@ -146,8 +146,13 @@ object changes only where 0.4.0 rendered such a value wrongly:
     Remove the whitespace or the comment.
   - `ingress.className` `NULL`, `Null` or `~` was dropped, so the Ingress had no class; 0.4.1 sends it as
     written, which is not a DNS-1123 subdomain. `null` is a valid name, so the upgrade succeeds, but the
-    Ingress now names a class `null`, which no controller serves unless such a class exists. For all of
-    them, remove the key if you want no class.
+    Ingress now names a class `null`, which no controller serves unless such a class exists. Measured on Helm
+    3.22.0 and 4.3.0 (corrected in 0.7.0): `ingress.className: null` renders an Ingress whose `ingressClassName` is
+    empty (null) when the `null` comes from an override file, from `--set`, or from the umbrella's own values on
+    Helm 3.22; on Helm 4.3 a `null` in the umbrella's own values is ignored while nothing is passed for the
+    component, and the chart's default `""` then fails the schema (`minLength: got 0, want 1`). Removing the key does
+    not give an Ingress without a class: the chart's default `""` applies and an enabled Ingress fails the schema the
+    same way. Whether an Ingress without a class is supported is an open decision ([roadmap](roadmap.md#open-decisions)).
   - `externalSecret.secretStoreRef.name` with surrounding whitespace or a ` #` comment (`"vault "`) was sent
     as `vault`; 0.4.1 sends it as written, which ESO rejects or cannot find as a store, and the Secret
     stops syncing. Remove the whitespace or the comment.
@@ -256,3 +261,80 @@ create it while the chart still renders the hook ServiceAccount (`create: true`)
   `networkPolicy.egress.toCIDRs`.
 - On a `job` component the Role and RoleBindings are hooks of the Job's phase: keep `job.activeDeadlineSeconds` below
   Helm's `--timeout` ([ADR-0043](adr/0043-job-component-rbac-is-a-hook.md)).
+
+## 0.6.x → 0.7.0
+
+0.7.0 is a breaking release. Its first pull request fixes values that Helm let through where chart-base assumed a
+value, and values that rendered objects that do not work; it changes the content of a working ConfigMap without a
+render error in one case, listed first. Render every environment with 0.7.0 and exactly the `-f`/`--set` values its
+deploy uses before you upgrade.
+
+**What changes for values that rendered a working object** (no render error):
+
+- **A map-form config file loses every key whose value is null or empty (`key:`), in maps reached without crossing a
+  list, from ANY values layer** (the umbrella's own values, `-f`, `--set`, a direct install's values file;
+  [ADR-0045](adr/0045-null-in-configfiles-and-resources-is-absent.md)). 0.6.0 rendered `key: null`. The ConfigMap changes once: a Deployment rolls
+  through its checksum annotation; CronJob and Job pods read the new file at their next run. **Who is affected:** a
+  format where an empty value carries meaning. An OpenTelemetry Collector section enabled by a bare key (`grpc:`)
+  fails its configuration validation (`must specify at least one protocol`, measured with `otelcol validate` of
+  OpenTelemetry Collector 0.162.0; the crash-loop that would follow was not run); a Spring property blanked with a
+  bare key falls back to the jar's packaged value, silently. **The check:** render every environment with 0.6.0 and
+  exactly the `-f`/`--set`
+  values its deploy uses, and search the `<fullname>-files` ConfigMaps for `null`, or diff them against 0.7.0; a bare
+  `helm template <umbrella>` on Helm 4.3 shows no difference, because Helm already dropped the key there. **The
+  remedies:** `key: {}` for a section with its defaults; `key: ""` (for Spring, the same meaning as the `null`); the
+  string form of the file for a literal `null`; a `null` inside a list stays as written. Whether `{}` or `""` is
+  equivalent to the `null` depends on the application (checked for OpenTelemetry Collector 0.162.0 and Spring Boot
+  3.5.6 only). A `null` file (also a bare `name:`) is now no file instead of a schema error.
+- **A `null` resource quantity is absent.** A `null` entry of `resources.limits`, or of `resources.requests`
+  other than the required `cpu` and `memory`, and `resources.limits: null` (a schema error in 0.6.0), render no such
+  limit or request (ADR-0045; a `null` `requests.cpu` or `requests.memory` stays a schema error). 0.6.0 rendered `<k>: null`, which the API
+  server stores as `"0"`: an install with a request for the same resource was rejected (`limit of 0`), and a limit
+  without a request became a zero limit (measured on kube-apiserver 1.33.0 and 1.37.0). A `null` limit stored as a zero
+  limit (on install with either Helm version, on upgrade with Helm 4.3) is no longer rendered (what the upgrade then
+  stores was not measured); Helm 3.22 already removed it on upgrade.
+- **`configFiles.mountPath` is sent as written** ([ADR-0046](adr/0046-configfiles-mountpath-compared-normalized-rendered-as-written.md)): a path with trailing whitespace
+  or a ` #` comment was cut there by 0.6.0 and is now another directory (the mount moves; remove them); a path that
+  contains `: ` failed the render and now renders. `mountPath: /config` is now rendered `"/config"`, the same object.
+
+**What now fails at render** (`helm template`, install and upgrade. `helm lint` of chart-base itself also fails on the
+schema rules among them, the `required` keys and the closed route entries; through an umbrella, a `null` from `-f` or
+`--set` that deletes a required key passes lint ([ADR-0044](adr/0044-guards-fail-the-render-helm-lint-reports-them.md)),
+Helm 4.3 lints no subchart schema when the umbrella has no `templates/`, and no guard fails lint: gate on `helm template`
+with the deploy's real values): fix the values before you upgrade.
+
+- A `configFiles.mountPath` that is `/tmp` or `/` once normalized (`//tmp`, `/tmp/.`, `/./tmp`, `/a/../tmp`, `/..`),
+  or the ServiceAccount token directory `/var/run/secrets/kubernetes.io/serviceaccount` (also `//var/...` or with a
+  trailing `/`) while `serviceAccount.automountToken` is true: `configFiles.mountPath must not be /tmp (an emptyDir is
+  mounted there): "//tmp" is /tmp once normalized; choose another directory, such as the default /config`, and the
+  same for `/` and the token directory. Choose another directory (for the token directory, or set
+  `serviceAccount.automountToken: false`). A parent of the token directory (`/var/run/secrets`) is not checked;
+  whether such a pod starts is not measured.
+- `externalSecret.enabled: true` with `externalSecret.data` null, empty or absent, including a Helm 3.22 release with
+  `data: null` that deployed: `externalSecret.enabled is true and externalSecret.data has no entry: list at least one
+  key in externalSecret.data, or set externalSecret.enabled: false (an override file cannot remove single keys that
+  another values file defines, and data: {} removes nothing: maps are merged)`
+  ([ADR-0047](adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md)). The schema no longer checks this, so schema-only tools (an IDE, `helm lint`)
+  do not flag it.
+- A `null` for `cronjob.schedule` (on a cronjob), for `externalSecret.secretStoreRef.kind` or `.name`, for
+  `httpRoute.parentRefs` or for `ingress.hosts` while their block is enabled: `missing property '<key>'`. 0.6.0
+  rendered `null` (what the API server then did was not measured). Write the value. **`secretStoreRef.kind: null`**
+  in particular may have fallen back to ESO's default `SecretStore` on Helm 3.22 (unverified) and now fails: write
+  the kind, `ClusterSecretStore` or `SecretStore`.
+- **A main-container probe whose `httpGet.port` or `tcpSocket.port` is a name that no `ports` entry declares, or
+  whose `httpGet` or `tcpSocket` is not a map. This one can make `helm upgrade` fail for a release that runs
+  today**: a Deployment whose only wrong name is in the liveness probe, and a `job` or `cronjob` with any such probe.
+  The kubelet cannot resolve such a name and never runs the probe (kubelet source at v1.33.12 and v1.37.0; not
+  verified at runtime). `probes.liveness.httpGet.port "htpp" is not the name of an entry in ports: the kubelet cannot
+  resolve it and never runs the probe. Use the port number, or declare the name in ports (a ports entry also becomes a
+  Service port when a Service is rendered, and is opened by networkPolicy.ingress.fromComponents/fromNamespaces), or
+  remove the probe`. After the fix a liveness probe runs for the first time: check its path and thresholds before you
+  roll out. In an umbrella, one such component blocks the render of the whole release.
+- **An unknown or misspelt key, or a `null` value, in an entry of `httpRoute.parentRefs` or `httpRoute.matches`**, at any level
+  ([ADR-0048](adr/0048-httproute-parentrefs-and-matches-are-closed.md)): `additional properties 'sectioName' not allowed`, with the path of the key.
+  0.6.0 rendered it; on Helm 3.22, and on Helm 4.3 for a release first installed by Helm 3, the API server dropped
+  the field, which widened the route (`pathh: /api` matched every request; `sectioName: https` attached the route to
+  every listener). Fix the key's spelling; the entries take exactly the fields of the Gateway API v1.6.2 Standard CRD.
+  A `null` field in such an entry (`sectionName: null`) now fails the schema too: on 0.6.0 it rendered, and on Helm 3.22
+  the API server dropped the `null` (the route was the same without it), while Helm 4.3's server-side apply rejected it
+  (measured on kube-apiserver 1.33.0 and 1.37.0). Remove the key.

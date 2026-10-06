@@ -114,7 +114,7 @@ tests:
       externalSecret.secretStoreRef.name: gcp-sm
     asserts:
       - failedTemplate:
-          errorPattern: "/externalSecret/data': minProperties"
+          errorPattern: "externalSecret.enabled is true and externalSecret.data has no entry"
 
   - it: requires parentRefs when httpRoute is enabled
     set:
@@ -248,7 +248,7 @@ tests:
           app.yaml: 5
     asserts:
       - failedTemplate:
-          errorPattern: "/configFiles/files/app.yaml': got number, want string or object"
+          errorPattern: "/configFiles/files/app.yaml': got number, want null or string or object"
 
   - it: requires key on every externalSecret.data entry
     set:
@@ -1526,3 +1526,192 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: still requires resources.requests.cpu (a null request is a missing request, not an absent one)
+    set:
+      resources.requests.cpu: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/resources/requests/cpu': got null, want number or string"
+
+  - it: rejects a configFiles.mountPath tmp (relative, before any guard runs)
+    set:
+      configFiles.mountPath: tmp
+    asserts:
+      - failedTemplate:
+          errorPattern: "/configFiles/mountPath': 'tmp' does not match pattern"
+
+  - it: fails on a null cronjob.schedule while a cronjob is enabled (every when-enabled key is required)
+    set:
+      workload.type: cronjob
+      cronjob.schedule: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/cronjob': missing property 'schedule'"
+
+  - it: fails on a null ports while a deployment with a Service is enabled (every when-enabled key is required)
+    set:
+      ports: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "missing property 'ports'"
+
+  - it: fails on a null externalSecret.secretStoreRef.kind while externalSecret is enabled (every when-enabled key is required)
+    set:
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: vault
+      externalSecret.data.DB.key: db
+      externalSecret.secretStoreRef.kind: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/externalSecret/secretStoreRef': missing property 'kind'"
+
+  - it: fails on a null externalSecret.secretStoreRef.name while externalSecret is enabled (every when-enabled key is required)
+    set:
+      externalSecret.enabled: true
+      externalSecret.data.DB.key: db
+      externalSecret.secretStoreRef.name: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/externalSecret/secretStoreRef': missing property 'name'"
+
+  - it: fails on a null externalSecret.data while externalSecret is enabled (every when-enabled key is required)
+    set:
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: vault
+      externalSecret.data: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "externalSecret.enabled is true and externalSecret.data has no entry"
+
+  - it: fails on a null httpRoute.parentRefs while httpRoute is enabled (every when-enabled key is required)
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute': missing property 'parentRefs'"
+
+  - it: fails on a null ingress.hosts while ingress is enabled (every when-enabled key is required)
+    set:
+      ingress.enabled: true
+      ingress.className: nginx
+      ingress.hosts: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/ingress': missing property 'hosts'"
+
+  - it: fails on a null prometheusRule.groups while prometheusRule is enabled (every when-enabled key is required)
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule': missing property 'groups'"
+
+  - it: fails on a null service.enabled while httpRoute (a route needs a Service) is enabled (every when-enabled key is required)
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs[0].name: gw
+      service.enabled: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/service': missing property 'enabled'"
+
+  - it: rejects a misspelt key in an httpRoute.parentRefs entry (sectioName would attach the route to every listener)
+    set:
+      httpRoute.parentRefs: [{name: gw, sectioName: https}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/parentRefs/0': additional properties 'sectioName' not allowed"
+
+  - it: rejects an httpRoute.parentRefs entry without name (required by the CRD)
+    set:
+      httpRoute.parentRefs: [{namespace: gateway}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/parentRefs/0': missing property 'name'"
+
+  - it: rejects an httpRoute.parentRefs port out of range
+    set:
+      httpRoute.parentRefs: [{name: gw, port: 0}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/parentRefs/0/port': minimum"
+
+  - it: rejects a misspelt key in an httpRoute.matches entry (pathh would match every request)
+    set:
+      httpRoute.matches: [{pathh: {value: /api}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/matches/0': additional properties 'pathh' not allowed"
+
+  - it: rejects a misspelt key in httpRoute.matches[].path
+    set:
+      httpRoute.matches: [{path: {type: PathPrefix, vaule: /api}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/matches/0/path': additional properties 'vaule' not allowed"
+
+  - it: rejects a path type that the CRD does not list
+    set:
+      httpRoute.matches: [{path: {type: Prefix, value: /api}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/matches/0/path/type': value must be one of"
+
+  - it: rejects a misspelt key in httpRoute.matches[].headers[]
+    set:
+      httpRoute.matches: [{headers: [{name: x-env, value: canary, typ: Exact}]}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/matches/0/headers/0': additional properties 'typ' not allowed"
+
+  - it: rejects a misspelt key in httpRoute.matches[].queryParams[]
+    set:
+      httpRoute.matches: [{queryParams: [{name: tier, value: gold, tpye: Exact}]}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/matches/0/queryParams/0': additional properties 'tpye' not allowed"
+
+  - it: rejects a header match without value (required by the CRD)
+    set:
+      httpRoute.matches: [{headers: [{name: x-env}]}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/matches/0/headers/0': missing property 'value'"
+
+  - it: rejects a header match without name (required by the CRD)
+    set:
+      httpRoute.matches: [{headers: [{value: canary}]}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/matches/0/headers/0': missing property 'name'"
+
+  - it: rejects a query parameter match without name (required by the CRD)
+    set:
+      httpRoute.matches: [{queryParams: [{value: gold}]}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/matches/0/queryParams/0': missing property 'name'"
+
+  - it: rejects a method that the CRD does not list
+    set:
+      httpRoute.matches: [{method: get}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/matches/0/method': value must be one of"
+
+  - it: rejects an httpRoute.parentRefs port above 65535
+    set:
+      httpRoute.parentRefs: [{name: gw, port: 65536}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/parentRefs/0/port': maximum"
+
+  - it: rejects a header match type that the CRD does not list
+    set:
+      httpRoute.matches: [{headers: [{name: x-env, value: canary, type: Prefix}]}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute/matches/0/headers/0/type': value must be one of"

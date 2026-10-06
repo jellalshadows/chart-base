@@ -1,6 +1,6 @@
 # ADR-0014: `resources.requests` are required
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0045](0045-null-in-configfiles-and-resources-is-absent.md) (0.7.0)
 - **Date:** 2026-09-27
 - **Since:** 0.1.0
 - **Related:** [ADR-0015](0015-pdb-and-topology-spread-by-default.md)

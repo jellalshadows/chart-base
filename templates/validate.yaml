@@ -21,8 +21,17 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if and .Values.autoscaling.enabled (gt (int .Values.autoscaling.minReplicas) (int .Values.autoscaling.maxReplicas)) -}}
 {{- include "chart-base.fail" (list . "autoscaling.minReplicas must be <= autoscaling.maxReplicas") -}}
 {{- end -}}
-{{- if eq (trimSuffix "/" .Values.configFiles.mountPath) "/tmp" -}}
-{{- include "chart-base.fail" (list . "configFiles.mountPath must not be /tmp (an emptyDir is mounted there)") -}}
+{{- /* configFiles.mountPath is compared normalized (chart-base.cleanPath) and rendered as written, and checked whether or not a file is rendered. */ -}}
+{{- $configMountPath := .Values.configFiles.mountPath -}}
+{{- $configMount := include "chart-base.cleanPath" $configMountPath -}}
+{{- if eq $configMount "/tmp" -}}
+{{- include "chart-base.fail" (list . (printf "configFiles.mountPath must not be /tmp (an emptyDir is mounted there): %q is /tmp once normalized; choose another directory, such as the default /config" $configMountPath)) -}}
+{{- end -}}
+{{- if eq $configMount "/" -}}
+{{- include "chart-base.fail" (list . (printf "configFiles.mountPath must not be / (%q is / once normalized): the ConfigMap would be mounted at the container's root; choose a directory, such as the default /config" $configMountPath)) -}}
+{{- end -}}
+{{- if and .Values.serviceAccount.automountToken (eq $configMount "/var/run/secrets/kubernetes.io/serviceaccount") -}}
+{{- include "chart-base.fail" (list . (printf "configFiles.mountPath must not be /var/run/secrets/kubernetes.io/serviceaccount while serviceAccount.automountToken is true (%q is that directory once normalized): the ServiceAccount token is mounted there; choose another directory, or set serviceAccount.automountToken: false" $configMountPath)) -}}
 {{- end -}}
 {{- if and (eq .Values.workload.type "deployment") (ge (int .Values.preStopSleepSeconds) (int .Values.terminationGracePeriodSeconds)) (gt (int .Values.preStopSleepSeconds) 0) -}}
 {{- include "chart-base.fail" (list . "preStopSleepSeconds must be lower than terminationGracePeriodSeconds") -}}
@@ -60,6 +69,10 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list . (printf "metrics.port %q is not the name of an entry in ports: Prometheus scrapes a named port, so declare it in ports (a worker without a Service too), e.g. ports: [{name: metrics, containerPort: 9090}]" .Values.metrics.port)) -}}
 {{- end -}}
 {{- end -}}
+{{- /* A main-container probe port given by NAME must be the name of an entry of ports, on every workload type. */ -}}
+{{- $mainPortNames := list -}}
+{{- range (.Values.ports | default list) }}{{ $mainPortNames = append $mainPortNames .name }}{{ end -}}
+{{- include "chart-base.validateProbePorts" (dict "ctx" . "path" "probes" "probes" .Values.probes "portNames" $mainPortNames "portsPath" "ports") -}}
 {{- if .Values.networkPolicy.enabled -}}
 {{- $in := .Values.networkPolicy.ingress -}}
 {{- $eg := .Values.networkPolicy.egress -}}
@@ -139,6 +152,10 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- end -}}
 {{- if has "cluster-admin" .Values.rbac.clusterRoles -}}
 {{- include "chart-base.fail" (list . "rbac.clusterRoles: cluster-admin is rejected: bound in the namespace, it allows every verb on every resource there, the * that rbac.rules rejects, and a deployer with only the namespace's admin rights cannot bind it: list the rules the component needs in rbac.rules, or bind a narrower ClusterRole such as view") -}}
+{{- end -}}
+{{- /* An ExternalSecret needs a source: externalSecret.data null (absent once Helm removes it), {} or empty fails here, with one message from every values layer. */ -}}
+{{- if and .Values.externalSecret.enabled (empty (.Values.externalSecret.data | default dict)) -}}
+{{- include "chart-base.fail" (list . "externalSecret.enabled is true and externalSecret.data has no entry: list at least one key in externalSecret.data, or set externalSecret.enabled: false (an override file cannot remove single keys that another values file defines, and data: {} removes nothing: maps are merged)") -}}
 {{- end -}}
 
 {{- if kindIs "slice" .Values.env -}}

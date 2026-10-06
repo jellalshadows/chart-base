@@ -247,6 +247,39 @@
         "resourceNames": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[^*]+$" } },
         "verbs": { "type": "array", "minItems": 1, "items": { "enum": ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection", "use", "bind", "escalate", "impersonate"] } }
       }
+    },
+    "httpRouteParentRef": {
+      "description": "An HTTPRoute parentRef: exactly the fields of ParentReference in the Gateway API v1.6.2 Standard CRD, its required name and its port range. The API server drops an unknown field, so a misspelt sectionName would attach the route to every listener of the Gateway.",
+      "type": "object",
+      "additionalProperties": false, "required": ["name"],
+      "properties": {
+        "group": { "type": "string" },
+        "kind": { "type": "string" },
+        "namespace": { "type": "string" },
+        "name": { "type": "string" },
+        "sectionName": { "type": "string" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+      }
+    },
+    "httpRouteMatch": {
+      "description": "An HTTPRoute match: exactly the fields of HTTPRouteMatch in the Gateway API v1.6.2 Standard CRD, at every level, with its enums and required fields. The API server drops an unknown field, so a misspelt path would match every request.",
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "path": { "type": "object", "additionalProperties": false, "properties": { "type": { "enum": ["Exact", "PathPrefix", "RegularExpression"] }, "value": { "type": "string" } } },
+        "headers": { "type": "array", "items": { "$ref": "#/definitions/httpRouteValueMatch" } },
+        "queryParams": { "type": "array", "items": { "$ref": "#/definitions/httpRouteValueMatch" } },
+        "method": { "enum": ["GET", "HEAD", "POST", "PUT", "DELETE", "CONNECT", "OPTIONS", "TRACE", "PATCH"] }
+      }
+    },
+    "httpRouteValueMatch": {
+      "description": "A header or query parameter match of an HTTPRoute (HTTPHeaderMatch and HTTPQueryParamMatch of the Gateway API v1.6.2 Standard CRD): name and value required, type Exact or RegularExpression.",
+      "type": "object",
+      "additionalProperties": false, "required": ["name", "value"],
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "enum": ["Exact", "RegularExpression"] },
+        "value": { "type": "string" }
+      }
     }
   },
   "properties": {
@@ -312,7 +345,7 @@
             "memory": { "type": ["string", "number"] }
           }
         },
-        "limits": { "type": "object" }
+        "limits": { "type": ["object", "null"] }
       }
     },
     "config": {
@@ -329,7 +362,7 @@
         "files": {
           "type": "object",
           "propertyNames": { "pattern": "^[-._a-zA-Z0-9]+$" },
-          "additionalProperties": { "type": ["string", "object"] }
+          "additionalProperties": { "type": ["string", "object", "null"] }
         }
       }
     },
@@ -518,9 +551,9 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean" },
-        "parentRefs": { "type": "array", "items": { "type": "object" } },
+        "parentRefs": { "type": "array", "items": { "$ref": "#/definitions/httpRouteParentRef" } },
         "hostnames": { "type": "array", "items": { "type": "string" } },
-        "matches": { "type": "array", "items": { "type": "object" } }
+        "matches": { "type": "array", "items": { "$ref": "#/definitions/httpRouteMatch" } }
       }
     },
     "ingress": {
@@ -785,7 +818,7 @@
   "allOf": [
     {
       "if": { "properties": { "workload": { "properties": { "type": { "const": "cronjob" } } } } },
-      "then": { "properties": { "cronjob": { "properties": { "schedule": { "minLength": 1 } } } } }
+      "then": { "properties": { "cronjob": { "required": ["schedule"], "properties": { "schedule": { "minLength": 1 } } } } }
     },
     {
       "if": { "properties": { "workload": { "properties": { "type": { "enum": ["cronjob", "job"] } } } } },
@@ -813,8 +846,7 @@
         "properties": {
           "externalSecret": {
             "properties": {
-              "secretStoreRef": { "properties": { "name": { "minLength": 1 } } },
-              "data": { "minProperties": 1 }
+              "secretStoreRef": { "required": ["kind", "name"], "properties": { "name": { "minLength": 1 } } }
             }
           }
         }
@@ -824,7 +856,7 @@
       "if": { "properties": { "httpRoute": { "properties": { "enabled": { "const": true } } } } },
       "then": {
         "properties": {
-          "httpRoute": { "properties": { "parentRefs": { "minItems": 1 } } },
+          "httpRoute": { "required": ["parentRefs"], "properties": { "parentRefs": { "minItems": 1 } } },
           "service": { "properties": { "enabled": { "const": true } } }
         }
       }
@@ -833,7 +865,7 @@
       "if": { "properties": { "ingress": { "properties": { "enabled": { "const": true } } } } },
       "then": {
         "properties": {
-          "ingress": { "properties": { "className": { "minLength": 1 }, "hosts": { "minItems": 1 } } },
+          "ingress": { "required": ["hosts"], "properties": { "className": { "minLength": 1 }, "hosts": { "minItems": 1 } } },
           "service": { "properties": { "enabled": { "const": true } } }
         }
       }

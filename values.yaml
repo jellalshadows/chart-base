@@ -28,12 +28,14 @@ command: []
 args: []
 
 # -- Container ports. Each entry also becomes a Service port when a Service is rendered.
-# `servicePort` is optional and defaults to `containerPort`.
+# `servicePort` is optional and defaults to `containerPort`. A probe port given by name (`httpGet.port`,
+# `tcpSocket.port` in `probes`) must be one of these names: the render fails otherwise.
 ports:
   - name: http
     containerPort: 8080
 
-# -- Required: `requests.cpu` and `requests.memory`. Container resources.
+# -- Required: `requests.cpu` and `requests.memory`. Container resources. A `null` entry of `limits` or `requests` (other than
+# `requests.cpu` and `requests.memory`, which stay required), and `limits: null`, mean absent: no such limit or request is rendered (the API server would store a null as `"0"`).
 resources: {}
 
 # -- Environment variables. Rendered into ConfigMap `<fullname>-env` and injected with `envFrom`.
@@ -50,23 +52,31 @@ env: {}
 envFrom: []
 
 configFiles:
-  # -- Directory where `configFiles.files` are mounted read-only. Must not be `/tmp`.
+  # -- Directory where `configFiles.files` are mounted read-only. Rendered as written. Must not be `/tmp` or `/` once
+  # normalized (`//tmp` and `/tmp/.` are `/tmp`), nor the ServiceAccount token directory
+  # `/var/run/secrets/kubernetes.io/serviceaccount` while `serviceAccount.automountToken` is true.
   mountPath: /config
   # -- Files rendered into ConfigMap `<fullname>-files`. A string value is written verbatim;
-  # a map value is rendered with `toYaml` (so it can be merged per environment).
+  # a map value is rendered with `toYaml` (so it can be merged per environment). A file set to `null` (also a bare
+  # `name:`) is no file, `files: null` removes every file, and an empty file is `""`. In a map-form file every key whose
+  # value is `null` or empty (`key:`) is removed, in maps reached through maps, from every values layer and on Helm 3
+  # and 4 alike (Helm 4 already drops such keys from an umbrella's own values while nothing is passed for the
+  # component): write `key: {}` or `key: ""` to keep one, or the string form of the file for a literal `null`. A list is
+  # rendered as written, with everything inside it, and a map left empty stays `{}`.
   files: {}
 
 externalSecret:
   # -- Render an ExternalSecret (external-secrets.io/v1) whose Secret `<fullname>-secrets` is injected with `envFrom`.
   enabled: false
   secretStoreRef:
-    # -- `ClusterSecretStore` or `SecretStore`.
+    # -- `ClusterSecretStore` or `SecretStore`. Required when enabled (a `null` fails the render).
     kind: ClusterSecretStore
     # -- Name of the secret store. Required when enabled.
     name: ""
   # -- How often ESO re-reads the remote secrets.
   refreshInterval: 1h
-  # -- Map of `ENV_VAR: {key: <remote key>, property: <optional field>}`.
+  # -- Map of `ENV_VAR: {key: <remote key>, property: <optional field>}`. At least one entry when enabled: an enabled
+  # ExternalSecret with `data` empty or `null` fails the render.
   data: {}
 
 # -- Restart Deployments (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is
@@ -98,11 +108,11 @@ service:
   type: ClusterIP
 
 probes:
-  # -- Startup probe (Kubernetes probe object). Empty = not rendered.
+  # -- Startup probe (Kubernetes probe object). Empty = not rendered. A port given by name must be a `ports` name.
   startup: {}
-  # -- Liveness probe (Kubernetes probe object). Empty = not rendered.
+  # -- Liveness probe (Kubernetes probe object). Empty = not rendered. A port given by name must be a `ports` name.
   liveness: {}
-  # -- Readiness probe (Kubernetes probe object). Empty = not rendered.
+  # -- Readiness probe (Kubernetes probe object). Empty = not rendered. A port given by name must be a `ports` name.
   readiness: {}
 
 autoscaling:
@@ -145,10 +155,14 @@ httpRoute:
   # -- Render a Gateway API HTTPRoute (gateway.networking.k8s.io/v1). Requires `service.enabled`.
   enabled: false
   # -- Gateways to attach to (required when enabled), e.g. `[{name: platform-gw, namespace: gateway, sectionName: https}]`.
+  # Each entry takes exactly the fields of a Gateway API `ParentReference` (`group`, `kind`, `namespace`, `name`,
+  # `sectionName`, `port`): an unknown or misspelt key fails the render (the API server would drop it silently).
   parentRefs: []
   # -- Hostnames matched by the route.
   hostnames: []
-  # -- HTTPRoute matches. The backend is always this component's Service (first port).
+  # -- HTTPRoute matches. The backend is always this component's Service (first port). Each entry takes exactly the
+  # fields of a Gateway API `HTTPRouteMatch` (`path`, `headers`, `queryParams`, `method`), at every level: an unknown or
+  # misspelt key fails the render (the API server would drop it silently and the route would match more).
   matches:
     - path:
         type: PathPrefix

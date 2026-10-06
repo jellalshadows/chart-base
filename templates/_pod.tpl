@@ -117,22 +117,25 @@ containers:
           seconds: {{ $.Values.preStopSleepSeconds }}
       {{- end }}
     {{- end }}
+    {{- /* A null quantity (resources.limits.<k>, resources.requests.<k>) and limits: null mean absent: the API server would store a null as "0". */}}
+    {{- $resources := deepCopy ($.Values.resources | default dict) }}
+    {{- include "chart-base.pruneNulls" $resources }}
     resources:
-      {{- toYaml $.Values.resources | nindent 6 }}
+      {{- toYaml $resources | nindent 6 }}
     securityContext:
       {{- toYaml $.Values.securityContext | nindent 6 }}
     volumeMounts:
       - name: tmp
         mountPath: /tmp
-      {{- if $.Values.configFiles.files }}
+      {{- if include "chart-base.hasConfigFiles" $ }}
       - name: config-files
-        mountPath: {{ $.Values.configFiles.mountPath }}
+        mountPath: {{ $.Values.configFiles.mountPath | quote }}
         readOnly: true
       {{- end }}
 volumes:
   - name: tmp
     emptyDir: {}
-  {{- if $.Values.configFiles.files }}
+  {{- if include "chart-base.hasConfigFiles" $ }}
   - name: config-files
     configMap:
       name: {{ $fullname }}-files

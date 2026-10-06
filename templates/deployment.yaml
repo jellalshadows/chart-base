@@ -32,12 +32,12 @@ spec:
     metadata:
       labels:
         {{- include "chart-base.podLabels" . | nindent 8 }}
-      {{- if or .Values.config .Values.configFiles.files .Values.podAnnotations }}
+      {{- if or .Values.config (include "chart-base.hasConfigFiles" .) .Values.podAnnotations }}
       annotations:
         {{- if .Values.config }}
         checksum/config-env: {{ (include (print $.Template.BasePath "/configmap-env.yaml") . | fromYaml).data | toJson | sha256sum }}
         {{- end }}
-        {{- if .Values.configFiles.files }}
+        {{- if include "chart-base.hasConfigFiles" . }}
         checksum/config-files: {{ (include (print $.Template.BasePath "/configmap-files.yaml") . | fromYaml).data | toJson | sha256sum }}
         {{- end }}
         {{- with .Values.podAnnotations }}

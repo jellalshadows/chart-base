@@ -893,3 +893,260 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: rejects configFiles.mountPath //tmp (/tmp once normalized), with no file
+    set:
+      configFiles.mountPath: //tmp
+    asserts:
+      - failedTemplate:
+          errorPattern: '"//tmp" is /tmp once normalized; choose another directory, such as the default /config'
+
+  - it: rejects configFiles.mountPath /tmp/. (/tmp once normalized), with no file
+    set:
+      configFiles.mountPath: /tmp/.
+    asserts:
+      - failedTemplate:
+          errorPattern: '"/tmp/\." is /tmp once normalized'
+
+  - it: rejects configFiles.mountPath /./tmp (/tmp once normalized), with no file
+    set:
+      configFiles.mountPath: /./tmp
+    asserts:
+      - failedTemplate:
+          errorPattern: '"/\./tmp" is /tmp once normalized'
+
+  - it: rejects configFiles.mountPath /a/../tmp (/tmp once normalized), with no file
+    set:
+      configFiles.mountPath: /a/../tmp
+    asserts:
+      - failedTemplate:
+          errorPattern: '"/a/\.\./tmp" is /tmp once normalized'
+
+  - it: rejects configFiles.mountPath /tmp (/tmp once normalized), with no file
+    set:
+      configFiles.mountPath: /tmp
+    asserts:
+      - failedTemplate:
+          errorPattern: '"/tmp" is /tmp once normalized'
+
+  - it: rejects configFiles.mountPath / (/ once normalized), with no file
+    set:
+      configFiles.mountPath: /
+    asserts:
+      - failedTemplate:
+          errorPattern: 'configFiles.mountPath must not be / \("/" is / once normalized\): the ConfigMap would be mounted at the container.s root; choose a directory, such as the default /config'
+
+  - it: rejects configFiles.mountPath /.. (/ once normalized), with no file
+    set:
+      configFiles.mountPath: /..
+    asserts:
+      - failedTemplate:
+          errorPattern: 'configFiles.mountPath must not be / \("/\.\." is / once normalized\)'
+
+  - it: rejects configFiles.mountPath /var/run/secrets/kubernetes.io/serviceaccount (the token directory) while serviceAccount.automountToken is true
+    set:
+      configFiles.mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      serviceAccount.automountToken: true
+    asserts:
+      - failedTemplate:
+          errorPattern: '"/var/run/secrets/kubernetes.io/serviceaccount" is that directory once normalized\): the ServiceAccount token is mounted there; choose another directory, or set serviceAccount.automountToken: false'
+
+  - it: rejects configFiles.mountPath /var/run/secrets/kubernetes.io/serviceaccount/ (the token directory) while serviceAccount.automountToken is true
+    set:
+      configFiles.mountPath: /var/run/secrets/kubernetes.io/serviceaccount/
+      serviceAccount.automountToken: true
+    asserts:
+      - failedTemplate:
+          errorPattern: '"/var/run/secrets/kubernetes.io/serviceaccount/" is that directory once normalized\): the ServiceAccount token is mounted there'
+
+  - it: rejects configFiles.mountPath //var/run/secrets/kubernetes.io/serviceaccount (the token directory) while serviceAccount.automountToken is true
+    set:
+      configFiles.mountPath: //var/run/secrets/kubernetes.io/serviceaccount
+      serviceAccount.automountToken: true
+    asserts:
+      - failedTemplate:
+          errorPattern: '"//var/run/secrets/kubernetes.io/serviceaccount" is that directory once normalized\): the ServiceAccount token is mounted there'
+
+  - it: accepts the token directory as configFiles.mountPath while serviceAccount.automountToken is false
+    set:
+      configFiles.mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      serviceAccount.automountToken: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts /var/run/secrets as configFiles.mountPath with the token (a parent of the token directory is not checked)
+    set:
+      configFiles.mountPath: /var/run/secrets
+      serviceAccount.automountToken: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts configFiles.mountPath /tmp with a trailing space (another directory once quoted, compared as written)
+    set:
+      configFiles.mountPath: "/tmp "
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts configFiles.mountPath /tmp followed by a space and a hash comment (another directory once quoted)
+    set:
+      configFiles.mountPath: "/tmp #x"
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: fails for externalSecret.data {} while externalSecret is enabled (an empty map is no source)
+    set:
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: vault
+      externalSecret.data: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "externalSecret.enabled is true and externalSecret.data has no entry: list at least one key in externalSecret.data, or set externalSecret.enabled: false"
+
+  - it: accepts externalSecret.data null while externalSecret is disabled
+    set:
+      externalSecret.enabled: false
+      externalSecret.data: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts externalSecret.data {} while externalSecret is disabled (the default)
+    set:
+      externalSecret.enabled: false
+      externalSecret.secretStoreRef.name: vault
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a liveness httpGet port name that no ports entry declares, next to a valid readiness probe
+    set:
+      probes.readiness.httpGet: {path: /ready, port: http}
+      probes.liveness.httpGet: {path: /live, port: htpp}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'probes.liveness.httpGet.port "htpp" is not the name of an entry in ports: the kubelet cannot resolve it and never runs the probe. Use the port number, or declare the name in ports \(a ports entry also becomes a Service port when a Service is rendered, and is opened by networkPolicy.ingress.fromComponents/fromNamespaces\), or remove the probe'
+
+  - it: rejects a startup httpGet port name that no ports entry declares
+    set:
+      probes.startup.httpGet: {path: /started, port: web}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'probes.startup.httpGet.port "web" is not the name of an entry in ports: the kubelet cannot resolve it and never runs the probe'
+
+  - it: rejects a readiness httpGet port name that no ports entry declares on a cronjob
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      probes.readiness.httpGet: {path: /ready, port: web}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'probes.readiness.httpGet.port "web" is not the name of an entry in ports: the kubelet cannot resolve it and never runs the probe'
+
+  - it: rejects a startup tcpSocket port name on a job with ports []
+    set:
+      workload.type: job
+      ports: []
+      probes.startup.tcpSocket: {port: grpc}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'probes.startup.tcpSocket.port "grpc" is not the name of an entry in ports: the kubelet cannot resolve it and never runs the probe'
+
+  - it: rejects a liveness tcpSocket port name that no ports entry declares
+    set:
+      probes.liveness.tcpSocket: {port: grpc}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'probes.liveness.tcpSocket.port "grpc" is not the name of an entry in ports: the kubelet cannot resolve it and never runs the probe'
+
+  - it: rejects a readiness tcpSocket port name that no ports entry declares on a cronjob
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      probes.readiness.tcpSocket: {port: grpc}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'probes.readiness.tcpSocket.port "grpc" is not the name of an entry in ports: the kubelet cannot resolve it and never runs the probe'
+
+  - it: rejects a probe on http once ports null removes the default http port
+    set:
+      service.enabled: false
+      ports: null
+      probes.liveness.httpGet: {path: /live, port: http}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'probes.liveness.httpGet.port "http" is not the name of an entry in ports: the kubelet cannot resolve it and never runs the probe'
+
+  - it: rejects a quoted number as a probe port (a string is a port name)
+    set:
+      probes.liveness.httpGet: {path: /live, port: "8080"}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'probes.liveness.httpGet.port "8080" is not the name of an entry in ports: the kubelet cannot resolve it and never runs the probe'
+
+  - it: rejects a probe handler that is a string
+    set:
+      probes.readiness.httpGet: x
+    asserts:
+      - failedTemplate:
+          errorPattern: 'probes.readiness.httpGet must be a map, e.g. .port: 8080., got string'
+
+  - it: rejects a probe handler that is a list
+    set:
+      probes.startup.tcpSocket: [8080]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'probes.startup.tcpSocket must be a map, e.g. .port: 8080., got slice'
+
+  - it: accepts numeric probe ports with no ports entry (a worker with ports [])
+    set:
+      service.enabled: false
+      ports: []
+      probes.liveness.httpGet: {path: /live, port: 8080}
+      probes.readiness.tcpSocket: {port: 8080}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a declared port name on each of the three probes
+    set:
+      probes.startup.httpGet: {path: /started, port: http}
+      probes.liveness.tcpSocket: {port: http}
+      probes.readiness.httpGet: {path: /ready, port: http}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts exec and grpc probes (no port name to check)
+    set:
+      probes.liveness.exec: {command: [cat, /tmp/healthy]}
+      probes.readiness.grpc: {port: 9090}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a null handler next to another handler (an override switching handlers)
+    set:
+      probes.liveness.httpGet: null
+      probes.liveness.tcpSocket: {port: http}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a probe handler without a port (not checked here)
+    set:
+      probes.readiness.httpGet: {path: /ready}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts an absent probe and an empty one
+    set:
+      probes.startup: null
+      probes.liveness: {}
+    asserts:
+      - hasDocuments:
+          count: 0

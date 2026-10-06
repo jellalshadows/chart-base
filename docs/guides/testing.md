@@ -169,6 +169,16 @@ covered: a hyphen in the values key, the `condition` path and the resource names
 - `helm.sh/chart` keeps the real chart name (`chart-base-<version>`) under an alias;
 - `<alias>.enabled=false` removes the component;
 - the schema is enforced per alias and names the alias in the error, and a typo under an alias fails;
+- what a `null` does in each values layer, with a second umbrella of one alias, `api`: U0, the `null` in the
+  umbrella's own values with nothing passed for the alias; U1, the same plus `--set api.replicas=2`; F, an override
+  file (`-f`); S, `--set`. Helm 4.3 drops a `null` of the umbrella's own values in U0 only and Helm 3.22 never, which is
+  why CI runs the script on both: only the two legs together show that chart-base renders the same bytes in every
+  layer. A `null` or bare key of a map-form file and a `null` file are removed in all four layers (`{}` and `""`
+  kept); `files: null` and every file `null` render no ConfigMap, volume, mount or checksum; a `null` limit is removed
+  in all four; `externalSecret.data: null` fails the source guard in U0, U1 and F; a `null` when-enabled key fails and
+  the error names the alias; a liveness probe on an undeclared port name fails; and one check per row of the
+  [null table of the consuming guide](consuming.md#what-a-null-does-in-each-values-layer), with the result each Helm
+  version gives in U0. Paths go through values files (Git Bash rewrites `--set a=/x`);
 - an uppercase alias is rejected by the guard.
 
 **Where it lives.** `.github/scripts/alias-contract.sh <chart-dir>`. The script copies the chart next to
