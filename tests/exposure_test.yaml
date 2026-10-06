@@ -129,3 +129,19 @@ tests:
       - equal:
           path: spec.rules[0].http.paths[0].path
           value: "null"
+
+  - it: renders an Ingress with an empty ingressClassName for ingress.className null (an open decision; this test flips when it is taken)
+    template: templates/ingress.yaml
+    set:
+      ingress.enabled: true
+      ingress.className: null
+      ingress.hosts:
+        - host: sales.example.com
+          paths:
+            - {path: /, pathType: Prefix}
+    asserts:
+      - isKind:
+          of: Ingress
+      - equal:
+          path: spec.ingressClassName
+          value: null

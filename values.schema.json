@@ -785,7 +785,7 @@
   "allOf": [
     {
       "if": { "properties": { "workload": { "properties": { "type": { "const": "cronjob" } } } } },
-      "then": { "properties": { "cronjob": { "properties": { "schedule": { "minLength": 1 } } } } }
+      "then": { "properties": { "cronjob": { "required": ["schedule"], "properties": { "schedule": { "minLength": 1 } } } } }
     },
     {
       "if": { "properties": { "workload": { "properties": { "type": { "enum": ["cronjob", "job"] } } } } },
@@ -813,8 +813,7 @@
         "properties": {
           "externalSecret": {
             "properties": {
-              "secretStoreRef": { "properties": { "name": { "minLength": 1 } } },
-              "data": { "minProperties": 1 }
+              "secretStoreRef": { "required": ["kind", "name"], "properties": { "name": { "minLength": 1 } } }
             }
           }
         }
@@ -824,7 +823,7 @@
       "if": { "properties": { "httpRoute": { "properties": { "enabled": { "const": true } } } } },
       "then": {
         "properties": {
-          "httpRoute": { "properties": { "parentRefs": { "minItems": 1 } } },
+          "httpRoute": { "required": ["parentRefs"], "properties": { "parentRefs": { "minItems": 1 } } },
           "service": { "properties": { "enabled": { "const": true } } }
         }
       }
@@ -833,7 +832,7 @@
       "if": { "properties": { "ingress": { "properties": { "enabled": { "const": true } } } } },
       "then": {
         "properties": {
-          "ingress": { "properties": { "className": { "minLength": 1 }, "hosts": { "minItems": 1 } } },
+          "ingress": { "required": ["hosts"], "properties": { "className": { "minLength": 1 }, "hosts": { "minItems": 1 } } },
           "service": { "properties": { "enabled": { "const": true } } }
         }
       }

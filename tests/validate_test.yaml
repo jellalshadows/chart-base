@@ -996,3 +996,28 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: fails for externalSecret.data {} while externalSecret is enabled (an empty map is no source)
+    set:
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: vault
+      externalSecret.data: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "externalSecret.enabled is true and externalSecret.data has no entry: list at least one key in externalSecret.data, or set externalSecret.enabled: false"
+
+  - it: accepts externalSecret.data null while externalSecret is disabled
+    set:
+      externalSecret.enabled: false
+      externalSecret.data: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts externalSecret.data {} while externalSecret is disabled (the default)
+    set:
+      externalSecret.enabled: false
+      externalSecret.secretStoreRef.name: vault
+    asserts:
+      - hasDocuments:
+          count: 0

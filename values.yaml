@@ -68,13 +68,14 @@ externalSecret:
   # -- Render an ExternalSecret (external-secrets.io/v1) whose Secret `<fullname>-secrets` is injected with `envFrom`.
   enabled: false
   secretStoreRef:
-    # -- `ClusterSecretStore` or `SecretStore`.
+    # -- `ClusterSecretStore` or `SecretStore`. Required when enabled (a `null` fails the render).
     kind: ClusterSecretStore
     # -- Name of the secret store. Required when enabled.
     name: ""
   # -- How often ESO re-reads the remote secrets.
   refreshInterval: 1h
-  # -- Map of `ENV_VAR: {key: <remote key>, property: <optional field>}`.
+  # -- Map of `ENV_VAR: {key: <remote key>, property: <optional field>}`. At least one entry when enabled: an enabled
+  # ExternalSecret with `data` empty or `null` fails the render.
   data: {}
 
 # -- Restart Deployments (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is

@@ -149,6 +149,10 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if has "cluster-admin" .Values.rbac.clusterRoles -}}
 {{- include "chart-base.fail" (list . "rbac.clusterRoles: cluster-admin is rejected: bound in the namespace, it allows every verb on every resource there, the * that rbac.rules rejects, and a deployer with only the namespace's admin rights cannot bind it: list the rules the component needs in rbac.rules, or bind a narrower ClusterRole such as view") -}}
 {{- end -}}
+{{- /* An ExternalSecret needs a source: externalSecret.data null (absent once Helm removes it), {} or empty fails here, with one message from every values layer. */ -}}
+{{- if and .Values.externalSecret.enabled (empty (.Values.externalSecret.data | default dict)) -}}
+{{- include "chart-base.fail" (list . "externalSecret.enabled is true and externalSecret.data has no entry: list at least one key in externalSecret.data, or set externalSecret.enabled: false (an override file cannot remove single keys that another values file defines, and data: {} removes nothing: maps are merged)") -}}
+{{- end -}}
 
 {{- if kindIs "slice" .Values.env -}}
 {{- include "chart-base.fail" (list . "env is a map of NAME: {valueFrom: ...}, not a Kubernetes env list: literal values belong in config, references in env as a map") -}}

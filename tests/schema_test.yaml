@@ -114,7 +114,7 @@ tests:
       externalSecret.secretStoreRef.name: gcp-sm
     asserts:
       - failedTemplate:
-          errorPattern: "/externalSecret/data': minProperties"
+          errorPattern: "externalSecret.enabled is true and externalSecret.data has no entry"
 
   - it: requires parentRefs when httpRoute is enabled
     set:
@@ -1540,3 +1540,80 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "/configFiles/mountPath': 'tmp' does not match pattern"
+
+  - it: fails on a null cronjob.schedule while a cronjob is enabled (every when-enabled key is required)
+    set:
+      workload.type: cronjob
+      cronjob.schedule: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/cronjob': missing property 'schedule'"
+
+  - it: fails on a null ports while a deployment with a Service is enabled (every when-enabled key is required)
+    set:
+      ports: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "missing property 'ports'"
+
+  - it: fails on a null externalSecret.secretStoreRef.kind while externalSecret is enabled (every when-enabled key is required)
+    set:
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: vault
+      externalSecret.data.DB.key: db
+      externalSecret.secretStoreRef.kind: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/externalSecret/secretStoreRef': missing property 'kind'"
+
+  - it: fails on a null externalSecret.secretStoreRef.name while externalSecret is enabled (every when-enabled key is required)
+    set:
+      externalSecret.enabled: true
+      externalSecret.data.DB.key: db
+      externalSecret.secretStoreRef.name: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/externalSecret/secretStoreRef': missing property 'name'"
+
+  - it: fails on a null externalSecret.data while externalSecret is enabled (every when-enabled key is required)
+    set:
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: vault
+      externalSecret.data: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "externalSecret.enabled is true and externalSecret.data has no entry"
+
+  - it: fails on a null httpRoute.parentRefs while httpRoute is enabled (every when-enabled key is required)
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/httpRoute': missing property 'parentRefs'"
+
+  - it: fails on a null ingress.hosts while ingress is enabled (every when-enabled key is required)
+    set:
+      ingress.enabled: true
+      ingress.className: nginx
+      ingress.hosts: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/ingress': missing property 'hosts'"
+
+  - it: fails on a null prometheusRule.groups while prometheusRule is enabled (every when-enabled key is required)
+    set:
+      prometheusRule.enabled: true
+      prometheusRule.groups: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/prometheusRule': missing property 'groups'"
+
+  - it: fails on a null service.enabled while httpRoute (a route needs a Service) is enabled (every when-enabled key is required)
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs[0].name: gw
+      service.enabled: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/service': missing property 'enabled'"
