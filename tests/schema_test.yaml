@@ -248,7 +248,7 @@ tests:
           app.yaml: 5
     asserts:
       - failedTemplate:
-          errorPattern: "/configFiles/files/app.yaml': got number, want string or object"
+          errorPattern: "/configFiles/files/app.yaml': got number, want null or string or object"
 
   - it: requires key on every externalSecret.data entry
     set:

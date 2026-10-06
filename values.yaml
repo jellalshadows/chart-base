@@ -53,7 +53,12 @@ configFiles:
   # -- Directory where `configFiles.files` are mounted read-only. Must not be `/tmp`.
   mountPath: /config
   # -- Files rendered into ConfigMap `<fullname>-files`. A string value is written verbatim;
-  # a map value is rendered with `toYaml` (so it can be merged per environment).
+  # a map value is rendered with `toYaml` (so it can be merged per environment). A file set to `null` (also a bare
+  # `name:`) is no file, `files: null` removes every file, and an empty file is `""`. In a map-form file every key whose
+  # value is `null` or empty (`key:`) is removed, in maps reached through maps, from every values layer and on Helm 3
+  # and 4 alike (Helm 4 already drops such keys from an umbrella's own values while nothing is passed for the
+  # component): write `key: {}` or `key: ""` to keep one, or the string form of the file for a literal `null`. A list is
+  # rendered as written, with everything inside it, and a map left empty stays `{}`.
   files: {}
 
 externalSecret:

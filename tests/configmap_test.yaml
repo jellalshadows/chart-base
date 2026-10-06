@@ -101,3 +101,137 @@ tests:
           value:
             "true": x
             "null": "a: b"
+
+  - it: removes every null key of a map-form file, in maps reached through maps at any depth
+    template: templates/configmap-files.yaml
+    set:
+      configFiles.files:
+        app.yaml:
+          top: null
+          keep: x
+          nested:
+            gone: null
+            stay: x
+            deeper:
+              only: null
+    asserts:
+      - equal:
+          path: data["app.yaml"]
+          value: "keep: x\nnested:\n  deeper: {}\n  stay: x"
+
+  - it: removes a bare key and a bare file name (YAML nulls in a values file), and keeps the empty map next to the key
+    template: templates/configmap-files.yaml
+    values:
+      - values/base.yaml
+      - values/config-files-nulls.yaml
+    asserts:
+      - equal:
+          path: data
+          value:
+            otel.yaml: "receivers:\n  otlp:\n    protocols:\n      http: {}"
+
+  - it: keeps false, 0, an empty string, an empty list and an empty map at any depth (only nulls are removed)
+    template: templates/configmap-files.yaml
+    set:
+      configFiles.files:
+        app.yaml:
+          disabled: false
+          count: 0
+          blank: ""
+          items: []
+          section: {}
+          nested: {disabled: false, count: 0, blank: "", items: [], section: {}}
+    asserts:
+      - equal:
+          path: data["app.yaml"]
+          value: "blank: \"\"\ncount: 0\ndisabled: false\nitems: []\nnested:\n  blank: \"\"\n  count: 0\n  disabled: false\n  items: []\n  section: {}\nsection: {}"
+
+  - it: keeps a map emptied by the removal as {} (no cascading deletion)
+    template: templates/configmap-files.yaml
+    set:
+      configFiles.files:
+        app.yaml:
+          keep: 1
+          section:
+            only: null
+    asserts:
+      - equal:
+          path: data["app.yaml"]
+          value: "keep: 1\nsection: {}"
+
+  - it: renders a list of a map-form file as written, with a null item and a map with a null key
+    template: templates/configmap-files.yaml
+    set:
+      configFiles.files:
+        app.yaml:
+          list:
+            - {a: null, b: 1}
+            - null
+            - [null, {c: null}]
+    asserts:
+      - equal:
+          path: data["app.yaml"]
+          value: "list:\n- a: null\n  b: 1\n- null\n- - null\n  - c: null"
+
+  - it: leaves a string file as written, even the text null
+    template: templates/configmap-files.yaml
+    set:
+      configFiles.files:
+        flag.txt: "null"
+    asserts:
+      - equal:
+          path: data
+          value:
+            flag.txt: "null"
+
+  - it: renders no file for a null file and keeps the other files
+    template: templates/configmap-files.yaml
+    set:
+      configFiles.files:
+        app.yaml: {a: 1}
+        retired.txt: null
+    asserts:
+      - equal:
+          path: data
+          value:
+            app.yaml: "a: 1"
+
+  - it: renders an empty file for an empty string (a file, not a null)
+    template: templates/configmap-files.yaml
+    set:
+      configFiles.files:
+        empty.txt: ""
+    asserts:
+      - equal:
+          path: data
+          value:
+            empty.txt: ""
+
+  - it: renders {} for a map-form file whose keys are all null (the file stays)
+    template: templates/configmap-files.yaml
+    set:
+      configFiles.files:
+        app.yaml: {a: null, b: null}
+    asserts:
+      - equal:
+          path: data
+          value:
+            app.yaml: "{}"
+
+  - it: renders no ConfigMap when every file is null
+    template: templates/configmap-files.yaml
+    set:
+      configFiles.files:
+        app.yaml: null
+        retired.txt: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders no ConfigMap for configFiles.files null (an override file clears every file)
+    template: templates/configmap-files.yaml
+    set:
+      configFiles.files: null
+    asserts:
+      - hasDocuments:
+          count: 0

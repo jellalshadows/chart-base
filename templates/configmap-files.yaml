@@ -1,4 +1,7 @@
-{{- if .Values.configFiles.files }}
+{{- /* A null file is no file; in a map-form file every null key is removed, in maps reached through maps (lists are rendered as written). */}}
+{{- $files := deepCopy (.Values.configFiles.files | default dict) }}
+{{- include "chart-base.pruneNulls" $files }}
+{{- if include "chart-base.hasConfigFiles" . }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -10,7 +13,7 @@ metadata:
     {{- . | nindent 4 }}
   {{- end }}
 data:
-  {{- range $name, $content := .Values.configFiles.files }}
+  {{- range $name, $content := $files }}
   {{- if kindIs "string" $content }}
   {{ $name | quote }}: {{ $content | quote }}
   {{- else }}
