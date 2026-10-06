@@ -312,7 +312,7 @@
             "memory": { "type": ["string", "number"] }
           }
         },
-        "limits": { "type": "object" }
+        "limits": { "type": ["object", "null"] }
       }
     },
     "config": {

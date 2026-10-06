@@ -1526,3 +1526,10 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: still requires resources.requests.cpu (a null request is a missing request, not an absent one)
+    set:
+      resources.requests.cpu: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/resources/requests/cpu': got null, want number or string"
