@@ -585,7 +585,7 @@ tests:
         eks.amazonaws.com/role-arn: arn:aws:iam::111122223333:role/sales
     asserts:
       - failedTemplate:
-          errorPattern: 'serviceAccount.annotations apply only to the ServiceAccount the chart creates, and serviceAccount.create is false, so no ServiceAccount carries them: remove them from the values \(an override file clears them with serviceAccount.annotations: null; an empty map is merged and clears nothing\), or, when the pods run as an existing ServiceAccount \(serviceAccount.name\), have its owner set them on that ServiceAccount'
+          errorPattern: 'serviceAccount.annotations apply only to the ServiceAccount the chart creates, and serviceAccount.create is false, so no ServiceAccount carries them: remove them from the values \(an override file clears them with serviceAccount.annotations: null; an empty map is merged and clears nothing\), or, when the pods run as an existing ServiceAccount \(serviceAccount.name\), have its owner set them on that ServiceAccount \(a cloud identity''s role, for example\), or set serviceAccount.create: true \(removing serviceAccount.name if it is set\)'
 
   - it: rejects serviceAccount.annotations with create false and no name (the namespace's default ServiceAccount)
     set:
