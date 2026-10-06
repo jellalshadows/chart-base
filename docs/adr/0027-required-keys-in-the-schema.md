@@ -1,6 +1,6 @@
 # ADR-0027: Keys the templates rely on are `required`
 
-- **Status:** Accepted — amended by [ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md) (0.6.0)
+- **Status:** Accepted — amended by [ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md) (0.6.0) and [ADR-0047](0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md) (0.7.0)
 - **Date:** 2026-09-28
 - **Since:** 0.1.0
 

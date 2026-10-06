@@ -17,7 +17,7 @@ These apply to every release.
 
 ## Releases
 
-Each numbered release row is one squash-merged `feat:` PR, which is a minor release while the chart is pre-1.0. The docs backfill row is a `docs:` PR that makes no release, and the signing row changes only the publish job, with no contract change.
+Each numbered release row is one squash-merged `feat:` PR, which is a minor release while the chart is pre-1.0, except 0.7.0: it is two PRs released together by one Release PR, first a `fix!:` PR with the fixes of released defects, then the volumes `feat:` PR. The docs backfill row is a `docs:` PR that makes no release, and the signing row changes only the publish job, with no contract change.
 
 | Release | Scope | Contract (summary) | Tested in the e2e with | Status |
 |---|---|---|---|---|
@@ -28,7 +28,7 @@ Each numbered release row is one squash-merged `feat:` PR, which is a minor rele
 | 0.4.0 | Prometheus monitoring (ServiceMonitor, PodMonitor, PrometheusRule) | `metrics: {enabled, port, path, interval, scrapeTimeout, labels}` renders a ServiceMonitor when there is a Service and a PodMonitor when there is not (Deployments only; `port` must name an entry of `ports`); `prometheusRule: {enabled, labels, groups}` on every workload type, structure validated, PromQL not; no default `release` label, and the chart's own label keys rejected in `labels` | The Prometheus Operator CRDs only (no operator): the `full` scenario's ServiceMonitor and PrometheusRule and the `worker` scenario's PodMonitor are accepted with their `release: e2e` label and their endpoint port | Released (2026-09-30) |
 | 0.5.0 | Opt-in NetworkPolicy with sibling-component references | `networkPolicy: {enabled, ingress: {fromComponents, fromNamespaces, metricsFromNamespaces, routeTrafficAllowedElsewhere, extra}, egress: {enabled, dns, toComponents, toCIDRs, extra}}`: one policy per component, siblings by alias, ingress isolated, egress only with `egress.enabled` (DNS allowed by default), `metricsFromNamespaces` opens only `metrics.port`; on a `job` component a hook of its phase; the render fails on a route (unless `routeTrafficAllowedElsewhere`) or metrics without a source and on egress destinations listed while egress is off; off by default | kindnet (real enforcement in kind 0.24 and later): an umbrella of three components under a namespace default-deny; a deny check first, then a sibling, a monitoring namespace and DNS by Service name allowed and other ports and destinations denied, with `agnhost connect`; the pre-deploy Job reaches the cluster DNS through its hook policy; then, with the default-deny deleted, the chart's own isolation | Released (2026-10-02) |
 | 0.6.0 | Existing ServiceAccount and namespaced RBAC (`feat!`) | `serviceAccount.name` (an existing ServiceAccount, only with `create: false`, never `default`); **`serviceAccount.annotations` fail with `create: false`** (breaking: 0.5.0 ignored them); `rbac: {rules, clusterRoles}`: a Role and a RoleBinding `<fullname>` for the rules and one RoleBinding `<fullname>.<ClusterRole>` per existing ClusterRole, for the pods' ServiceAccount in the release namespace; on a `job` component hooks of its phase; in the schema, no `*`, the standard verbs only, no `nonResourceURLs`; the render fails on RBAC for the namespace's `default` ServiceAccount, on RBAC without `automountToken: true` unless no ClusterRole is bound and `use` is the only verb of every rule (an OpenShift SCC grant), on the ClusterRole named `cluster-admin` (other ClusterRoles are granted as they are), and, in a rule with `resourceNames`, on `deletecollection` and on `create` on a resource when that rule grants neither `patch` nor `update` | `kubectl auth can-i` as the ServiceAccounts, a "yes" and a "no" per rule (a subresource without its parent, the listed verbs and names only, `view` in its namespace only); a pod of an existing ServiceAccount that says no token gets one and calls the API (200 allowed, 403 denied); a pre-deploy Job calls the API through its hook Role and RoleBinding | Released (2026-10-06) |
-| 0.7.0 | Extra volumes | `volumes: {<name>: {type: emptyDir/configMap/secret/persistentVolumeClaim/ephemeral, mountPath, readOnly, subPath...}}`; guards: mountPath must not be `/tmp` nor `configFiles.mountPath` | kind's local-path-provisioner | Planned |
+| 0.7.0 | Fixes of released defects (`fix!`), then extra volumes | **Fixes (breaking):** a `null` or empty key of a map-form `configFiles` file and a `null` file are removed in every values layer, and a `null` resource quantity is absent; `configFiles.mountPath` compared normalized (no `/tmp`, no `/`, no token directory with `automountToken: true`) and rendered quoted; the keys an enabled block needs are required, an enabled ExternalSecret needs a `data` entry, a main-container probe port name must be declared in `ports`; the entries of `httpRoute.parentRefs` and `httpRoute.matches` are closed. **Then:** `volumes: {<name>: {type: emptyDir/configMap/secret/persistentVolumeClaim/ephemeral, mountPath, readOnly, subPath...}}`; guards: mountPath must not be `/tmp` nor `configFiles.mountPath` | kind's local-path-provisioner | Planned |
 | 0.8.0 | Native sidecars and init containers | `sidecars` / `initContainers` (maps) that inherit `securityContext`; `resources.requests` are mandatory; native sidecars (`restartPolicy: Always`) | n/a (a Job with a sidecar must complete) | Planned |
 | 0.9.0 | ExternalSecret `dataFrom`, templates and file mounts | `externalSecret.dataFrom`, `.template`, `.mountPath` (reuses the volumes); still one ExternalSecret per component | ESO fake provider (`dataFrom` extract) | Planned |
 | 0.10.0 | HPA behavior and custom metrics, and KEDA ScaledObject | `autoscaling.behavior`, `autoscaling.metrics`; `keda: {enabled, minReplicaCount, maxReplicaCount, triggers}`; a guard makes HPA and KEDA mutually exclusive; omits `spec.replicas` | KEDA (`cron` trigger) | Planned |
@@ -38,7 +38,25 @@ Each numbered release row is one squash-merged `feat:` PR, which is a minor rele
 
 ## Open decisions
 
-None. The last one, whether NetworkPolicy becomes on by default after 0.5.0, was taken with 0.5.0: it stays off.
+- **A chart-wide "a `null` entry means absent" rule** (a 0.12.0 candidate, decided with that design). Today the rule
+  holds per map only: in 0.7.0 `configFiles.files`, the content of a map-form file and `resources`
+  ([ADR-0045](adr/0045-null-in-configfiles-and-resources-is-absent.md)). What stays without it once the maps of 0.7.0 to 0.10.0 are converted: one
+  entry of a typed map (`config`, the main container's `env`, `podLabels`, `podAnnotations`, `ingress.annotations`,
+  `serviceAccount.annotations`, `metrics.labels`, `prometheusRule.labels`, `nodeSelector`,
+  `networkPolicy.egress.dns.podSelector`) and an optional member of a closed object (`lifecycle.<hook>`,
+  `strategy.rollingUpdate`, `dnsConfig.nameservers`, `.searches`, `.options`), schema errors today; a key inside a
+  pass-through object (`probes.<probe>.<key>`, `affinity.<key>`, the keys of `podSecurityContext` and
+  `securityContext` that `values.yaml` does not define), rendered as `null` today, so converting it changes the
+  manifest; `httpRoute.matches` (0.11.0 replaces it); the maps that 0.11.0 and 0.12.0 add. Converting a map
+  converts its template readers and guards with
+  it.
+- **`ingress.className: null`** renders an Ingress without a class ([upgrade guide](upgrading.md)): close it with
+  `required`, or support "no class" on purpose, at the 1.0 contract freeze.
+- **One rule for the ServiceAccount token directory as a mount path**: `configFiles.mountPath` rejects it only while
+  `serviceAccount.automountToken` is true ([ADR-0046](adr/0046-configfiles-mountpath-compared-normalized-rendered-as-written.md)); the mounts that later releases add
+  reserve it always. Unify at the 1.0 contract freeze.
+
+The decision whether NetworkPolicy becomes on by default after 0.5.0 was taken with 0.5.0: it stays off.
 On a CNI that does not enforce it, a policy changes nothing, and its rules depend on facts of each cluster (the
 namespaces of the Gateway and of Prometheus, the cluster DNS); turning it on would make them mandatory configuration
 ([ADR-0040](adr/0040-networkpolicy-per-component-with-sibling-references.md)).

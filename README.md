@@ -421,8 +421,8 @@ sales-migrations:
 | autoscaling.targetMemoryUtilizationPercentage | int | `nil` | Target average memory utilization (percent of requests). `null` = not used. |
 | command | list | `[]` | Container command (overrides the image ENTRYPOINT). |
 | config | object | `{}` | Environment variables. Rendered into ConfigMap `<fullname>-env` and injected with `envFrom`. |
-| configFiles.files | object | `{}` | Files rendered into ConfigMap `<fullname>-files`. A string value is written verbatim; a map value is rendered with `toYaml` (so it can be merged per environment). |
-| configFiles.mountPath | string | `"/config"` | Directory where `configFiles.files` are mounted read-only. Must not be `/tmp`. |
+| configFiles.files | object | `{}` | Files rendered into ConfigMap `<fullname>-files`. A string value is written verbatim; a map value is rendered with `toYaml` (so it can be merged per environment). A file set to `null` (also a bare `name:`) is no file, `files: null` removes every file, and an empty file is `""`. In a map-form file every key whose value is `null` or empty (`key:`) is removed, in maps reached through maps, from every values layer and on Helm 3 and 4 alike (Helm 4 already drops such keys from an umbrella's own values while nothing is passed for the component): write `key: {}` or `key: ""` to keep one, or the string form of the file for a literal `null`. A list is rendered as written, with everything inside it, and a map left empty stays `{}`. |
+| configFiles.mountPath | string | `"/config"` | Directory where `configFiles.files` are mounted read-only. Rendered as written. Must not be `/tmp` or `/` once normalized (`//tmp` and `/tmp/.` are `/tmp`), nor the ServiceAccount token directory `/var/run/secrets/kubernetes.io/serviceaccount` while `serviceAccount.automountToken` is true. |
 | cronjob.concurrencyPolicy | string | `"Forbid"` | `Allow`, `Forbid` or `Replace`. |
 | cronjob.failedJobsHistoryLimit | int | `1` | Failed Jobs to keep. |
 | cronjob.schedule | string | `""` | Cron schedule. Required for cronjob. |
@@ -434,16 +434,16 @@ sales-migrations:
 | enableServiceLinks | bool | `false` | Inject `<SERVICE>_SERVICE_HOST`/`_PORT` and Docker-links variables for every Service of the namespace (`enableServiceLinks`). `false` here (Kubernetes defaults to `true`): a Service named e.g. `redis` injects `REDIS_PORT=tcp://...`, which an app that reads `REDIS_PORT` without the component setting it gets instead of a port. `KUBERNETES_SERVICE_HOST`/`_PORT` are injected either way. Set `true` to restore Kubernetes' behavior. |
 | env | object | `{}` | Environment variables from REFERENCES only (literal values belong in `config`): a map of `NAME: {valueFrom: {<source>: ...}}` where the source is one of `fieldRef`, `resourceFieldRef`, `secretKeyRef` or `configMapKeyRef`. Rendered as container `env`, which wins over every `envFrom` source. |
 | envFrom | list | `[]` | Existing ConfigMaps/Secrets injected whole, e.g. `[{secretRef: {name: sales-kafka-user}}]` or `[{configMapRef: {name: shared, optional: true}, prefix: SHARED_}]`. Injected BEFORE the chart's own `-env`/`-secrets`, so the component's explicit `config`/`externalSecret` win on duplicate keys. |
-| externalSecret.data | object | `{}` | Map of `ENV_VAR: {key: <remote key>, property: <optional field>}`. |
+| externalSecret.data | object | `{}` | Map of `ENV_VAR: {key: <remote key>, property: <optional field>}`. At least one entry when enabled: an enabled ExternalSecret with `data` empty or `null` fails the render. |
 | externalSecret.enabled | bool | `false` | Render an ExternalSecret (external-secrets.io/v1) whose Secret `<fullname>-secrets` is injected with `envFrom`. |
 | externalSecret.refreshInterval | string | `"1h"` | How often ESO re-reads the remote secrets. |
-| externalSecret.secretStoreRef.kind | string | `"ClusterSecretStore"` | `ClusterSecretStore` or `SecretStore`. |
+| externalSecret.secretStoreRef.kind | string | `"ClusterSecretStore"` | `ClusterSecretStore` or `SecretStore`. Required when enabled (a `null` fails the render). |
 | externalSecret.secretStoreRef.name | string | `""` | Name of the secret store. Required when enabled. |
 | hostAliases | list | `[]` | Extra `/etc/hosts` entries of the pods (`hostAliases`), e.g. `[{ip: 10.0.0.5, hostnames: [legacy-db.internal]}]`. |
 | httpRoute.enabled | bool | `false` | Render a Gateway API HTTPRoute (gateway.networking.k8s.io/v1). Requires `service.enabled`. |
 | httpRoute.hostnames | list | `[]` | Hostnames matched by the route. |
-| httpRoute.matches | list | `[{"path":{"type":"PathPrefix","value":"/"}}]` | HTTPRoute matches. The backend is always this component's Service (first port). |
-| httpRoute.parentRefs | list | `[]` | Gateways to attach to (required when enabled), e.g. `[{name: platform-gw, namespace: gateway, sectionName: https}]`. |
+| httpRoute.matches | list | `[{"path":{"type":"PathPrefix","value":"/"}}]` | HTTPRoute matches. The backend is always this component's Service (first port). Each entry takes exactly the fields of a Gateway API `HTTPRouteMatch` (`path`, `headers`, `queryParams`, `method`), at every level: an unknown or misspelt key fails the render (the API server would drop it silently and the route would match more). |
+| httpRoute.parentRefs | list | `[]` | Gateways to attach to (required when enabled), e.g. `[{name: platform-gw, namespace: gateway, sectionName: https}]`. Each entry takes exactly the fields of a Gateway API `ParentReference` (`group`, `kind`, `namespace`, `name`, `sectionName`, `port`): an unknown or misspelt key fails the render (the API server would drop it silently). |
 | image.digest | string | `""` | Image digest (`sha256:...`). When set it wins over `image.tag`. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | image.repository | string | `""` | Required. Image repository, e.g. `ghcr.io/acme/sales`. |
@@ -489,12 +489,12 @@ sales-migrations:
 | podAnnotations | object | `{}` | Extra pod annotations. |
 | podLabels | object | `{}` | Extra pod labels. |
 | podSecurityContext | object | `{"fsGroup":65532,"fsGroupChangePolicy":"OnRootMismatch","runAsGroup":65532,"runAsNonRoot":true,"runAsUser":65532,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod security context. Defaults satisfy the Pod Security Standards `restricted` profile; override key by key. |
-| ports | list | `[{"containerPort":8080,"name":"http"}]` | Container ports. Each entry also becomes a Service port when a Service is rendered. `servicePort` is optional and defaults to `containerPort`. |
+| ports | list | `[{"containerPort":8080,"name":"http"}]` | Container ports. Each entry also becomes a Service port when a Service is rendered. `servicePort` is optional and defaults to `containerPort`. A probe port given by name (`httpGet.port`, `tcpSocket.port` in `probes`) must be one of these names: the render fails otherwise. |
 | preStopSleepSeconds | int | `5` | Seconds to sleep in preStop so endpoints drain before SIGTERM. `0` disables it (required with `lifecycle.preStop`). Deployments only. |
 | priorityClassName | string | `nil` | PriorityClass of the pods (`priorityClassName`); it must exist. `null` = the default priority (the `globalDefault` PriorityClass, or 0). |
-| probes.liveness | object | `{}` | Liveness probe (Kubernetes probe object). Empty = not rendered. |
-| probes.readiness | object | `{}` | Readiness probe (Kubernetes probe object). Empty = not rendered. |
-| probes.startup | object | `{}` | Startup probe (Kubernetes probe object). Empty = not rendered. |
+| probes.liveness | object | `{}` | Liveness probe (Kubernetes probe object). Empty = not rendered. A port given by name must be a `ports` name. |
+| probes.readiness | object | `{}` | Readiness probe (Kubernetes probe object). Empty = not rendered. A port given by name must be a `ports` name. |
+| probes.startup | object | `{}` | Startup probe (Kubernetes probe object). Empty = not rendered. A port given by name must be a `ports` name. |
 | progressDeadlineSeconds | int | `240` | Seconds without rollout progress before the Deployment is marked Failed (lower than Helm's default 300s timeout). |
 | prometheusRule.enabled | bool | `false` | Render a Prometheus Operator PrometheusRule (`monitoring.coreos.com/v1`), on every workload type (e.g. alerts on a CronJob's runs from kube-state-metrics). The CRD must be installed: without it the release fails. |
 | prometheusRule.groups | list | `[]` | Rule groups, rendered verbatim as `spec.groups`: `[{name, interval, rules: [{alert or record, expr, for, keep_firing_for, labels, annotations}]}]`; durations must not be empty and a recording rule takes no `for`, `keep_firing_for` or `annotations`. The structure is validated; PromQL is not: where the operator's admission webhook is deployed (kube-prometheus-stack deploys it by default, checked on chart version 91.8.2) a rule that does not parse is rejected when Helm applies it and the install or upgrade of the whole release fails; without the webhook the object is created and the operator skips it with a Warning event. |
@@ -503,7 +503,7 @@ sales-migrations:
 | rbac.rules | list | `[]` | Namespaced permissions for the pods' ServiceAccount: a Role and a RoleBinding named `<fullname>`, e.g. `[{apiGroups: [coordination.k8s.io], resources: [leases], verbs: [get, list, watch, create, update, patch]}]`. Each rule needs `apiGroups` (`""` is the core group), `resources` (a subresource is written `pods/log`) and `verbs`, and may restrict `resourceNames`. `*` is rejected in every list (it would grant future resources and verbs; in `resourceNames` it is no wildcard), and the verbs are the standard ones: `get`, `list`, `watch`, `create`, `update`, `patch`, `delete`, `deletecollection`, `use`, `bind`, `escalate`, `impersonate`. The main escalation paths (Kubernetes' RBAC Good Practices) grant more than the rule names: reading Secrets (`list` and `watch` reveal them like `get`), creating or changing workloads (a pod may run as any ServiceAccount of the namespace and mount its Secrets), `pods/exec`, `pods/attach` and `pods/ephemeralcontainers` (commands in other pods), `create` on `serviceaccounts/token`, `escalate`, `bind` and `impersonate`. Whoever runs the deploy must hold every permission granted here. Requires a ServiceAccount of the component (the chart's, or `serviceAccount.name`), never `default`, and `serviceAccount.automountToken: true` unless `use` is the only verb of every rule (an admission plugin checks such a grant on the ServiceAccount itself: an OpenShift SecurityContextConstraints, for example). With `resourceNames`, `deletecollection` fails the render (Kubernetes never matches it by name), and so does `create` on a resource without `patch` or `update` in the same rule: only a server-side apply or a create through an update carries the name; `create` on a subresource such as `pods/exec` is matched by name. |
 | reloadOnChange | bool | `true` | Restart Deployments (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is updated: the ExternalSecret's Secret and every Secret/ConfigMap referenced in `env`/`envFrom`. The chart's own ConfigMaps roll pods through checksum annotations instead. |
 | replicas | int | `1` | Deployment replicas. Ignored when `autoscaling.enabled`. |
-| resources | object | `{}` | Required: `requests.cpu` and `requests.memory`. Container resources. |
+| resources | object | `{}` | Required: `requests.cpu` and `requests.memory`. Container resources. A `null` entry of `limits` or `requests`, and `limits: null`, mean absent: no such limit or request is rendered (the API server would store a null as `"0"`). |
 | revisionHistoryLimit | int | `nil` | Old ReplicaSets kept for `kubectl rollout undo` (`spec.revisionHistoryLimit`). `null` = Kubernetes default (10). Deployments only. |
 | runtimeClassName | string | `nil` | RuntimeClass of the pods (`runtimeClassName`), e.g. `gvisor`; it must exist. `null` = the default runtime handler. |
 | securityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true,"runAsNonRoot":true}` | Container security context. `readOnlyRootFilesystem` is extra hardening (an emptyDir is always mounted at `/tmp`). |
@@ -540,8 +540,10 @@ code, official docs) and local renders.
    Kubernetes: *"ConfigMap does not provide secrecy or encryption"*; Secrets get stricter RBAC.
    *Rejected:* secrets in a ConfigMap (possible with ESO only behind `--unsafe-allow-generic-targets`).
    [ADR-0004](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0004-env-in-configmap-secrets-through-externalsecret.md)
-5. **`configFiles` accepts a string or a map.** A map merges per environment (`null` deletes a key);
-   a string is written verbatim. Map values go through YAML: quote ambiguous scalars
+5. **`configFiles` accepts a string or a map.** A map merges per environment, and chart-base removes from it every
+   key whose value is `null` or empty (`key:`), in maps reached through maps and from every values layer
+   (ADR-0045): a bare `grpc:` is removed too, so write `grpc: {}` to keep a section with its defaults. A `null` file is
+   no file; a string is written verbatim. Map values go through YAML: quote ambiguous scalars
    (`"on"`, `"1.10"`, `"0755"`). *Rejected:* strings only (no per-environment merge).
    [ADR-0005](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0005-configfiles-string-or-map.md)
 6. **Config changes roll pods through a checksum; Secret rotation through Reloader.** Config changes
@@ -629,9 +631,10 @@ code, official docs) and local renders.
     to `workload.type: job`. *Rejected:* a TTL on CronJob runs (a failed 3 a.m. run would be gone by
     morning and the history limits would be meaningless).
     [ADR-0026](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0026-cronjob-runs-kept-by-history-limits.md)
-27. **Keys the templates rely on are `required` in the schema.** In Helm, setting a key to `null` deletes
-    it, so without `required` a `null` would silently flip a default (`serviceAccount.automountToken: null`
-    would mount the token). Keys whose default is `null` stay optional. *Rejected:* trusting consumers
+27. **Keys the templates rely on are `required` in the schema.** In Helm, a `null` deletes a key that the chart's
+    own `values.yaml` defines (the consuming guide lists what a `null` does per values layer), so without `required` a `null` would
+    silently flip a default (`serviceAccount.automountToken: null` would mount the token). The keys an enabled block
+    needs are required too (ADR-0047). Keys whose default is `null` stay optional. *Rejected:* trusting consumers
     not to write `null`.
     [ADR-0027](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0027-required-keys-in-the-schema.md)
 28. **`podLabels` cannot override the selector labels.** The schema rejects `app.kubernetes.io/name` and
@@ -766,6 +769,31 @@ code, official docs) and local renders.
     umbrella it also passed a `null` that deletes a required key. *Rejected:* making guards fatal under lint (it would
     fail umbrellas with long aliases that deploy fine under their real release name).
     [ADR-0044](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0044-guards-fail-the-render-helm-lint-reports-them.md)
+45. **A `null` in `configFiles` removes the file or the key; a `null` resource quantity is absent.** chart-base reads
+    `configFiles.files` and `resources` through a pruned deep copy: every key whose value is `null` (or empty, `key:`)
+    is removed, in maps reached through maps, the same from every values layer and on Helm 3.22 and 4.3; a list is
+    rendered as written, and `false`, `0`, `""`, `[]` and `{}` are kept. The cost: a map-form file cannot carry an
+    empty value outside a list (write `{}` or `""`). *Rejected:* documenting Helm's behaviour (it differs by layer and
+    by Helm version); failing on such a `null` (it could not be uniform either).
+    [ADR-0045](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0045-null-in-configfiles-and-resources-is-absent.md)
+46. **`configFiles.mountPath` is compared normalized and rendered as written.** The guards compare
+    `clean (print "/" path)`, the kubelet's own normalization: `/tmp`, `/`, and the ServiceAccount token directory while
+    `serviceAccount.automountToken` is true fail the render, whether or not a file is rendered. The path is rendered
+    quoted, as written. *Rejected:* reserving the token directory unconditionally (it rejects a value that works with
+    the token off; one rule for every mount is an open decision for 1.0).
+    [ADR-0046](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0046-configfiles-mountpath-compared-normalized-rendered-as-written.md)
+47. **When-enabled keys are required, an ExternalSecret needs a source, and a probe port name must be declared.**
+    `cronjob.schedule`, `externalSecret.secretStoreRef.kind` and `.name`, `httpRoute.parentRefs` and `ingress.hosts`
+    are required while their block is enabled; an enabled ExternalSecret without a `data` entry and a main-container
+    probe whose `httpGet.port` or `tcpSocket.port` names no `ports` entry fail the render, with their remedies.
+    *Rejected:* a schema `required` or `minProperties` for the source (no remedy in the message, and a different
+    message per layer on Helm 4.3).
+    [ADR-0047](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md)
+48. **The entries of `httpRoute.parentRefs` and `httpRoute.matches` are closed objects.** They take exactly the
+    fields of the Gateway API v1.6.2 Standard CRD, at every level: a misspelt key fails the schema instead of being
+    dropped by the API server, which would widen the route (`pathh: /api` matches every request). *Rejected:* open
+    objects (a typo silently exposes more).
+    [ADR-0048](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0048-httproute-parentrefs-and-matches-are-closed.md)
 
 ## Versioning and releases
 

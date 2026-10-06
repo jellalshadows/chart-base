@@ -433,8 +433,10 @@ code, official docs) and local renders.
    Kubernetes: *"ConfigMap does not provide secrecy or encryption"*; Secrets get stricter RBAC.
    *Rejected:* secrets in a ConfigMap (possible with ESO only behind `--unsafe-allow-generic-targets`).
    [ADR-0004](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0004-env-in-configmap-secrets-through-externalsecret.md)
-5. **`configFiles` accepts a string or a map.** A map merges per environment (`null` deletes a key);
-   a string is written verbatim. Map values go through YAML: quote ambiguous scalars
+5. **`configFiles` accepts a string or a map.** A map merges per environment, and chart-base removes from it every
+   key whose value is `null` or empty (`key:`), in maps reached through maps and from every values layer
+   (ADR-0045): a bare `grpc:` is removed too, so write `grpc: {}` to keep a section with its defaults. A `null` file is
+   no file; a string is written verbatim. Map values go through YAML: quote ambiguous scalars
    (`"on"`, `"1.10"`, `"0755"`). *Rejected:* strings only (no per-environment merge).
    [ADR-0005](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0005-configfiles-string-or-map.md)
 6. **Config changes roll pods through a checksum; Secret rotation through Reloader.** Config changes
@@ -522,9 +524,10 @@ code, official docs) and local renders.
     to `workload.type: job`. *Rejected:* a TTL on CronJob runs (a failed 3 a.m. run would be gone by
     morning and the history limits would be meaningless).
     [ADR-0026](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0026-cronjob-runs-kept-by-history-limits.md)
-27. **Keys the templates rely on are `required` in the schema.** In Helm, setting a key to `null` deletes
-    it, so without `required` a `null` would silently flip a default (`serviceAccount.automountToken: null`
-    would mount the token). Keys whose default is `null` stay optional. *Rejected:* trusting consumers
+27. **Keys the templates rely on are `required` in the schema.** In Helm, a `null` deletes a key that the chart's
+    own `values.yaml` defines (the consuming guide lists what a `null` does per values layer), so without `required` a `null` would
+    silently flip a default (`serviceAccount.automountToken: null` would mount the token). The keys an enabled block
+    needs are required too (ADR-0047). Keys whose default is `null` stay optional. *Rejected:* trusting consumers
     not to write `null`.
     [ADR-0027](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0027-required-keys-in-the-schema.md)
 28. **`podLabels` cannot override the selector labels.** The schema rejects `app.kubernetes.io/name` and
@@ -659,6 +662,31 @@ code, official docs) and local renders.
     umbrella it also passed a `null` that deletes a required key. *Rejected:* making guards fatal under lint (it would
     fail umbrellas with long aliases that deploy fine under their real release name).
     [ADR-0044](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0044-guards-fail-the-render-helm-lint-reports-them.md)
+45. **A `null` in `configFiles` removes the file or the key; a `null` resource quantity is absent.** chart-base reads
+    `configFiles.files` and `resources` through a pruned deep copy: every key whose value is `null` (or empty, `key:`)
+    is removed, in maps reached through maps, the same from every values layer and on Helm 3.22 and 4.3; a list is
+    rendered as written, and `false`, `0`, `""`, `[]` and `{}` are kept. The cost: a map-form file cannot carry an
+    empty value outside a list (write `{}` or `""`). *Rejected:* documenting Helm's behaviour (it differs by layer and
+    by Helm version); failing on such a `null` (it could not be uniform either).
+    [ADR-0045](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0045-null-in-configfiles-and-resources-is-absent.md)
+46. **`configFiles.mountPath` is compared normalized and rendered as written.** The guards compare
+    `clean (print "/" path)`, the kubelet's own normalization: `/tmp`, `/`, and the ServiceAccount token directory while
+    `serviceAccount.automountToken` is true fail the render, whether or not a file is rendered. The path is rendered
+    quoted, as written. *Rejected:* reserving the token directory unconditionally (it rejects a value that works with
+    the token off; one rule for every mount is an open decision for 1.0).
+    [ADR-0046](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0046-configfiles-mountpath-compared-normalized-rendered-as-written.md)
+47. **When-enabled keys are required, an ExternalSecret needs a source, and a probe port name must be declared.**
+    `cronjob.schedule`, `externalSecret.secretStoreRef.kind` and `.name`, `httpRoute.parentRefs` and `ingress.hosts`
+    are required while their block is enabled; an enabled ExternalSecret without a `data` entry and a main-container
+    probe whose `httpGet.port` or `tcpSocket.port` names no `ports` entry fail the render, with their remedies.
+    *Rejected:* a schema `required` or `minProperties` for the source (no remedy in the message, and a different
+    message per layer on Helm 4.3).
+    [ADR-0047](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md)
+48. **The entries of `httpRoute.parentRefs` and `httpRoute.matches` are closed objects.** They take exactly the
+    fields of the Gateway API v1.6.2 Standard CRD, at every level: a misspelt key fails the schema instead of being
+    dropped by the API server, which would widen the route (`pathh: /api` matches every request). *Rejected:* open
+    objects (a typo silently exposes more).
+    [ADR-0048](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0048-httproute-parentrefs-and-matches-are-closed.md)
 
 ## Versioning and releases
 

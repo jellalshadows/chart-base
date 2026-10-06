@@ -103,6 +103,7 @@ responsibility so that each one can be developed and tested on its own:
 | `_hooks.tpl` | The Helm hook annotations of `workload.type: job` and of its support resources ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)). |
 | `_networkpolicy.tpl` | The peers of the NetworkPolicy: a sibling component of the release by alias, and namespaces by name ([ADR-0040](../adr/0040-networkpolicy-per-component-with-sibling-references.md)). |
 | `_rbac.tpl` | A RoleBinding of the component, for the pods' ServiceAccount in the release namespace ([ADR-0042](../adr/0042-existing-serviceaccount-and-namespaced-rbac.md)). |
+| `_values.tpl` | Helpers that read values for templates and guards: `chart-base.pruneNulls`, `chart-base.hasConfigFiles`, `chart-base.cleanPath` and `chart-base.validateProbePorts` ([ADR-0045](../adr/0045-null-in-configfiles-and-resources-is-absent.md), [ADR-0046](../adr/0046-configfiles-mountpath-compared-normalized-rendered-as-written.md), [ADR-0047](../adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md)). |
 
 `templates/validate.yaml` renders nothing. It holds the guards, `fail` calls for the rules the schema
 cannot express: the alias and resource-name format and length, the Kubernetes 1.33 floor, and rules that
@@ -200,9 +201,16 @@ Each of these has already broken something. The reason is the important part.
   the Ingress class and paths, the secret store name and the keys of `config`, `configFiles.files` and
   `externalSecret.data` were rendered plain ([upgrade guide](../upgrading.md)); the `port-names` scenario
   and the unit tests keep them fixed. Values that the schema limits to an `enum` (`service.type`,
-  `image.pullPolicy`, ...) or to an absolute path (`configFiles.mountPath`) are rendered as they are, and so
-  are `pdb.minAvailable` and `pdb.maxUnavailable`, so that an integer stays an integer (Kubernetes accepts a
-  string there only as a percentage).
+  `image.pullPolicy`, ...) are rendered as they are, and so are `pdb.minAvailable` and `pdb.maxUnavailable`, so that
+  an integer stays an integer (Kubernetes accepts a string there only as a percentage). `configFiles.mountPath` is
+  quoted since 0.7.0: up to 0.6.0 a `" #"` comment or trailing whitespace in it was cut by YAML
+  ([ADR-0046](../adr/0046-configfiles-mountpath-compared-normalized-rendered-as-written.md)).
+- **A map that accepts `null` is read through `chart-base.pruneNulls`** (`templates/_values.tpl`), on a deep copy:
+  `deepCopy (<value> | default dict)`, never `.Values` itself, and never a `deepCopy` of a nil (it aborts the
+  render). The test is a nil test (`kindIs "invalid"`), never a truthiness test (`false` and `0` are values), and a
+  field of a pruned map is tested with `hasKey`. Every reader and guard of that map converts with its schema:
+  accepting `null` in the schema alone renders a file whose content is the text `null`
+  ([ADR-0045](../adr/0045-null-in-configfiles-and-resources-is-absent.md)).
 - **helm-unittest does not read YAML like Kubernetes.** It decodes the rendered manifests with go-yaml v3,
   which reads these words as YAML 1.2 does: `on`, `yes` and the other YAML 1.1 words are strings, so an
   `equal` on a plain `on` passes whether or not the template quotes it. Only `true`, `false` and `null` are
