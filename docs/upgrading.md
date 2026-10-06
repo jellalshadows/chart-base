@@ -8,8 +8,8 @@ no change to your values; the [changelog](../CHANGELOG.md) has every release.
 ## Every upgrade: a direct install must not use `--reuse-values`
 
 A release that installs chart-base directly (not through an umbrella) and is upgraded with
-`helm upgrade --reuse-values` fails validation when the new version adds required keys, as 0.3.0, 0.4.0 and
-0.5.0 do: Helm renders the new chart with the previous release's values, the old chart's defaults included,
+`helm upgrade --reuse-values` fails validation when the new version adds required keys, as 0.3.0, 0.4.0, 0.5.0
+and 0.6.0 do: Helm renders the new chart with the previous release's values, the old chart's defaults included,
 instead of the new chart's defaults, so the new keys are missing. An upgrade to 0.3.0 fails with
 `missing property 'enableServiceLinks'` and `'/cronjob': missing property 'suspend'`; an upgrade to 0.4.0
 with an error that contains:
@@ -18,15 +18,25 @@ with an error that contains:
 missing properties 'metrics', 'prometheusRule'
 ```
 
-and an upgrade from 0.4.x to 0.5.0 with an error that contains:
+an upgrade from 0.4.x to 0.5.0 with an error that contains:
 
 ```text
 missing property 'networkPolicy'
 ```
 
+and an upgrade from 0.5.x to 0.6.0 with an error that contains:
+
+```text
+missing property 'rbac'
+```
+
 The errors add up when versions are skipped: from 0.3.x straight to 0.5.0,
 `missing properties 'metrics', 'prometheusRule', 'networkPolicy'`; from 0.2.x,
 `missing properties 'enableServiceLinks', 'metrics', 'prometheusRule', 'networkPolicy'` and
+`'/cronjob': missing property 'suspend'`. Straight to 0.6.0, `'rbac'` comes first: from 0.4.x,
+`missing properties 'rbac', 'networkPolicy'`; from 0.3.x,
+`missing properties 'rbac', 'metrics', 'prometheusRule', 'networkPolicy'`; from 0.2.x,
+`missing properties 'rbac', 'enableServiceLinks', 'metrics', 'prometheusRule', 'networkPolicy'` and
 `'/cronjob': missing property 'suspend'`.
 Use `--reset-then-reuse-values` (available in Helm 3.22 and 4.3), which starts from the new chart's
 defaults and applies your previous values on top, or pass your values files again. Umbrellas are not
@@ -174,3 +184,75 @@ Nothing to change, and the same values render the same objects: 0.5.0 adds `netw
   `serviceAccount.automountToken: true`. Destinations listed while `egress.enabled` is `false` fail the render.
 - On a `job` component the policy is a hook of the Job's phase: keep `job.activeDeadlineSeconds` below Helm's
   `--timeout` ([ADR-0041](adr/0041-job-component-networkpolicy-is-a-hook.md)).
+
+## 0.5.x → 0.6.0
+
+0.6.0 adds `serviceAccount.name` and `rbac` ([ADR-0042](adr/0042-existing-serviceaccount-and-namespaced-rbac.md)),
+unused by default, and is a breaking release for one combination of values: otherwise the same values render the
+same objects. A direct install upgraded with `--reuse-values` fails (see above).
+
+### `serviceAccount.annotations` with `serviceAccount.create: false` fail the render
+
+0.5.0 ignored those annotations: with `create: false` the chart creates no ServiceAccount to put them on. 0.6.0 fails
+with an error that contains:
+
+```text
+serviceAccount.annotations apply only to the ServiceAccount the chart creates
+```
+
+Remove them from the values of that component. An override file that turns `create` off clears inherited annotations
+with `serviceAccount.annotations: null`; `{}` does not and the render still fails, because Helm merges maps.
+
+- **Without `serviceAccount.name`** (the 0.5.x case): the pods run as the namespace's `default` ServiceAccount, which
+  never carried the annotations. With them removed, 0.6.0 renders the same objects as 0.5.0 did with them. If the
+  pods need the annotations (a cloud identity), set `create: true` instead, so that the chart creates `<fullname>`
+  with them; the pods then run as that ServiceAccount and roll once.
+- **With `serviceAccount.name`** (new in 0.6.0): the pods run as that existing ServiceAccount; its owner sets the
+  annotations on it, not the chart. Or remove `name` and set `create: true`, as the error says: the chart then
+  creates `<fullname>` with the annotations, and the pods move to it (`create: true` with `name` still set fails).
+
+### Keeping the chart's ServiceAccount under its name
+
+Moving a component to an existing ServiceAccount with another name rolls its pods (the pod template changes), and Helm
+deletes the chart's ServiceAccount once the new objects are applied: with `automountToken: true`, pods of the old
+revision that still run lose API access about 10 seconds later (their token belongs to the deleted ServiceAccount).
+
+To keep the chart's own ServiceAccount, `<fullname>`, and hand it over to its owner (for example because a cloud
+identity's trust policy names the namespace and the ServiceAccount), deploy a `deployment` or `cronjob` component
+twice:
+
+1. With `create: true`, add `helm.sh/resource-policy: keep` to `serviceAccount.annotations`, and deploy.
+2. Set `create: false` and `name: <fullname>`, remove the annotations from the values (`null` in an override file),
+   and deploy. Helm keeps the ServiceAccount, and the annotation stays on it: from now on its owner manages it.
+
+In one step instead, the upgrade succeeds and Helm deletes the ServiceAccount, while the pods do not roll (their
+template names the same ServiceAccount): the running pods keep a token of the deleted ServiceAccount, which the API
+server rejects after its token cache, and every new pod is rejected because the ServiceAccount does not exist.
+
+A `job` component's ServiceAccount is a hook of the Job's phase (`before-hook-creation,hook-succeeded`), and Helm
+deletes a hook whatever `helm.sh/resource-policy` says: measured with Helm 4.3.0 and 3.22.0 on kube-apiserver v1.33.0
+and v1.37.0, a hook ServiceAccount annotated `keep` is gone once the phase has succeeded. The two steps above keep
+nothing, and the second deploy's Job pods would name a ServiceAccount that no longer exists, which the API server
+rejects (this follows from the deletion; not run). There is nothing to hand over, so it is one step: after a
+successful deploy, check that the hook ServiceAccount is gone
+(`kubectl get serviceaccount <fullname> -n <namespace> --ignore-not-found` prints nothing), have its owner create
+`<fullname>`, then deploy with `create: false` and `name: <fullname>` (the annotations removed, as above). Do not
+create it while the chart still renders the hook ServiceAccount (`create: true`): the next deploy's
+`before-hook-creation` deletes it by name (Helm's `pkg/action/hooks.go`, a source reading, not run).
+
+### New and optional: an existing ServiceAccount and RBAC
+
+- `serviceAccount.name` runs the pods as an existing ServiceAccount (with `create: false`). It must exist before the
+  pods, and its `imagePullSecrets` and its deprecated `kubernetes.io/enforce-mountable-secrets` annotation apply to
+  them.
+- `serviceAccount.name` with `create: true` fails the render (the chart's own ServiceAccount is always `<fullname>`);
+  `helm lint` reports it without failing.
+- `rbac` needs a ServiceAccount of the component (the render fails for the namespace's `default` one) and
+  `serviceAccount.automountToken: true`, unless no ClusterRole is bound and `use` is the only verb of every rule (a
+  grant that admission checks on the ServiceAccount, such as an OpenShift SecurityContextConstraints). Render with
+  the release's real `--namespace`: the RoleBindings' subject is in it. **Whoever runs `helm upgrade` must hold every
+  permission it grants**: check the deployer's own permissions first (`kubectl auth can-i --list`). With
+  `networkPolicy.egress.enabled`, a component that calls the API also needs the API server's endpoint IPs and port in
+  `networkPolicy.egress.toCIDRs`.
+- On a `job` component the Role and RoleBindings are hooks of the Job's phase: keep `job.activeDeadlineSeconds` below
+  Helm's `--timeout` ([ADR-0043](adr/0043-job-component-rbac-is-a-hook.md)).

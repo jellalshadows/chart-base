@@ -133,3 +133,50 @@ tests:
       - equal:
           path: spec.template.spec.enableServiceLinks
           value: true
+
+  - it: runs Deployment pods as an existing ServiceAccount (create false, name), with the token as automountToken says
+    template: templates/deployment.yaml
+    set:
+      serviceAccount.create: false
+      serviceAccount.name: sales-runner
+      serviceAccount.automountToken: true
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: sales-runner
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: true
+
+  - it: runs CronJob runs as an existing ServiceAccount
+    template: templates/cronjob.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      serviceAccount.create: false
+      serviceAccount.name: sales-runner
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.serviceAccountName
+          value: sales-runner
+
+  - it: runs Job hooks as an existing ServiceAccount
+    template: templates/job.yaml
+    set:
+      workload.type: job
+      serviceAccount.create: false
+      serviceAccount.name: sales-runner
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: sales-runner
+
+  - it: keeps an existing ServiceAccount named true a string (a plain true is a YAML boolean)
+    template: templates/deployment.yaml
+    set:
+      serviceAccount.create: false
+      serviceAccount.name: "true"
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: "true"

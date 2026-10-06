@@ -7,11 +7,12 @@
 {{- end -}}
 {{- end -}}
 
+{{/* The pods' ServiceAccount: the chart's (<fullname>), an existing one (serviceAccount.name), or the namespace's default. */}}
 {{- define "chart-base.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create -}}
 {{- include "chart-base.fullname" . -}}
 {{- else -}}
-default
+{{- .Values.serviceAccount.name | default "default" -}}
 {{- end -}}
 {{- end -}}
 
@@ -24,7 +25,10 @@ Deployment-only parts (the built-in preStop sleep, topology spread) are rendered
 {{- $ := .ctx -}}
 {{- $fullname := include "chart-base.fullname" $ -}}
 {{- $isDeployment := eq $.Values.workload.type "deployment" -}}
-serviceAccountName: {{ include "chart-base.serviceAccountName" $ }}
+{{- /* An existing ServiceAccount's name comes from values: quoted, so that a name such as `on` stays a string. */ -}}
+{{- $serviceAccountName := include "chart-base.serviceAccountName" $ -}}
+{{- if and (not $.Values.serviceAccount.create) $.Values.serviceAccount.name }}{{ $serviceAccountName = quote $serviceAccountName }}{{ end -}}
+serviceAccountName: {{ $serviceAccountName }}
 automountServiceAccountToken: {{ $.Values.serviceAccount.automountToken }}
 enableServiceLinks: {{ $.Values.enableServiceLinks }}
 {{- with .restartPolicy }}

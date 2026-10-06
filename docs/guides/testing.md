@@ -28,7 +28,7 @@ Contents:
 | `helm lint --strict` | The chart lints on every scenario, on real Helm 3.22 and 4.3 | Yes | `lint` |
 | kubeconform | The rendered manifests are valid for Kubernetes 1.33 and 1.37 | Yes (needs network) | `lint` |
 | Alias contract | Several aliases in one umbrella work and stay independent | Yes | `lint` |
-| End-to-end | The manifests really install and run in a cluster, and kindnet enforces the NetworkPolicies as rendered | No (needs kind) | `e2e` |
+| End-to-end | The manifests really install and run in a cluster, kindnet enforces the NetworkPolicies as rendered, and the API server grants what the RBAC objects say | No (needs kind) | `e2e` |
 | Documentation | The README is not stale; every link and anchor resolves | Yes | `docs` |
 | Workflows | The workflow files are sound; the PR title is a conventional commit | Yes (actionlint) | `workflows`, `pr-title` |
 | Release signing | The signing steps of `release.yaml` verify a real signed release, and refuse a wrong identity, a missing bundle type and a bad digest | Yes (needs network; cosign, jq, yq, curl) | `release signing checks (cosign)` |
@@ -45,11 +45,11 @@ A single required check, `ci-ok`, depends on all the jobs. chart-testing (`ct`) 
 **Where it lives.**
 
 - Suites in `tests/*_test.yaml`, roughly one per area (`deployment`, `cronjob`, `job`, `configmap`,
-  `env` (references, `envFrom`, Reloader annotations), `pod` (runtime knobs and service links, on every
-  workload type), `lifecycle` (container hooks), `monitoring` (the ServiceMonitor or the PodMonitor),
-  `prometheusrule` (on every workload type), `networkpolicy` (every workload type, a hook on a job component),
-  `externalsecret`, `exposure`, `scaling`, `service`, `serviceaccount`, `hooks`, `validate`, `schema`,
-  `snapshot`). Each suite names the templates it renders.
+  `env` (references, `envFrom`, Reloader annotations), `pod` (runtime knobs, service links and an existing
+  ServiceAccount, on every workload type), `lifecycle` (container hooks), `monitoring` (the ServiceMonitor or the
+  PodMonitor), `prometheusrule` (on every workload type), `networkpolicy` (every workload type, a hook on a job
+  component), `rbac` (the Role and RoleBindings, hooks on a job component), `externalsecret`, `exposure`, `scaling`,
+  `service`, `serviceaccount`, `hooks`, `validate`, `schema`, `snapshot`). Each suite names the templates it renders.
 - Shared values in `tests/values/`: `base.yaml` (the minimum valid values every suite starts from),
   `env-refs.yaml` (one reference of every kind plus `envFrom` sources, for the `env` suite),
   `pod-runtime.yaml` (every pod runtime knob, for the `pod` suite), `prometheus-rules.yaml` (a recording
@@ -93,6 +93,13 @@ test that a value stays a string therefore uses `true`, `false` or `null`, which
 at once; `port-names` names its only port `on` (see [kubeconform](#manifest-validation-with-kubeconform)).
 CI runs the layer on Helm 3.22.0 and 4.3.0, because Helm 3 still receives security fixes and consumers still
 use it ([ADR-0019](../adr/0019-helm-4-first-helm-3-tested.md)).
+
+Lint fails on schema errors, not on guards: in lint mode Helm prints a guard's message as an INFO line
+(`level=INFO msg="funcMap fail"` on Helm 4, `[INFO] Fail:` on Helm 3) and exits 0, and it renders under the
+placeholder release name `test-release` ([ADR-0044](../adr/0044-guards-fail-the-render-helm-lint-reports-them.md)).
+The guards are covered by the unit tests and by the next layer, which renders every scenario with `helm template`.
+An INFO line of that kind in a lint log is a guard that fails the render with those values under the release name
+`test-release`.
 
 **Where it lives.** `ci/*-values.yaml` and the `lint` job of `.github/workflows/ci.yaml`. The matrix
 (`helm: [v3.22.0, v4.3.0]`) is bumped by hand: keep its `4.x` entry equal to `HELM_VERSION`.
@@ -151,6 +158,14 @@ covered: a hyphen in the values key, the `condition` path and the resource names
   `toComponents: [api]` selects api's, and `nightly-cleanup` (policy off) gets none; `worker` sets
   `egress.dns.podSelector` in the umbrella's values, and its DNS rule selects exactly that map (it replaces the
   default selector), on both Helm versions;
+- with `rbac` on, `api` (the chart's ServiceAccount, `rules` and `clusterRoles: [view]`) gets a Role `vending-api`
+  that holds exactly the umbrella's rules and the RoleBindings `vending-api` and `vending-api.view`, bound to its own
+  ServiceAccount, and `worker` (the existing ServiceAccount `vending-worker-sa`, `clusterRoles: [view]`) a RoleBinding
+  `vending-worker.view` bound to that ServiceAccount, no ServiceAccount, Role or RoleBinding `vending-worker`, and
+  pods that run as `vending-worker-sa` with the token mounted; `nightly-cleanup` (no `rbac`) gets no Role or
+  RoleBinding. Every subject must be in the release namespace: the script renders the release `vending` in the
+  namespace `platform`, so a subject built from the release name instead of the namespace fails. Two aliases bind
+  `view`, so a binding named after the ClusterRole alone would be a duplicated `kind/name`;
 - `helm.sh/chart` keeps the real chart name (`chart-base-<version>`) under an alias;
 - `<alias>.enabled=false` removes the component;
 - the schema is enforced per alias and names the alias in the error, and a typo under an alias fails;
@@ -223,7 +238,7 @@ Each scenario is installed with `helm upgrade --install ... --wait --timeout 5m`
 | `worker` | The worker becomes Ready and there is no Service named for it. It has a PodMonitor labelled `release: e2e` whose endpoint port is the container port `metrics`, and no ServiceMonitor. |
 | `cronjob` | A Job created manually from the CronJob (`kubectl create job --from=cronjob/...`) completes within 180 seconds: a restricted pod that reads its config from the ConfigMap, its `env` references (`fieldRef`, `resourceFieldRef`) and the `e2e-shared` Secret injected with `envFrom` and a prefix. Service links are off: `KUBERNETES_SERVICE_HOST` is set, `DEPLOYMENT_CHART_BASE_SERVICE_HOST` (the `deployment` scenario's Service, installed before; the script first checks that it has a ClusterIP) is not. |
 | `job` | The `pre-deploy` hook Job succeeds and its log contains `migrations-ok`: it saw `APP_MODE`, `DB_PASSWORD` (from the ExternalSecret) and `/config/migrations.yaml`, all created as hooks before it ran. A second deploy with `--set-string podAnnotations.revision=2` succeeds, so the Job hook is recreated instead of hitting `field is immutable` ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)). |
-| `full` | The ExternalSecret becomes Ready, the Secret it creates holds the value `s3cr3t` from the fake provider, the API server accepts the HTTPRoute, the Deployment's `secret.reloader.stakater.com/reload` annotation is exactly `e2e-shared,full-chart-base-secrets`, and the HPA, PDB and Ingress are created. The Deployment carries `strategy` (`maxSurge: 1`, `maxUnavailable: 0`), `minReadySeconds` and `revisionHistoryLimit`; a pod carries `priorityClassName: e2e-high` resolved to priority 1000 by the API server, `enableServiceLinks: false`, the `dnsConfig` option and the `hostAliases` entry. The ServiceMonitor is labelled `release: e2e` and its endpoint targets the Service port `http` with a `30s` interval, there is no PodMonitor, and the PrometheusRule is labelled `release: e2e` and holds the alert `FullChartBaseDown`. The NetworkPolicy is accepted with both policy types, the `except` of its `ipBlock` and its `endPort`. |
+| `full` | The ExternalSecret becomes Ready, the Secret it creates holds the value `s3cr3t` from the fake provider, the API server accepts the HTTPRoute, the Deployment's `secret.reloader.stakater.com/reload` annotation is exactly `e2e-shared,full-chart-base-secrets`, and the HPA, PDB and Ingress are created. The Deployment carries `strategy` (`maxSurge: 1`, `maxUnavailable: 0`), `minReadySeconds` and `revisionHistoryLimit`; a pod carries `priorityClassName: e2e-high` resolved to priority 1000 by the API server, `enableServiceLinks: false`, the `dnsConfig` option and the `hostAliases` entry. The ServiceMonitor is labelled `release: e2e` and its endpoint targets the Service port `http` with a `30s` interval, there is no PodMonitor, and the PrometheusRule is labelled `release: e2e` and holds the alert `FullChartBaseDown`. The NetworkPolicy is accepted with both policy types, the `except` of its `ipBlock` and its `endPort`. The Role is accepted with its `resourceNames` and its subresource rule, and the RoleBindings `full-chart-base` (to the Role) and `full-chart-base.view` (to the ClusterRole `view`) bind the ServiceAccount `full-chart-base`. |
 | `port-names` | The API server accepts the component whose only port is named `on`, and stores `on` as a string in the Service port name and `targetPort`, the container port name, the Ingress backend port name and the ServiceMonitor endpoint port. |
 
 After the scenarios, the **NetworkPolicy checks**. The script creates a namespace `netpol` (Pod Security
@@ -267,10 +282,42 @@ isolation:
 
 No check depends on an `ipBlock` matching a pod IP, which kindnet does and some CNIs never do.
 
+Last, the **RBAC checks**. The script creates a namespace `rbac` (Pod Security `restricted`) with a ServiceAccount
+`e2e-existing` that says `automountServiceAccountToken: false`, as a platform team would create one, and installs a
+throwaway umbrella `ops` there:
+
+- `api` (a Deployment) runs as the existing ServiceAccount `e2e-existing`, with `automountToken: true`; its
+  `rbac.rules` allow leases (`get`, `list`, `watch`, `create`, `update`, `patch`), the ConfigMap `ops-api-state`
+  (`get`, `update`) and the subresource `pods/log` (`get`);
+- `viewer` (a Deployment without a Service) has the chart's ServiceAccount and `rbac.clusterRoles: [view]`;
+- `migrate`, a `pre-deploy` Job, lists the namespace's ConfigMaps with its own token (`curl -sS --max-time 3` to
+  `https://kubernetes.default.svc`, up to 20 attempts with one second between them, each logging its HTTP status and,
+  when curl itself fails, curl's error; at most 20 x 3 + 19 x 1 = 79 seconds, under the Job's
+  `activeDeadlineSeconds: 120`): only its `rbac.rules`, a Role and a RoleBinding that are hooks created before it,
+  allow that.
+
+`kubectl auth can-i` exits 1 both for "no" and for an error (an identity that may not impersonate, for example), and
+answers "no", with a warning, for a resource type that does not exist and for a verb it does not know. So the script's
+`can_i` compares stdout, fails on either warning and prints it (a typo cannot pass as a "no"), polls for up to 10
+seconds, and on a wrong answer prints the ServiceAccount's `can-i --list`; every "no" comes after a "yes" for the same
+ServiceAccount and resource type, so the binding is in effect when the "no" is checked.
+
+| Check | Expected |
+|---|---|
+| The install itself, and the `migrate` Job's log | The Job logged `rbac-ok`: it called the API through its own Role and RoleBinding, hooks of its phase ([ADR-0043](../adr/0043-job-component-rbac-is-a-hook.md)). They and its ServiceAccount are gone after the install (`hook-succeeded`): one lookup of `ops-migrate` by name with `--ignore-not-found` must print nothing, and a kubectl error fails the check instead of passing for their absence. |
+| `can-i` as `e2e-existing`: `get pods --subresource=log`, then `get pods` | `yes`, then `no`: a rule on a subresource does not allow its parent. |
+| `can-i` as `e2e-existing`: `create leases.coordination.k8s.io`, then `delete leases.coordination.k8s.io` | `yes`, then `no`: the listed verbs only. |
+| `can-i` as `e2e-existing`: `get configmaps/ops-api-state`, then `get configmaps/ops-api-other` | `yes`, then `no`: the listed names only. |
+| `can-i` as `ops-viewer`: `list pods` and `create pods` in `rbac`, then `list pods` in `default` | `yes`, `no`, `no`: the ClusterRole `view`, granted in `rbac` only. |
+| `api`'s pod spec and the ServiceAccounts | The pod runs as `e2e-existing`, with `automountServiceAccountToken: true` and a `kube-api-access` volume, while the ServiceAccount still says `false` (the pod's field wins); the chart created no ServiceAccount `ops-api`. |
+| From `api`'s pod, with its own token: GET the leases, then GET the Secrets of `rbac` (`curl -sS --max-time 10`) | HTTP 200 (its Role allows it), then 403 (no rule allows it). |
+
 On failure the script prints
-`kubectl get all,externalsecrets,servicemonitors,podmonitors,prometheusrules,networkpolicies` for the namespace
-of the failing check (`vending` for the scenarios, `netpol` for the NetworkPolicy checks, which also list the pods and
-policies of `monitoring`).
+`kubectl get all,externalsecrets,servicemonitors,podmonitors,prometheusrules,networkpolicies,serviceaccounts,roles,rolebindings`
+for the namespace of the failing check (`vending` for the scenarios; `netpol` for the NetworkPolicy checks, which also
+list the pods and policies of `monitoring` and print the last 50 lines of the `migrate` Job's log and the last 200 of
+kindnet's; `rbac` for the RBAC checks, which also print the last 200 lines of the `migrate` Job's log, where each
+attempt logs its HTTP status).
 
 **In CI.** The `e2e` job, one leg per Kubernetes version. To debug a failure locally, read the failing
 step in the job log first: the `FAIL:` message names what the script expected. Reproducing it needs a

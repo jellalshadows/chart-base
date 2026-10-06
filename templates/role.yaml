@@ -1,0 +1,39 @@
+{{- /*
+The component's namespaced permissions (rbac.rules), bound to the pods' ServiceAccount by the RoleBinding of the same
+name (templates/rolebinding.yaml). On a job component it is a hook of the Job's phase, like its ServiceAccount
+(templates/_hooks.tpl): a regular object does not exist yet when a pre-install Job runs. Every string from values is
+quoted (the core group is the empty string); the verbs are an enum of the schema.
+*/}}
+{{- if .Values.rbac.rules }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "chart-base.fullname" . }}
+  labels:
+    {{- include "chart-base.labels" . | nindent 4 }}
+  {{- with include "chart-base.supportHookAnnotations" . }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+rules:
+  {{- range .Values.rbac.rules }}
+  - apiGroups:
+      {{- range $group := .apiGroups }}
+      - {{ $group | quote }}
+      {{- end }}
+    resources:
+      {{- range $resource := .resources }}
+      - {{ $resource | quote }}
+      {{- end }}
+    {{- with .resourceNames }}
+    resourceNames:
+      {{- range $name := . }}
+      - {{ $name | quote }}
+      {{- end }}
+    {{- end }}
+    verbs:
+      {{- range .verbs }}
+      - {{ . }}
+      {{- end }}
+  {{- end }}
+{{- end }}

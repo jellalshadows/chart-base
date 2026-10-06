@@ -387,7 +387,7 @@ full scenario:
             app.kubernetes.io/version: 2.66.1
             example.com/tier: backend
         spec:
-          automountServiceAccountToken: false
+          automountServiceAccountToken: true
           containers:
             - args:
                 - netexec
@@ -755,6 +755,88 @@ full scenario:
               labels:
                 severity: critical
   11: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      labels:
+        app.kubernetes.io/component: deployment
+        app.kubernetes.io/instance: vending
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: chart-base
+        app.kubernetes.io/part-of: vending
+        app.kubernetes.io/version: 2.66.1
+        helm.sh/chart: chart-base-0.0.0-test
+      name: vending-chart-base
+    rules:
+      - apiGroups:
+          - coordination.k8s.io
+        resources:
+          - leases
+        verbs:
+          - get
+          - list
+          - watch
+          - create
+          - update
+          - patch
+      - apiGroups:
+          - ""
+        resourceNames:
+          - full-chart-base-state
+        resources:
+          - configmaps
+        verbs:
+          - get
+          - update
+      - apiGroups:
+          - ""
+        resources:
+          - pods/log
+        verbs:
+          - get
+  12: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: deployment
+        app.kubernetes.io/instance: vending
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: chart-base
+        app.kubernetes.io/part-of: vending
+        app.kubernetes.io/version: 2.66.1
+        helm.sh/chart: chart-base-0.0.0-test
+      name: vending-chart-base
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: vending-chart-base
+    subjects:
+      - kind: ServiceAccount
+        name: vending-chart-base
+        namespace: vending
+  13: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      labels:
+        app.kubernetes.io/component: deployment
+        app.kubernetes.io/instance: vending
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: chart-base
+        app.kubernetes.io/part-of: vending
+        app.kubernetes.io/version: 2.66.1
+        helm.sh/chart: chart-base-0.0.0-test
+      name: vending-chart-base.view
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: view
+    subjects:
+      - kind: ServiceAccount
+        name: vending-chart-base
+        namespace: vending
+  14: |
     apiVersion: v1
     kind: Service
     metadata:
@@ -777,9 +859,9 @@ full scenario:
         app.kubernetes.io/instance: vending
         app.kubernetes.io/name: chart-base
       type: ClusterIP
-  12: |
+  15: |
     apiVersion: v1
-    automountServiceAccountToken: false
+    automountServiceAccountToken: true
     kind: ServiceAccount
     metadata:
       annotations:
@@ -793,7 +875,7 @@ full scenario:
         app.kubernetes.io/version: 2.66.1
         helm.sh/chart: chart-base-0.0.0-test
       name: vending-chart-base
-  13: |
+  16: |
     apiVersion: monitoring.coreos.com/v1
     kind: ServiceMonitor
     metadata:

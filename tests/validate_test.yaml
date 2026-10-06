@@ -576,3 +576,320 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: rejects serviceAccount.annotations with create false (the owner of an existing ServiceAccount sets them)
+    set:
+      serviceAccount.create: false
+      serviceAccount.name: sales-runner
+      serviceAccount.annotations:
+        eks.amazonaws.com/role-arn: arn:aws:iam::111122223333:role/sales
+    asserts:
+      - failedTemplate:
+          errorPattern: 'serviceAccount.annotations apply only to the ServiceAccount the chart creates, and serviceAccount.create is false, so no ServiceAccount carries them: remove them from the values \(an override file clears them with serviceAccount.annotations: null; an empty map is merged and clears nothing\), or, when the pods run as an existing ServiceAccount \(serviceAccount.name\), have its owner set them on that ServiceAccount \(a cloud identity''s role, for example\), or set serviceAccount.create: true \(removing serviceAccount.name if it is set\)'
+
+  - it: rejects serviceAccount.annotations with create false and no name (the namespace's default ServiceAccount)
+    set:
+      serviceAccount.create: false
+      serviceAccount.annotations:
+        iam.gke.io/gcp-service-account: sales@acme.iam.gserviceaccount.com
+    asserts:
+      - failedTemplate:
+          errorPattern: 'serviceAccount.annotations apply only to the ServiceAccount the chart creates, and serviceAccount.create is false, so no ServiceAccount carries them: remove them from the values .*, or set serviceAccount.create: true'
+
+  - it: accepts serviceAccount.annotations on the ServiceAccount the chart creates
+    set:
+      serviceAccount.annotations:
+        eks.amazonaws.com/role-arn: arn:aws:iam::111122223333:role/sales
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects serviceAccount.name default (create false without a name already selects it)
+    set:
+      serviceAccount.create: false
+      serviceAccount.name: default
+    asserts:
+      - failedTemplate:
+          errorPattern: "serviceAccount.name: default is the namespace's default ServiceAccount, .*: remove serviceAccount.name, or name a ServiceAccount of this component"
+
+  - it: rejects serviceAccount.name with create true (the chart creates <fullname>; a name is an existing ServiceAccount's)
+    set:
+      serviceAccount.name: sales-runner
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: serviceAccount.name \(sales-runner\) names an existing ServiceAccount, and serviceAccount.create is true, so the chart creates its own, always named vending-chart-base: set serviceAccount.create: false to run the pods as sales-runner, or remove serviceAccount.name'
+
+  - it: reports serviceAccount.name default as the default ServiceAccount with create true too (create false would only select it again)
+    set:
+      serviceAccount.name: default
+    asserts:
+      - failedTemplate:
+          errorPattern: "serviceAccount.name: default is the namespace's default ServiceAccount"
+
+  - it: rejects rbac.rules bound to the namespace's default ServiceAccount (create false without a name)
+    set:
+      serviceAccount.create: false
+      serviceAccount.automountToken: true
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: [get]
+    asserts:
+      - failedTemplate:
+          errorPattern: "rbac.rules and rbac.clusterRoles would be bound to the namespace's default ServiceAccount .* set serviceAccount.create: true \\(the chart creates vending-chart-base\\)"
+
+  - it: rejects rbac.clusterRoles bound to the namespace's default ServiceAccount too
+    set:
+      serviceAccount.create: false
+      serviceAccount.automountToken: true
+      rbac.clusterRoles: [view]
+    asserts:
+      - failedTemplate:
+          errorPattern: "rbac.rules and rbac.clusterRoles would be bound to the namespace's default ServiceAccount .*, or set serviceAccount.name to an existing ServiceAccount of this component"
+
+  - it: rejects a use-only rule bound to the namespace's default ServiceAccount, without a token too (the token guard exempts use, this one does not)
+    set:
+      serviceAccount.create: false
+      rbac.rules:
+        - apiGroups: [security.openshift.io]
+          resources: [securitycontextconstraints]
+          resourceNames: [nonroot-v2]
+          verbs: [use]
+    asserts:
+      - failedTemplate:
+          errorPattern: "rbac.rules and rbac.clusterRoles would be bound to the namespace's default ServiceAccount"
+
+  - it: accepts rbac for an existing ServiceAccount of the component (create false with a name)
+    set:
+      serviceAccount.create: false
+      serviceAccount.name: sales-runner
+      serviceAccount.automountToken: true
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: [get]
+      rbac.clusterRoles: [view]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts create false without a name when there is no rbac (the pods run as default, with nothing granted)
+    set:
+      serviceAccount.create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects rbac.rules without serviceAccount.automountToken (the pods would get no token)
+    set:
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: [get]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.clusterRoles and the rbac.rules with a verb other than use are exercised by the pods with their ServiceAccount token, and serviceAccount.automountToken is false, so the pods get no token: set serviceAccount.automountToken: true, or remove them'
+
+  - it: rejects rbac.clusterRoles without serviceAccount.automountToken
+    set:
+      rbac.clusterRoles: [view]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.clusterRoles and the rbac.rules with a verb other than use are exercised by the pods with their ServiceAccount token, and serviceAccount.automountToken is false, so the pods get no token: set serviceAccount.automountToken: true, or remove them'
+
+  - it: accepts rbac.rules whose only verb is use without a token (an admission plugin checks the grant on the ServiceAccount)
+    set:
+      rbac.rules:
+        - apiGroups: [security.openshift.io]
+          resources: [securitycontextconstraints]
+          resourceNames: [nonroot-v2]
+          verbs: [use]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a rule with use and another verb without a token
+    set:
+      rbac.rules:
+        - apiGroups: [security.openshift.io]
+          resources: [securitycontextconstraints]
+          resourceNames: [nonroot-v2]
+          verbs: [use, get]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.clusterRoles and the rbac.rules with a verb other than use are exercised by the pods with their ServiceAccount token, and serviceAccount.automountToken is false'
+
+  - it: rejects a use-only rule next to a rule with another verb without a token
+    set:
+      rbac.rules:
+        - apiGroups: [security.openshift.io]
+          resources: [securitycontextconstraints]
+          resourceNames: [nonroot-v2]
+          verbs: [use]
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: [get]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.clusterRoles and the rbac.rules with a verb other than use are exercised by the pods with their ServiceAccount token, and serviceAccount.automountToken is false'
+
+  - it: rejects a rule with another verb followed by a use-only rule without a token (the last rule does not decide)
+    set:
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: [get]
+        - apiGroups: [security.openshift.io]
+          resources: [securitycontextconstraints]
+          resourceNames: [nonroot-v2]
+          verbs: [use]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.clusterRoles and the rbac.rules with a verb other than use are exercised by the pods with their ServiceAccount token, and serviceAccount.automountToken is false'
+
+  - it: rejects a use-only rule next to a ClusterRole without a token (the ClusterRole needs one)
+    set:
+      rbac.clusterRoles: [view]
+      rbac.rules:
+        - apiGroups: [security.openshift.io]
+          resources: [securitycontextconstraints]
+          resourceNames: [nonroot-v2]
+          verbs: [use]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.clusterRoles and the rbac.rules with a verb other than use are exercised by the pods with their ServiceAccount token, and serviceAccount.automountToken is false'
+
+  - it: rejects a ClusterRole without a token and names the use rule (an OpenShift SCC ClusterRole)
+    set:
+      rbac.clusterRoles: ["system:openshift:scc:nonroot-v2"]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'write it in rbac.rules as a rule whose only verb is use'
+
+  - it: rejects create with resourceNames on a resource when the rule has neither patch nor update (the names are never matched for a plain create request)
+    set:
+      serviceAccount.automountToken: true
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [pods/exec, configmaps]
+          resourceNames: [sales-state]
+          verbs: [create, get]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.rules\[0\]: create on configmaps is restricted by resourceNames, which Kubernetes matches only for a server-side apply \(it also needs patch\) or a create through an update \(it also needs update\), never for a plain create request, and this rule grants neither patch nor update \(each rule is checked on its own\): add patch or update to this rule if the component creates the object that way .*, move create to a rule without resourceNames, or remove it'
+
+  - it: rejects create with resourceNames when only another rule grants patch (each rule is checked on its own)
+    set:
+      serviceAccount.automountToken: true
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: [get, patch]
+        - apiGroups: [""]
+          resources: [configmaps]
+          resourceNames: [sales-state]
+          verbs: [create]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.rules\[1\]: create on configmaps is restricted by resourceNames, .*, and this rule grants neither patch nor update \(each rule is checked on its own\): add patch or update to this rule'
+
+  - it: accepts create with resourceNames on subresources (pods/exec, serviceaccounts/token)
+    set:
+      serviceAccount.automountToken: true
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [pods/exec, serviceaccounts/token]
+          resourceNames: [sales-0, sales-runner]
+          verbs: [create]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts create with resourceNames together with patch (a server-side apply creates the named object)
+    set:
+      serviceAccount.automountToken: true
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          resourceNames: [sales-state]
+          verbs: [get, patch, create]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts create with resourceNames together with update (a create through an update)
+    set:
+      serviceAccount.automountToken: true
+      rbac.rules:
+        - apiGroups: [coordination.k8s.io]
+          resources: [leases]
+          resourceNames: [sales-lock]
+          verbs: [get, update, create]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects deletecollection with resourceNames
+    set:
+      serviceAccount.automountToken: true
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: [get]
+        - apiGroups: [""]
+          resources: [configmaps]
+          resourceNames: [sales-state]
+          verbs: [get, deletecollection]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.rules\[1\]: deletecollection cannot be restricted by resourceNames, so this rule never allows it: move it to a rule without resourceNames, or remove it'
+
+  - it: rejects deletecollection with resourceNames even when the rule also has patch and update (they exempt create only)
+    set:
+      serviceAccount.automountToken: true
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          resourceNames: [sales-state]
+          verbs: [get, create, patch, update, deletecollection]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.rules\[0\]: deletecollection cannot be restricted by resourceNames'
+
+  - it: rejects cluster-admin in rbac.clusterRoles (every verb on every resource of the namespace)
+    set:
+      serviceAccount.automountToken: true
+      rbac.clusterRoles: [view, cluster-admin]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rbac.clusterRoles: cluster-admin is rejected: .*: list the rules the component needs in rbac.rules, or bind a narrower ClusterRole such as view'
+
+  - it: accepts the ClusterRoles view, edit and admin (edit and admin are documented escalation paths)
+    set:
+      serviceAccount.automountToken: true
+      rbac.clusterRoles: [view, edit, admin]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders with rbac.rules deleted by a null (an override that removes the rules)
+    set:
+      rbac.rules: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders with rbac.clusterRoles deleted by a null
+    set:
+      rbac.clusterRoles: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders with rbac.rules and rbac.clusterRoles both deleted by a null
+    set:
+      rbac.rules: null
+      rbac.clusterRoles: null
+    asserts:
+      - hasDocuments:
+          count: 0

@@ -3,7 +3,9 @@
 # namespace enforcing Pod Security "restricted", Gateway API CRDs, External Secrets Operator
 # with the fake provider, Prometheus Operator CRDs (no operator). Then an umbrella of three
 # components in a namespace with a default-deny NetworkPolicy, probed with agnhost connect
-# (kindnet enforces NetworkPolicy), and probed again once the default-deny is deleted.
+# (kindnet enforces NetworkPolicy), and probed again once the default-deny is deleted. Then an
+# umbrella of three components with RBAC (an existing ServiceAccount, a ClusterRole, a pre-deploy
+# Job), checked with kubectl auth can-i and with API calls from their own pods.
 # Usage: e2e.sh <chart-dir>
 # Env: GATEWAY_API_VERSION (e.g. v1.6.2), ESO_CHART_VERSION (e.g. 2.11.0),
 #      PROMETHEUS_OPERATOR_VERSION (e.g. v0.94.1)
@@ -15,12 +17,16 @@ ns=vending
 
 fail() {
   echo "FAIL: $*" >&2
-  kubectl get all,externalsecrets,servicemonitors,podmonitors,prometheusrules,networkpolicies -n "$ns" >&2 || true
+  kubectl get all,externalsecrets,servicemonitors,podmonitors,prometheusrules,networkpolicies,serviceaccounts,roles,rolebindings -n "$ns" >&2 || true
   if [ "$ns" = netpol ]; then
     kubectl get pods,networkpolicies -n monitoring -o wide >&2 || true
     # The migrate Job is kept (its delete policy is before-hook-creation only, ttl 3600); kindnet enforces the policies.
     kubectl logs -n netpol job/shop-migrate --tail=50 >&2 || true
     kubectl logs -n kube-system ds/kindnet --tail=200 >&2 || true
+  fi
+  if [ "$ns" = rbac ]; then
+    # The migrate Job is kept too: its log has the HTTP status of each of its API calls.
+    kubectl logs -n rbac job/ops-migrate --tail=200 >&2 || true
   fi
   exit 1
 }
@@ -127,8 +133,14 @@ rule="$(kubectl get prometheusrule -n "$ns" full-chart-base -o jsonpath='{.metad
 [ "$rule" = "e2e FullChartBaseDown" ] || fail "full must have a PrometheusRule labelled release=e2e with its alert, got '$rule'"
 np="$(kubectl get networkpolicy -n "$ns" full-chart-base -o jsonpath='{.spec.policyTypes[*]} {.spec.ingress[3].from[0].ipBlock.except[0]} {.spec.egress[2].ports[1].endPort}' || true)"
 [ "$np" = "Ingress Egress 10.1.0.0/16 8100" ] || fail "full must have a NetworkPolicy with both policy types, its ipBlock except and its endPort, got '$np'"
+role="$(kubectl get role -n "$ns" full-chart-base -o jsonpath='{.rules[1].resourceNames[0]} {.rules[2].resources[0]}' || true)"
+[ "$role" = "full-chart-base-state pods/log" ] || fail "full must have a Role with its resourceNames and its subresource rule, got '$role'"
+rb="$(kubectl get rolebinding -n "$ns" full-chart-base -o jsonpath='{.roleRef.kind}/{.roleRef.name} {.subjects[0].namespace}/{.subjects[0].name}' || true)"
+[ "$rb" = "Role/full-chart-base vending/full-chart-base" ] || fail "full must have a RoleBinding of its Role to its ServiceAccount, got '$rb'"
+rb="$(kubectl get rolebinding -n "$ns" full-chart-base.view -o jsonpath='{.roleRef.kind}/{.roleRef.name} {.subjects[0].namespace}/{.subjects[0].name}' || true)"
+[ "$rb" = "ClusterRole/view vending/full-chart-base" ] || fail "full must have a RoleBinding to the ClusterRole view for its ServiceAccount, got '$rb'"
 kubectl get hpa,pdb,ingress -n "$ns" -l app.kubernetes.io/instance=full
-pass "full scenario: ExternalSecret synced, HTTPRoute/HPA/PDB/Ingress/ServiceMonitor/PrometheusRule/NetworkPolicy accepted, rollout and pod runtime knobs applied"
+pass "full scenario: ExternalSecret synced, HTTPRoute/HPA/PDB/Ingress/ServiceMonitor/PrometheusRule/NetworkPolicy/Role/RoleBindings accepted, rollout and pod runtime knobs applied"
 
 echo "== port-names"
 install port-names || fail "port-names scenario failed to install"
@@ -282,5 +294,155 @@ probe deny monitoring probe shop-web.netpol.svc.cluster.local:8080 \
 probe deny "$ns" deploy/shop-web "$probe_ip:8080" \
   || fail "web's own policy must isolate its egress: it allows only the cluster DNS and api"
 pass "web's own policy isolates its ingress and its egress"
+
+echo "== rbac (an umbrella of three components: an existing ServiceAccount, a ClusterRole, a pre-deploy Job)"
+# kubectl auth can-i exits 1 for "no" and for an error alike (an identity that may not impersonate, for example), and
+# answers "no", with a warning, for a resource type that does not exist and for a verb it does not know: can_i
+# compares stdout and fails on either warning (a typo cannot pass as a "no"), and every "no" comes after a "yes" for
+# the same ServiceAccount and resource type, so the binding is in effect when the "no" is checked. On a wrong answer
+# it prints the ServiceAccount's effective rules (can-i --list); on either warning it prints the warning.
+# can_i yes|no <namespace> <serviceaccount of $ns> <can-i arguments...>: polls every second for up to 10 s.
+can_i() {
+  local expect="$1" in_ns="$2" sa="$3" out err deadline=$((SECONDS + 10))
+  shift 3
+  while :; do
+    out="$(kubectl auth can-i "$@" -n "$in_ns" --as="system:serviceaccount:$ns:$sa" 2> "$work/can-i.err" || true)"
+    err="$(cat "$work/can-i.err")"
+    case "$err" in *"doesn't have a resource type"* | *"is not a known verb"*) echo "can-i $*: $err" >&2; return 1 ;; esac
+    [ "$out" = "$expect" ] && return 0
+    [ "$SECONDS" -lt "$deadline" ] || break
+    sleep 1
+  done
+  echo "can-i $* -n $in_ns as $sa: expected '$expect', got '$out' $err" >&2
+  kubectl auth can-i --list -n "$in_ns" --as="system:serviceaccount:$ns:$sa" >&2 || true
+  return 1
+}
+ns=rbac   # fail() lists this namespace from here on
+kubectl create namespace "$ns"
+kubectl label namespace "$ns" \
+  pod-security.kubernetes.io/enforce=restricted pod-security.kubernetes.io/enforce-version=latest
+# An existing ServiceAccount, as a platform team creates one (for example with a cloud identity). It says no token.
+kubectl apply -n "$ns" -f - <<'EOF'
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: e2e-existing
+automountServiceAccountToken: false
+EOF
+mkdir -p "$work/ops/templates"
+cat > "$work/ops/Chart.yaml" <<'EOF'
+apiVersion: v2
+name: ops
+version: 0.1.0
+dependencies:
+  - {name: chart-base, version: ">=0.0.0-0", repository: "file://../chart-base", alias: api}
+  - {name: chart-base, version: ">=0.0.0-0", repository: "file://../chart-base", alias: viewer}
+  - {name: chart-base, version: ">=0.0.0-0", repository: "file://../chart-base", alias: migrate}
+EOF
+echo "chart-base RBAC e2e umbrella" > "$work/ops/templates/NOTES.txt"
+cat > "$work/ops/values.yaml" <<'EOF'
+api:
+  image: {repository: registry.k8s.io/e2e-test-images/agnhost, tag: "2.66.1"}
+  args: ["netexec", "--http-port=8080"]
+  resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 64Mi}}
+  serviceAccount:
+    create: false
+    name: e2e-existing                       # created above, with automountServiceAccountToken: false
+    automountToken: true                     # the pod's own field wins: the token is mounted
+  rbac:
+    rules:
+      - apiGroups: [coordination.k8s.io]     # leader election
+        resources: [leases]
+        verbs: [get, list, watch, create, update, patch]
+      - apiGroups: [""]
+        resources: [configmaps]
+        resourceNames: [ops-api-state]
+        verbs: [get, update]
+      - apiGroups: [""]
+        resources: [pods/log]                # a subresource, not the pods themselves
+        verbs: [get]
+viewer:
+  image: {repository: registry.k8s.io/e2e-test-images/agnhost, tag: "2.66.1"}
+  args: ["pause"]
+  ports: []
+  service: {enabled: false}
+  resources: {requests: {cpu: 10m, memory: 16Mi}}
+  serviceAccount: {automountToken: true}     # the chart creates ops-viewer
+  rbac:
+    clusterRoles: [view]                     # a RoleBinding ops-viewer.view, in this namespace only
+migrate:
+  workload: {type: job}
+  image: {repository: registry.k8s.io/e2e-test-images/agnhost, tag: "2.66.1"}
+  # Lists the namespace's ConfigMaps with its own token: only its Role and RoleBinding, hooks created before it,
+  # allow it. The retries cover the authorizer's delay in seeing a new binding; each attempt logs its HTTP status
+  # and, when curl itself fails, curl's error (-S). curl gives up after 3 s (--max-time), so the 20 attempts and
+  # the 19 sleeps between them take about 20 x 3 + 19 x 1 = 79 s at most, of the Job's 120 s (activeDeadlineSeconds):
+  # the script gives up by itself and its log stays, instead of the deadline deleting the pod while a call hangs.
+  command:
+    - sh
+    - -c
+    - >-
+      d=/var/run/secrets/kubernetes.io/serviceaccount; i=0;
+      until code=$(curl -sS --max-time 3 -o /dev/null -w '%{http_code}' --cacert "$d/ca.crt" -H "Authorization: Bearer $(cat "$d/token")"
+      "https://kubernetes.default.svc/api/v1/namespaces/$(cat "$d/namespace")/configmaps");
+      echo "list configmaps: HTTP $code"; [ "$code" = 200 ];
+      do i=$((i+1)); [ "$i" -lt 20 ] || exit 1; sleep 1; done; echo rbac-ok
+  ports: []
+  resources: {requests: {cpu: 10m, memory: 16Mi}}
+  serviceAccount: {automountToken: true}     # the chart creates ops-migrate, a hook like the Role and RoleBinding
+  rbac:
+    rules:
+      - apiGroups: [""]
+        resources: [configmaps]
+        verbs: [list]
+  job: {phase: pre-deploy, backoffLimit: 0, activeDeadlineSeconds: 120}
+EOF
+helm dependency update "$work/ops" > /dev/null
+helm upgrade --install ops "$work/ops" -n "$ns" --wait --timeout 5m \
+  || fail "the umbrella did not install (if the migrate Job failed: it lists ConfigMaps with its own token, which only its Role and RoleBinding, hooks created before it, allow; its log below has the HTTP status of each attempt)"
+
+kubectl logs -n "$ns" job/ops-migrate | grep -q rbac-ok || fail "the migrate Job did not log rbac-ok"
+# The Job's ServiceAccount, Role and RoleBinding are hooks with hook-succeeded. --ignore-not-found makes "gone" an
+# empty list with exit 0, so a kubectl error is not taken for their absence.
+left="$(kubectl get serviceaccount,role,rolebinding -n "$ns" ops-migrate --ignore-not-found -o name)" \
+  || fail "could not look up the migrate Job's ServiceAccount, Role and RoleBinding (a kubectl error, not their absence)"
+[ -z "$left" ] \
+  || fail "the migrate Job's ServiceAccount, Role and RoleBinding are hooks with hook-succeeded: they must be gone once the phase succeeded, found: $(printf '%s' "$left" | tr '\n' ' ')"
+pass "the pre-deploy Job listed ConfigMaps with its own token: its Role and RoleBinding, hooks of its phase, existed before it ran, and are deleted after"
+can_i yes "$ns" e2e-existing get pods --subresource=log || fail "api's rule on pods/log must allow reading pod logs"
+can_i no "$ns" e2e-existing get pods || fail "api's rule on the subresource pods/log must not allow the pods themselves"
+can_i yes "$ns" e2e-existing create leases.coordination.k8s.io || fail "api's lease rule must allow create"
+can_i no "$ns" e2e-existing delete leases.coordination.k8s.io || fail "api's lease rule lists no delete"
+can_i yes "$ns" e2e-existing get configmaps/ops-api-state || fail "api's resourceNames rule must allow its own ConfigMap"
+can_i no "$ns" e2e-existing get configmaps/ops-api-other || fail "api's resourceNames rule must allow no other ConfigMap"
+pass "api's rules are bound to the existing ServiceAccount it names: a subresource without its parent, the listed verbs only, the listed names only"
+can_i yes "$ns" ops-viewer list pods || fail "viewer's RoleBinding to the ClusterRole view must allow listing pods"
+can_i no "$ns" ops-viewer create pods || fail "the ClusterRole view must not allow creating pods"
+can_i no default ops-viewer list pods || fail "viewer's RoleBinding must grant view in its own namespace only"
+pass "viewer's RoleBinding to the ClusterRole view grants view in the release namespace, and nothing more"
+
+pod="$(kubectl get pods -n "$ns" -l app.kubernetes.io/instance=ops,app.kubernetes.io/name=api -o jsonpath='{.items[0].metadata.name}' || true)"
+[ -n "$pod" ] || fail "api has no pod in $ns"
+spec="$(kubectl get pod -n "$ns" "$pod" -o jsonpath='{.spec.serviceAccountName} {.spec.automountServiceAccountToken} {.spec.volumes[*].name}' || true)"
+case "$spec" in
+  "e2e-existing true "*kube-api-access-*) ;;
+  *) fail "api's pod must run as e2e-existing with the token mounted (a kube-api-access volume), got '$spec'" ;;
+esac
+[ "$(kubectl get serviceaccount -n "$ns" e2e-existing -o jsonpath='{.automountServiceAccountToken}')" = false ] \
+  || fail "the existing ServiceAccount must still say automountServiceAccountToken: false"
+kubectl get serviceaccount -n "$ns" ops-api > /dev/null 2>&1 \
+  && fail "api names an existing ServiceAccount: the chart must not create ops-api"
+pass "api's pod runs as the existing ServiceAccount, with the token mounted although the ServiceAccount says false (the pod's field wins)"
+# api_call <path>: the HTTP status of a GET to the API server from api's pod, with the pod's own token. The call
+# lasts at most 10 s (--max-time), and curl's own error (-S) reaches this script's stderr.
+api_call() {
+  # shellcheck disable=SC2016 # expanded by the pod's shell, not this one
+  kubectl exec -n "$ns" "$pod" -- sh -c 'd=/var/run/secrets/kubernetes.io/serviceaccount; curl -sS --max-time 10 -o /dev/null -w "%{http_code}" --cacert "$d/ca.crt" -H "Authorization: Bearer $(cat "$d/token")" "https://kubernetes.default.svc$1"' sh "$1"
+}
+code="$(api_call "/apis/coordination.k8s.io/v1/namespaces/$ns/leases" || true)"
+[ "$code" = 200 ] || fail "api's pod must list leases with its own token (its Role allows it), got HTTP '$code'"
+code="$(api_call "/api/v1/namespaces/$ns/secrets" || true)"
+[ "$code" = 403 ] || fail "api's pod must be forbidden to list Secrets with its own token (no rule allows it), got HTTP '$code'"
+pass "api's pod calls the API with its own token: 200 for what its Role allows, 403 for what it does not"
 
 echo "e2e: all checks passed"

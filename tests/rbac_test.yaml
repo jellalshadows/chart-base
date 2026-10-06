@@ -1,0 +1,289 @@
+suite: rbac (a Role and RoleBindings for the pods' ServiceAccount; hooks on a job component)
+templates:
+  - templates/role.yaml
+  - templates/rolebinding.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+values:
+  - values/base.yaml
+set:
+  serviceAccount.automountToken: true
+tests:
+  - it: renders no Role and no RoleBinding without rbac.rules or rbac.clusterRoles
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders a Role named <fullname> that holds the rules as given (the core group, resourceNames, a subresource)
+    template: templates/role.yaml
+    set:
+      rbac.rules:
+        - apiGroups: [coordination.k8s.io]
+          resources: [leases]
+          verbs: [get, list, watch, create, update, patch]
+        - apiGroups: [""]
+          resources: [configmaps]
+          resourceNames: [sales-state]
+          verbs: [get, update]
+        - apiGroups: [""]
+          resources: [pods/log]
+          verbs: [get]
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Role
+      - isAPIVersion:
+          of: rbac.authorization.k8s.io/v1
+      - equal:
+          path: metadata.name
+          value: vending-chart-base
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: chart-base
+      - notExists:
+          path: metadata.annotations
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [coordination.k8s.io]
+              resources: [leases]
+              verbs: [get, list, watch, create, update, patch]
+            - apiGroups: [""]
+              resources: [configmaps]
+              resourceNames: [sales-state]
+              verbs: [get, update]
+            - apiGroups: [""]
+              resources: [pods/log]
+              verbs: [get]
+
+  - it: binds the Role to the chart's ServiceAccount in the release namespace, with roleRef.apiGroup always rendered
+    template: templates/rolebinding.yaml
+    set:
+      rbac.rules:
+        - apiGroups: [coordination.k8s.io]
+          resources: [leases]
+          verbs: [get]
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: RoleBinding
+      - isAPIVersion:
+          of: rbac.authorization.k8s.io/v1
+      - equal:
+          path: metadata.name
+          value: vending-chart-base
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: chart-base
+      - notExists:
+          path: metadata.annotations
+      - equal:
+          path: roleRef
+          value:
+            apiGroup: rbac.authorization.k8s.io
+            kind: Role
+            name: vending-chart-base
+      - equal:
+          path: subjects
+          value:
+            - kind: ServiceAccount
+              name: vending-chart-base
+              namespace: vending
+
+  - it: binds an existing ServiceAccount (create false with a name)
+    template: templates/rolebinding.yaml
+    # The namespace differs from the release name (vending) on purpose: a subject built from the release NAME would
+    # be caught. It is number-like on purpose too: it pins the quote (a plain 123 is a YAML number, not a string).
+    release:
+      namespace: "123"
+    set:
+      serviceAccount.create: false
+      serviceAccount.name: sales-runner
+      rbac.rules:
+        - apiGroups: [coordination.k8s.io]
+          resources: [leases]
+          verbs: [get]
+    asserts:
+      - equal:
+          path: subjects
+          value:
+            - kind: ServiceAccount
+              name: sales-runner
+              namespace: "123"
+
+  - it: renders one RoleBinding <fullname>.<ClusterRole> per clusterRoles entry, to that ClusterRole, and no Role
+    set:
+      rbac.clusterRoles: [view, "system:aggregate-to-view"]
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/role.yaml
+      - hasDocuments:
+          count: 2
+        template: templates/rolebinding.yaml
+      - equal:
+          path: metadata.name
+          value: vending-chart-base.view
+        template: templates/rolebinding.yaml
+        documentIndex: 0
+      - equal:
+          path: roleRef
+          value:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: view
+        template: templates/rolebinding.yaml
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: vending-chart-base.system:aggregate-to-view
+        template: templates/rolebinding.yaml
+        documentIndex: 1
+      - equal:
+          path: roleRef.name
+          value: system:aggregate-to-view
+        template: templates/rolebinding.yaml
+        documentIndex: 1
+      - equal:
+          path: subjects
+          value:
+            - kind: ServiceAccount
+              name: vending-chart-base
+              namespace: vending
+        template: templates/rolebinding.yaml
+
+  - it: renders the rules' RoleBinding first, then one per ClusterRole, in order
+    template: templates/rolebinding.yaml
+    set:
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: [get]
+      rbac.clusterRoles: [view, edit]
+    asserts:
+      - hasDocuments:
+          count: 3
+      - equal:
+          path: roleRef.kind
+          value: Role
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: vending-chart-base.view
+        documentIndex: 1
+      - equal:
+          path: metadata.name
+          value: vending-chart-base.edit
+        documentIndex: 2
+
+  - it: keeps a resource name, a ClusterRole and an existing ServiceAccount named true strings (a plain true is a YAML boolean)
+    set:
+      serviceAccount.create: false
+      serviceAccount.name: "true"
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          resourceNames: ["true"]
+          verbs: [get]
+      rbac.clusterRoles: ["true"]
+    asserts:
+      - equal:
+          path: rules[0].resourceNames[0]
+          value: "true"
+        template: templates/role.yaml
+      - equal:
+          path: subjects[0].name
+          value: "true"
+        template: templates/rolebinding.yaml
+      - equal:
+          path: roleRef.name
+          value: "true"
+        template: templates/rolebinding.yaml
+        documentIndex: 1
+
+  - it: keeps resources named true and 123 strings (plain, YAML reads a boolean and a number)
+    template: templates/role.yaml
+    set:
+      rbac.rules:
+        - apiGroups: [example.com]
+          resources: ["true", "123"]
+          verbs: [get]
+    asserts:
+      - equal:
+          path: rules[0].resources
+          value: ["true", "123"]
+
+  - it: 'keeps a ClusterRole name that is valid YAML only when quoted (": ") in the binding name and the roleRef'
+    template: templates/rolebinding.yaml
+    set:
+      rbac.clusterRoles: ["ops: reader"]
+    asserts:
+      - equal:
+          path: metadata.name
+          value: "vending-chart-base.ops: reader"
+      - equal:
+          path: roleRef.name
+          value: "ops: reader"
+
+  - it: 'keeps a ClusterRole name whole when a plain scalar would end at a comment (" #"), in the binding name and the roleRef'
+    template: templates/rolebinding.yaml
+    set:
+      rbac.clusterRoles: ["ops #reader"]
+    asserts:
+      - equal:
+          path: metadata.name
+          value: "vending-chart-base.ops #reader"
+      - equal:
+          path: roleRef.name
+          value: "ops #reader"
+
+  - it: makes the Role and every RoleBinding hooks of the Job's phase on a job component, created before the Job (weight -10) and deleted once the phase succeeds
+    set:
+      workload.type: job
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: [list]
+      rbac.clusterRoles: [view]
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            helm.sh/hook: pre-install,pre-upgrade
+            helm.sh/hook-weight: "-10"
+            helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+
+  - it: follows job.phase post-deploy
+    set:
+      workload.type: job
+      job.phase: post-deploy
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: [list]
+      rbac.clusterRoles: [view]
+    asserts:
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: post-install,post-upgrade
+
+  - it: renders regular objects on a cronjob component
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      rbac.rules:
+        - apiGroups: [""]
+          resources: [configmaps]
+          verbs: [list]
+      rbac.clusterRoles: [view]
+    asserts:
+      - notExists:
+          path: metadata.annotations
