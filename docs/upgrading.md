@@ -1,7 +1,7 @@
 # Upgrade guide
 
 Before 1.0, a breaking release bumps the minor version and its pull request title carries `!`
-(`feat!:`). This page lists, for every breaking release, what to change in your values, and for a fix
+(`feat!:` or `fix!:`). This page lists, for every breaking release, what to change in your values, and for a fix
 release that changes rendered objects (0.4.1), which objects change. Releases that are not listed here need
 no change to your values; the [changelog](../CHANGELOG.md) has every release.
 
@@ -338,3 +338,26 @@ with the deploy's real values): fix the values before you upgrade.
   A `null` field in such an entry (`sectionName: null`) now fails the schema too: on 0.6.0 it rendered, and on Helm 3.22
   the API server dropped the `null` (the route was the same without it), while Helm 4.3's server-side apply rejected it
   (measured on kube-apiserver 1.33.0 and 1.37.0). Remove the key.
+
+### Extra volumes and `strategy.rollingUpdate: null` (the second pull request of 0.7.0)
+
+The second pull request of 0.7.0 adds `volumes` and adds no required key: a values file without `volumes` renders
+the same manifests as with its first pull request (measured on the six `ci/` scenarios, on Helm 4.3.0 and 3.22.0).
+
+- **`volumes` is new and optional** ([ADR-0049](adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)). In `volumes`, a `null`
+  entry or field is absent. A volume added to the rendered Deployment some other way (a post-renderer, a patch) can
+  move to `volumes`, whose guards then check it at `helm template`.
+- **`strategy.rollingUpdate: null` is accepted and never rendered** ([ADR-0050](adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md)):
+  an override file over values that set `rollingUpdate` switches to Recreate with `strategy: {type: Recreate,
+  rollingUpdate: null}`. 0.6.0 rejected that `null` (`got null, want object`).
+- **`helm lint` no longer fails on `rollingUpdate` next to `Recreate`**: the rule moved from the schema to a guard,
+  which fails `helm template`, install and upgrade with a remedy (measured on chart-base itself: `helm lint --strict`
+  exited 1 before, 0 now). Gate on `helm template` with the deploy's real values.
+- **On Helm 4, a Deployment that exists without `strategy`, or with `{type: RollingUpdate}` only, cannot switch to
+  `{type: Recreate}` in one upgrade.** Helm 4 applies server-side, the `rollingUpdate` that the API server defaulted
+  stays, and the API rejects it: `spec.strategy.rollingUpdate: Forbidden: may not be specified when strategy` `type`
+  `is 'Recreate'` (measured on kube-apiserver 1.33.0 and 1.37.0; Helm 3.22.0 switches in place). The routes, each
+  measured there: stay on `{type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}`; switch to
+  Recreate in a later upgrade, once Helm owns both `rollingUpdate` keys; or run that one upgrade with
+  `--server-side=false`. It matters first for a Deployment that gains an existing claim declared `ReadWriteOnce`,
+  which needs a strategy that adds no pod.

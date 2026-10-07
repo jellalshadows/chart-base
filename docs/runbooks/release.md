@@ -16,7 +16,7 @@ Conventional commits, squash-merged with the PR title as the commit message, dec
 | Commit type | Bump |
 | --- | --- |
 | `fix:` | patch |
-| `feat:` and `feat!:` | minor (never major before 1.0) |
+| `feat:`, `feat!:` and `fix!:` | minor (never major before 1.0) |
 | `perf:`, `revert:` | patch (release-please's default changelog sections include them) |
 | `docs:`, `chore:`, `ci:`, `test:`, `refactor:` | no release |
 | any commit that only touches an excluded path (`.github`, `tests`, `ci`, `docs`) | no release |
