@@ -65,6 +65,23 @@ configFiles:
   # rendered as written, with everything inside it, and a map left empty stays `{}`.
   files: {}
 
+# -- Extra volumes, each mounted in the main container: a map keyed by the volume name, rendered in key order after the
+# chart's own `tmp` and `config-files`. Every entry has a `type` (`emptyDir`; `configMap` and `secret`, mounted
+# read-only; `persistentVolumeClaim`, an EXISTING claim; `ephemeral`, a claim created and deleted with each pod) and an
+# absolute `mountPath`, and may have `subPath` and `readOnly`. The fields of each type: `emptyDir`: `medium` (`Memory`),
+# `sizeLimit`; `configMap`: `name`, `items`, `defaultMode`, `optional`; `secret`: `secretName`, `items`, `defaultMode`,
+# `optional`; `persistentVolumeClaim`: `claimName`; `ephemeral`: `size`, `accessMode` (default `ReadWriteOnce`),
+# `storageClassName` (default: the cluster's default class). An `ephemeral` claim lives as long as its pod (source
+# reading): a CronJob keeps those of the finished runs its history limits keep, a Job keeps its own for
+# `job.ttlSecondsAfterFinished`, and each retry gets one of its own. In `volumes`, a `null` entry or field is absent, and
+# `volumes: null` is no volume: an overlay changes the type of a volume that the umbrella defines by setting the
+# previous type's fields to `null` (`cache: {type: ephemeral, size: 10Gi, sizeLimit: null}`), or removes it with
+# `cache: null` and adds one under another name. Write `defaultMode` and `items[].mode` in octal with a leading zero,
+# unquoted (`0440`): `440` is decimal and means `0670`, and `--set` cannot pass an octal literal (use the decimal
+# value, `288`). Omit `items`, or set it to `null`, for every key. Quote a key that YAML 1.1 reads as a boolean (`on`,
+# `yes`, `no`, `y`): two such keys collide silently.
+volumes: {}
+
 externalSecret:
   # -- Render an ExternalSecret (external-secrets.io/v1) whose Secret `<fullname>-secrets` is injected with `envFrom`.
   enabled: false

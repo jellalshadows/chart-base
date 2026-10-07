@@ -1,0 +1,234 @@
+suite: volumes (schema rules and guards)
+templates:
+  - templates/validate.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+values:
+  - values/base.yaml
+tests:
+  - it: accepts every type with every field of its own, and a null entry
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /cache, subPath: a, readOnly: false, medium: Memory, sizeLimit: 1Gi}
+        rules: {type: configMap, mountPath: /rules, name: r, items: [{key: k, path: p, mode: 0400}], defaultMode: 0440, optional: false}
+        certs: {type: secret, mountPath: /certs, readOnly: true, secretName: s, items: [{key: k, path: p}], defaultMode: 0, optional: true}
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: d, claimAccessMode: ReadWriteMany}
+        scratch: {type: ephemeral, mountPath: /scratch, size: 1Gi, accessMode: ReadWriteOncePod, storageClassName: fast.ssd}
+        gone: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts volumes null
+    set:
+      volumes: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a null for every optional field of an entry, whatever its type
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /cache, subPath: null, readOnly: null, medium: null, sizeLimit: null, name: null, secretName: null, items: null, defaultMode: null, optional: null, claimName: null, claimAccessMode: null, size: null, accessMode: null, storageClassName: null}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a volume type that chart-base does not offer
+    set:
+      volumes:
+        host: {type: hostPath, mountPath: /host}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/host/type': value must be one of 'emptyDir', 'configMap', 'secret', 'persistentVolumeClaim', 'ephemeral'"
+
+  - it: rejects an entry without a type, naming only the type
+    set:
+      volumes:
+        cache: {mountPath: /cache}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/cache': missing property 'type'"
+
+  - it: rejects a null type
+    set:
+      volumes:
+        cache: {type: null, mountPath: /cache}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/cache/type': value must be one of"
+
+  - it: rejects an entry without a mountPath
+    set:
+      volumes:
+        cache: {type: emptyDir}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/cache': missing property 'mountPath'"
+
+  - it: rejects a null mountPath (a mount path is never null, so chart-base.cleanPath is never given a nil)
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/cache/mountPath': got null, want string"
+
+  - it: rejects a relative mountPath (tmp)
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: tmp}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/cache/mountPath': 'tmp' does not match pattern '\\^/'"
+
+  - it: rejects a relative mountPath (./tmp)
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: ./tmp}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/cache/mountPath': './tmp' does not match pattern '\\^/'"
+
+  - it: rejects a relative mountPath (the token path without its leading slash)
+    set:
+      volumes:
+        token: {type: emptyDir, mountPath: var/run/secrets/kubernetes.io/serviceaccount}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/token/mountPath': 'var/run/secrets/kubernetes.io/serviceaccount' does not match pattern '\\^/'"
+
+  - it: rejects a misspelt field (a closed list of fields, whether the value is null or not)
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs, secretName: s, secretname: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/certs': additional properties 'secretname' not allowed"
+
+  - it: rejects a secret entry without its secretName
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/certs': missing property 'secretName'"
+
+  - it: rejects a configMap entry without its name, a claim without its claimName, an ephemeral volume without its size
+    set:
+      volumes:
+        rules: {type: configMap, mountPath: /rules}
+        data: {type: persistentVolumeClaim, mountPath: /data}
+        scratch: {type: ephemeral, mountPath: /scratch}
+    asserts:
+      - failedTemplate:
+          errorPattern: "missing property 'name'"
+      - failedTemplate:
+          errorPattern: "missing property 'claimName'"
+      - failedTemplate:
+          errorPattern: "missing property 'size'"
+
+  - it: rejects an empty name, secretName and subPath
+    set:
+      volumes:
+        rules: {type: configMap, mountPath: /rules, name: ""}
+        certs: {type: secret, mountPath: /certs, secretName: "", subPath: ""}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/rules/name': minLength: got 0, want 1"
+      - failedTemplate:
+          errorPattern: "/volumes/certs/secretName': minLength: got 0, want 1"
+      - failedTemplate:
+          errorPattern: "/volumes/certs/subPath': minLength: got 0, want 1"
+
+  - it: rejects items [] (the API reads an empty list as every key)
+    set:
+      volumes:
+        rules: {type: configMap, mountPath: /rules, name: r, items: []}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/rules/items': minItems: got 0, want 1"
+
+  - it: rejects a null item, a null mode and an item without a path (a list is taken as written)
+    set:
+      volumes:
+        a: {type: configMap, mountPath: /a, name: r, items: [null]}
+        b: {type: configMap, mountPath: /b, name: r, items: [{key: k, path: p, mode: null}]}
+        c: {type: secret, mountPath: /c, secretName: s, items: [{key: k}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/a/items/0': got null, want object"
+      - failedTemplate:
+          errorPattern: "/volumes/b/items/0/mode': got null, want integer"
+      - failedTemplate:
+          errorPattern: "/volumes/c/items/0': missing property 'path'"
+
+  - it: rejects a mode above 0777 and a mode given as a string (--set cannot pass an octal literal)
+    set:
+      volumes:
+        a: {type: configMap, mountPath: /a, name: r, defaultMode: 512}
+        b: {type: secret, mountPath: /b, secretName: s, defaultMode: "0440"}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/a/defaultMode': maximum: got 512, want 511"
+      - failedTemplate:
+          errorPattern: "/volumes/b/defaultMode': got string, want null or integer"
+
+  - it: rejects a medium other than Memory
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /cache, medium: HugePages}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/cache/medium': value must be one of 'Memory'"
+
+  - it: rejects a size with a sign or no quantity, and a YAML number
+    set:
+      volumes:
+        a: {type: emptyDir, mountPath: /a, sizeLimit: -1Gi}
+        b: {type: emptyDir, mountPath: /b, sizeLimit: +1Gi}
+        c: {type: ephemeral, mountPath: /c, size: lots}
+        d: {type: ephemeral, mountPath: /d, size: 10}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/a/sizeLimit': '-1Gi' does not match pattern"
+      - failedTemplate:
+          errorPattern: "/volumes/b/sizeLimit': '\\+1Gi' does not match pattern"
+      - failedTemplate:
+          errorPattern: "/volumes/c/size': 'lots' does not match pattern"
+      - failedTemplate:
+          errorPattern: "/volumes/d/size': got number, want null or string"
+
+  - it: rejects ReadOnlyMany as the accessMode of an ephemeral volume, and an unknown claimAccessMode
+    set:
+      volumes:
+        scratch: {type: ephemeral, mountPath: /scratch, size: 1Gi, accessMode: ReadOnlyMany}
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: d, claimAccessMode: RWO}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/scratch/accessMode': value must be one of 'ReadWriteOnce', 'ReadWriteOncePod', 'ReadWriteMany'"
+      - failedTemplate:
+          errorPattern: "/volumes/data/claimAccessMode': value must be one of 'ReadWriteOnce', 'ReadWriteOncePod', 'ReadWriteMany', 'ReadOnlyMany'"
+
+  - it: rejects an empty storageClassName (it turns off dynamic provisioning) and one that is not a DNS-1123 subdomain
+    set:
+      volumes:
+        a: {type: ephemeral, mountPath: /a, size: 1Gi, storageClassName: ""}
+        b: {type: ephemeral, mountPath: /b, size: 1Gi, storageClassName: Fast_SSD}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/a/storageClassName': '' does not match pattern"
+      - failedTemplate:
+          errorPattern: "/volumes/b/storageClassName': 'Fast_SSD' does not match pattern"
+
+  - it: rejects a claimName that is not a DNS-1123 subdomain
+    set:
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: Sales_Data}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/data/claimName': 'Sales_Data' does not match pattern"
