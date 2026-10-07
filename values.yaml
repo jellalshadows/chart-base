@@ -86,7 +86,11 @@ configFiles:
 # container (the chart's `/tmp`, `configFiles.mountPath` while a file is rendered, the other entries) and must not be
 # `/` or the ServiceAccount token directory; a directory may lie beneath another mount (`/tmp/cache`), but a `configMap`
 # or `secret` file (`subPath`) must not lie beneath a ConfigMap or Secret mount. `subPath` and `items[].path` are
-# relative, without `..`, and the `items[].path` of one entry are unique.
+# relative, without `..`, and the `items[].path` of one entry are unique. `readOnly: false` fails on a `configMap` or
+# `secret` mount, and `readOnly: true` on an `emptyDir` or `ephemeral` one (nothing could write it). `sizeLimit` and
+# `size` are strings (`size: 10` would mean 10 bytes) and not zero; `medium: Memory` requires `sizeLimit`: the files
+# count against the container's memory limit. A volume must not name the component's own `<fullname>-env`,
+# `<fullname>-files` or `<fullname>-secrets`, and two `persistentVolumeClaim` entries must not name one claim.
 volumes: {}
 
 externalSecret:

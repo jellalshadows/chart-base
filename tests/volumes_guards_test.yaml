@@ -696,3 +696,146 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: rejects readOnly false on a configMap mount (always read-only)
+    set:
+      volumes:
+        rules: {type: configMap, mountPath: /rules, name: r, readOnly: false}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.rules.readOnly is false, and a configMap mount is always read-only \(the kubelet forces it\): remove readOnly'
+
+  - it: rejects readOnly false on a secret mount (always read-only)
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs, secretName: s, readOnly: false}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.certs.readOnly is false, and a secret mount is always read-only \(the kubelet forces it\): remove readOnly'
+
+  - it: accepts readOnly true on a configMap mount (what is rendered anyway)
+    set:
+      volumes:
+        rules: {type: configMap, mountPath: /rules, name: r, readOnly: true}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects readOnly false on a claim declared ReadOnlyMany
+    set:
+      volumes:
+        shared: {type: persistentVolumeClaim, mountPath: /shared, claimName: c, claimAccessMode: ReadOnlyMany, readOnly: false}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.shared.readOnly is false, and the claim is declared ReadOnlyMany \(claimAccessMode\), so its mount is read-only: remove readOnly, or declare the claim''s real access mode'
+
+  - it: accepts readOnly false and true on a claim declared ReadWriteMany (rendered on the mount only)
+    set:
+      volumes:
+        a: {type: persistentVolumeClaim, mountPath: /a, claimName: a, claimAccessMode: ReadWriteMany, readOnly: false}
+        b: {type: persistentVolumeClaim, mountPath: /b, claimName: b, claimAccessMode: ReadWriteMany, readOnly: true}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects readOnly true on an emptyDir volume (nothing could write it)
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /cache, readOnly: true}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.cache.readOnly is true on an emptyDir volume: the main container is the only one that mounts it, so nothing could ever write it; remove readOnly'
+
+  - it: rejects readOnly true on an ephemeral volume (nothing could write it)
+    set:
+      volumes:
+        scratch: {type: ephemeral, mountPath: /scratch, size: 1Gi, readOnly: true}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.scratch.readOnly is true on an ephemeral volume: the main container is the only one that mounts it, so nothing could ever write it; remove readOnly'
+
+  - it: rejects a sizeLimit of zero ("0")
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /cache, sizeLimit: "0"}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.cache.sizeLimit is "0", a size of zero: it limits nothing; write a positive quantity, e.g. 1Gi'
+
+  - it: rejects a sizeLimit of zero with a suffix ("0.0Gi")
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /cache, sizeLimit: "0.0Gi"}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.cache.sizeLimit is "0.0Gi", a size of zero: it limits nothing; write a positive quantity, e.g. 1Gi'
+
+  - it: rejects a size of zero with an exponent ("0e5")
+    set:
+      volumes:
+        scratch: {type: ephemeral, mountPath: /scratch, size: "0e5"}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.scratch.size is "0e5", a size of zero: the claim would request no storage; write a positive quantity, e.g. 1Gi'
+
+  - it: accepts the sizes .5Gi, 100m, 1e3 and 1E (a non-zero digit before the suffix)
+    set:
+      volumes:
+        a: {type: emptyDir, mountPath: /a, sizeLimit: .5Gi}
+        b: {type: emptyDir, mountPath: /b, sizeLimit: 100m}
+        c: {type: ephemeral, mountPath: /c, size: "1e3"}
+        d: {type: ephemeral, mountPath: /d, size: 1E}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects medium Memory without sizeLimit, naming the memory limit
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /cache, medium: Memory}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.cache.medium is Memory and sizeLimit is not set: the files count against the container''s memory limit, and the volume is capped at the smaller of the pod''s memory limit and sizeLimit \(without a memory limit, at sizeLimit\); without both it could grow to the node''s allocatable memory. Set sizeLimit, e.g. 256Mi'
+
+  - it: rejects a configMap entry that names the component's -env ConfigMap (even when config renders none)
+    set:
+      volumes:
+        env: {type: configMap, mountPath: /env, name: vending-chart-base-env}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.env.name "vending-chart-base-env" is a ConfigMap of this component, which chart-base renders and rolls the pods on \(or deletes when nothing fills it\): mount the component''s files with configFiles \(at configFiles.mountPath\) instead'
+
+  - it: rejects a configMap entry that names the component's -files ConfigMap
+    set:
+      configFiles.files:
+        app.yaml: {a: 1}
+      volumes:
+        files: {type: configMap, mountPath: /files, name: vending-chart-base-files}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.files.name "vending-chart-base-files" is a ConfigMap of this component, which chart-base renders and rolls the pods on \(or deletes when nothing fills it\): mount the component''s files with configFiles \(at configFiles.mountPath\) instead'
+
+  - it: rejects a secret entry that names the component's -secrets Secret (even when no ExternalSecret is rendered)
+    set:
+      volumes:
+        creds: {type: secret, mountPath: /creds, secretName: vending-chart-base-secrets}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.creds.secretName "vending-chart-base-secrets" is the Secret of this component''s ExternalSecret: its keys already reach the container as environment variables, env can reference one under another name with secretKeyRef, and mounting it as files comes with externalSecret.mountPath \(0.9.0\)'
+
+  - it: accepts a configMap entry named like the component's Secret (no chart object of that kind has that name)
+    set:
+      volumes:
+        odd: {type: configMap, mountPath: /odd, name: vending-chart-base-secrets}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects two persistentVolumeClaim entries that name one claim
+    set:
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data, claimAccessMode: ReadWriteMany}
+        logs: {type: persistentVolumeClaim, mountPath: /logs, claimName: sales-data, claimAccessMode: ReadWriteMany}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data and volumes.logs both mount the claim "sales-data": one claim is one volume \(before Kubernetes 1.35 a pod with two volumes of one claim stays in ContainerCreating\), and mounting it at a second path is not supported yet'

@@ -244,3 +244,37 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- end -}}
 {{- end -}}
 {{- end -}}
+
+{{- /* volumes: the rules of each type (readOnly, a size of zero, medium Memory, the chart's own objects, one claim one entry). */ -}}
+{{- $claims := dict -}}
+{{- range $name, $v := $volumes -}}
+{{- if and (has $v.type (list "configMap" "secret")) (hasKey $v "readOnly") (not $v.readOnly) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.readOnly is false, and a %s mount is always read-only (the kubelet forces it): remove readOnly" $name $v.type)) -}}
+{{- end -}}
+{{- if and (eq $v.type "persistentVolumeClaim") (eq ($v.claimAccessMode | default "ReadWriteOnce") "ReadOnlyMany") (hasKey $v "readOnly") (not $v.readOnly) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.readOnly is false, and the claim is declared ReadOnlyMany (claimAccessMode), so its mount is read-only: remove readOnly, or declare the claim's real access mode" $name)) -}}
+{{- end -}}
+{{- if and (has $v.type (list "emptyDir" "ephemeral")) (hasKey $v "readOnly") $v.readOnly -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.readOnly is true on an %s volume: the main container is the only one that mounts it, so nothing could ever write it; remove readOnly" $name $v.type)) -}}
+{{- end -}}
+{{- range $field := list "sizeLimit" "size" -}}
+{{- if and (hasKey $v $field) (not (regexMatch "^[0-9.]*[1-9]" (index $v $field))) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.%s is %q, a size of zero: %s; write a positive quantity, e.g. 1Gi" $name $field (index $v $field) (ternary "it limits nothing" "the claim would request no storage" (eq $field "sizeLimit")))) -}}
+{{- end -}}
+{{- end -}}
+{{- if and (eq ($v.medium | default "") "Memory") (not (hasKey $v "sizeLimit")) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.medium is Memory and sizeLimit is not set: the files count against the container's memory limit, and the volume is capped at the smaller of the pod's memory limit and sizeLimit (without a memory limit, at sizeLimit); without both it could grow to the node's allocatable memory. Set sizeLimit, e.g. 256Mi" $name)) -}}
+{{- end -}}
+{{- if and (eq $v.type "configMap") (has $v.name (list (printf "%s-env" $fullname) (printf "%s-files" $fullname))) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.name %q is a ConfigMap of this component, which chart-base renders and rolls the pods on (or deletes when nothing fills it): mount the component's files with configFiles (at configFiles.mountPath) instead" $name $v.name)) -}}
+{{- end -}}
+{{- if and (eq $v.type "secret") (eq $v.secretName (printf "%s-secrets" $fullname)) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.secretName %q is the Secret of this component's ExternalSecret: its keys already reach the container as environment variables, env can reference one under another name with secretKeyRef, and mounting it as files comes with externalSecret.mountPath (0.9.0)" $name $v.secretName)) -}}
+{{- end -}}
+{{- if eq $v.type "persistentVolumeClaim" -}}
+{{- if hasKey $claims $v.claimName -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s and volumes.%s both mount the claim %q: one claim is one volume (before Kubernetes 1.35 a pod with two volumes of one claim stays in ContainerCreating), and mounting it at a second path is not supported yet" (index $claims $v.claimName) $name $v.claimName)) -}}
+{{- end -}}
+{{- $_ := set $claims $v.claimName $name -}}
+{{- end -}}
+{{- end -}}
