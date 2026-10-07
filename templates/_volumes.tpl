@@ -85,3 +85,17 @@ ephemeral:
           storage: {{ $v.size | quote }}
 {{- end -}}
 {{- end -}}
+
+{{/*
+chart-base.volumeTypeFields: the fields each volume type owns besides type, mountPath, subPath and readOnly (every
+type's), as YAML: the one table of the field-ownership guard (templates/validate.yaml). It holds exactly the fields of
+values.schema.json's definitions.volume (pinned by tests/volumes_guards_test.yaml, one test per field).
+Usage: include "chart-base.volumeTypeFields" . | fromYaml
+*/}}
+{{- define "chart-base.volumeTypeFields" -}}
+emptyDir: [medium, sizeLimit]
+configMap: [name, items, defaultMode, optional]
+secret: [secretName, items, defaultMode, optional]
+persistentVolumeClaim: [claimName, claimAccessMode]
+ephemeral: [size, accessMode, storageClassName]
+{{- end -}}

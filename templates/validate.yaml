@@ -174,3 +174,33 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list $ (printf "env.%s duplicates a key of config or externalSecret.data: literal values belong in config, secrets in externalSecret, references in env" $name)) -}}
 {{- end -}}
 {{- end -}}
+
+{{- /* volumes: every check reads chart-base.volumes, so a null entry and a null field are absent before any check. */ -}}
+{{- $volumes := dict -}}
+{{- include "chart-base.volumes" (dict "ctx" . "out" $volumes) -}}
+{{- /* The name: a DNS-1123 label that chart-base does not reserve. The fields: those of the entry's type, and its required one set. */ -}}
+{{- $typeFields := include "chart-base.volumeTypeFields" . | fromYaml -}}
+{{- $requiredField := dict "configMap" "name" "secret" "secretName" "persistentVolumeClaim" "claimName" "ephemeral" "size" -}}
+{{- range $name, $v := $volumes -}}
+{{- if or (not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $name)) (gt (len $name) 63) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s: a volume name is a lowercase DNS-1123 label (a-z, 0-9, \"-\", at most 63 characters), e.g. app-data" $name)) -}}
+{{- end -}}
+{{- if has $name (list "tmp" "config-files" "external-secret") -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s: tmp, config-files and external-secret are the names of volumes chart-base mounts itself (external-secret from 0.9.0): choose another name" $name)) -}}
+{{- end -}}
+{{- if or (hasPrefix "kube-api-access-" $name) (hasPrefix "chart-base-" $name) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s: a name that starts with kube-api-access- (Kubernetes takes such a volume for the ServiceAccount token volume) or chart-base- (reserved for volumes chart-base adds) is not allowed: choose another name" $name)) -}}
+{{- end -}}
+{{- $required := index $requiredField $v.type -}}
+{{- if and $required (not (hasKey $v $required)) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.%s is null, and %s %s entry needs it: set it, or remove the entry with volumes.%s: null" $name $required (ternary "an" "a" (eq $v.type "ephemeral")) $v.type $name)) -}}
+{{- end -}}
+{{- $own := concat (list "type" "mountPath" "subPath" "readOnly") (index $typeFields $v.type) -}}
+{{- range $field := keys $v | sortAlpha -}}
+{{- if not (has $field $own) -}}
+{{- $owners := list -}}
+{{- range $t := keys $typeFields | sortAlpha }}{{ if has $field (index $typeFields $t) }}{{ $owners = append $owners $t }}{{ end }}{{ end -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.%s is a field of type %s and the entry is %s: remove it (from an overlay, set it to null)" $name $field (join " or " $owners) $v.type)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

@@ -232,3 +232,231 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "/volumes/data/claimName': 'Sales_Data' does not match pattern"
+
+  - it: rejects a volume name in camelCase (appData), with the DNS-1123 message
+    set:
+      volumes:
+        appData: {type: emptyDir, mountPath: /data}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.appData: a volume name is a lowercase DNS-1123 label \(a-z, 0-9, "-", at most 63 characters\), e.g. app-data'
+
+  - it: rejects a volume name with an underscore (a_b)
+    set:
+      volumes:
+        a_b: {type: emptyDir, mountPath: /data}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.a_b: a volume name is a lowercase DNS-1123 label \(a-z, 0-9, "-", at most 63 characters\), e.g. app-data'
+
+  - it: rejects a volume name that starts with a dash (-a)
+    set:
+      volumes:
+        -a: {type: emptyDir, mountPath: /data}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.-a: a volume name is a lowercase DNS-1123 label \(a-z, 0-9, "-", at most 63 characters\), e.g. app-data'
+
+  - it: rejects a volume name of 64 characters
+    set:
+      volumes:
+        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: {type: emptyDir, mountPath: /data}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: a volume name is a lowercase DNS-1123 label \(a-z, 0-9, "-", at most 63 characters\), e.g. app-data'
+
+  - it: accepts a volume name of 63 characters
+    set:
+      volumes:
+        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: {type: emptyDir, mountPath: /data}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects the volume name tmp (chart-base's own)
+    set:
+      volumes:
+        tmp: {type: emptyDir, mountPath: /scratch}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.tmp: tmp, config-files and external-secret are the names of volumes chart-base mounts itself \(external-secret from 0.9.0\): choose another name'
+
+  - it: rejects the volume name config-files (chart-base's own)
+    set:
+      volumes:
+        config-files: {type: emptyDir, mountPath: /scratch}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.config-files: tmp, config-files and external-secret are the names of volumes chart-base mounts itself \(external-secret from 0.9.0\): choose another name'
+
+  - it: rejects the volume name external-secret (reserved for 0.9.0)
+    set:
+      volumes:
+        external-secret: {type: emptyDir, mountPath: /scratch}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.external-secret: tmp, config-files and external-secret are the names of volumes chart-base mounts itself \(external-secret from 0.9.0\): choose another name'
+
+  - it: rejects a volume name with the prefix kube-api-access-
+    set:
+      volumes:
+        kube-api-access-x: {type: emptyDir, mountPath: /scratch}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.kube-api-access-x: a name that starts with kube-api-access- \(Kubernetes takes such a volume for the ServiceAccount token volume\) or chart-base- \(reserved for volumes chart-base adds\) is not allowed: choose another name'
+
+  - it: rejects a volume name with the prefix chart-base-
+    set:
+      volumes:
+        chart-base-x: {type: emptyDir, mountPath: /scratch}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.chart-base-x: a name that starts with kube-api-access- \(Kubernetes takes such a volume for the ServiceAccount token volume\) or chart-base- \(reserved for volumes chart-base adds\) is not allowed: choose another name'
+
+  - it: accepts a null entry under any name, even one that fails the name checks (skipped before every check)
+    set:
+      volumes:
+        appData: null
+        tmp: null
+        external-secret: null
+        kube-api-access-x: null
+        chart-base-x: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a secret entry whose secretName is null, naming the remedies
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs, secretName: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.certs.secretName is null, and a secret entry needs it: set it, or remove the entry with volumes.certs: null'
+
+  - it: rejects a configMap entry whose name is null
+    set:
+      volumes:
+        rules: {type: configMap, mountPath: /rules, name: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.rules.name is null, and a configMap entry needs it: set it, or remove the entry with volumes.rules: null'
+
+  - it: rejects a persistentVolumeClaim entry whose claimName is null
+    set:
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data.claimName is null, and a persistentVolumeClaim entry needs it: set it, or remove the entry with volumes.data: null'
+
+  - it: rejects an ephemeral entry whose size is null
+    set:
+      volumes:
+        scratch: {type: ephemeral, mountPath: /scratch, size: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.scratch.size is null, and an ephemeral entry needs it: set it, or remove the entry with volumes.scratch: null'
+
+  - it: accepts a type change written as an overlay writes it (emptyDir to ephemeral, the emptyDir fields set to null)
+    set:
+      volumes:
+        cache: {type: ephemeral, mountPath: /cache, size: 10Gi, medium: null, sizeLimit: null}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects medium on an ephemeral entry (a field of type emptyDir)
+    set:
+      volumes:
+        x: {type: ephemeral, mountPath: /x, size: 1Gi, medium: Memory}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.medium is a field of type emptyDir and the entry is ephemeral: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects sizeLimit on an ephemeral entry (a field of type emptyDir)
+    set:
+      volumes:
+        x: {type: ephemeral, mountPath: /x, size: 10Gi, sizeLimit: 1Gi}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.sizeLimit is a field of type emptyDir and the entry is ephemeral: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects name on a secret entry (a field of type configMap)
+    set:
+      volumes:
+        x: {type: secret, mountPath: /x, secretName: s, name: n}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.name is a field of type configMap and the entry is secret: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects secretName on a configMap entry (a field of type secret)
+    set:
+      volumes:
+        x: {type: configMap, mountPath: /x, name: n, secretName: s}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.secretName is a field of type secret and the entry is configMap: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects items on an emptyDir entry (a field of type configMap or secret)
+    set:
+      volumes:
+        x: {type: emptyDir, mountPath: /x, items: [{key: k, path: p}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.items is a field of type configMap or secret and the entry is emptyDir: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects defaultMode on a persistentVolumeClaim entry (a field of type configMap or secret)
+    set:
+      volumes:
+        x: {type: persistentVolumeClaim, mountPath: /x, claimName: c, defaultMode: 0440}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.defaultMode is a field of type configMap or secret and the entry is persistentVolumeClaim: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects optional on an ephemeral entry (a field of type configMap or secret)
+    set:
+      volumes:
+        x: {type: ephemeral, mountPath: /x, size: 1Gi, optional: true}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.optional is a field of type configMap or secret and the entry is ephemeral: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects claimName on an ephemeral entry (a field of type persistentVolumeClaim)
+    set:
+      volumes:
+        x: {type: ephemeral, mountPath: /x, size: 1Gi, claimName: c}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.claimName is a field of type persistentVolumeClaim and the entry is ephemeral: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects claimAccessMode on an ephemeral entry (a field of type persistentVolumeClaim)
+    set:
+      volumes:
+        x: {type: ephemeral, mountPath: /x, size: 1Gi, claimAccessMode: ReadWriteMany}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.claimAccessMode is a field of type persistentVolumeClaim and the entry is ephemeral: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects size on an emptyDir entry (a field of type ephemeral)
+    set:
+      volumes:
+        x: {type: emptyDir, mountPath: /x, size: 1Gi}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.size is a field of type ephemeral and the entry is emptyDir: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects accessMode on a persistentVolumeClaim entry (a field of type ephemeral)
+    set:
+      volumes:
+        x: {type: persistentVolumeClaim, mountPath: /x, claimName: c, accessMode: ReadWriteMany}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.accessMode is a field of type ephemeral and the entry is persistentVolumeClaim: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects storageClassName on a persistentVolumeClaim entry (a field of type ephemeral)
+    set:
+      volumes:
+        x: {type: persistentVolumeClaim, mountPath: /x, claimName: c, storageClassName: fast}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.storageClassName is a field of type ephemeral and the entry is persistentVolumeClaim: remove it \(from an overlay, set it to null\)'
