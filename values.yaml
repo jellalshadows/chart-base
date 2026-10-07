@@ -114,8 +114,12 @@ externalSecret:
   data: {}
 
 # -- Restart Deployments (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is
-# updated: the ExternalSecret's Secret and every Secret/ConfigMap referenced in `env`/`envFrom`.
-# The chart's own ConfigMaps roll pods through checksum annotations instead.
+# updated: the ExternalSecret's Secret and every Secret/ConfigMap referenced in `env`/`envFrom` or mounted by a
+# `configMap` or `secret` entry of `volumes`. The chart's own ConfigMaps roll pods through checksum annotations instead.
+# The cost: a mounted certificate or trust bundle that the application reloads in place still restarts the Deployment
+# on every rotation (and every component that mounts it), and `false` is the only switch: it also stops the restarts
+# for `env`/`envFrom` Secrets. Mounted files are updated in place without a restart, except `subPath` mounts, which are
+# never updated: with `false` such a file stays stale until the next deploy.
 reloadOnChange: true
 
 # -- Deployment replicas. Ignored when `autoscaling.enabled`.

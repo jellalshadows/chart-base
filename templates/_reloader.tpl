@@ -1,6 +1,7 @@
 {{/*
 Stakater Reloader annotations for things that change OUTSIDE the deploy: the ExternalSecret's
-Secret and every Secret/ConfigMap referenced in env (valueFrom) or envFrom. The chart's own
+Secret and every Secret/ConfigMap referenced in env (valueFrom) or envFrom, or mounted by a configMap or secret
+entry of volumes (read through chart-base.volumes: a null entry is not listed). The chart's own
 ConfigMaps are NOT listed: they roll pods through checksum annotations inside the deploy.
 Reloader splits the value on commas and matches each entry as an anchored regex, so names are
 regex-quoted (a "." would otherwise match any character). Renders nothing when there is nothing to watch.
@@ -21,6 +22,12 @@ regex-quoted (a "." would otherwise match any character). Renders nothing when t
 {{- range .Values.envFrom -}}
 {{- with .secretRef }}{{ $secrets = append $secrets .name }}{{ end -}}
 {{- with .configMapRef }}{{ $configMaps = append $configMaps .name }}{{ end -}}
+{{- end -}}
+{{- $volumes := dict -}}
+{{- include "chart-base.volumes" (dict "ctx" . "out" $volumes) -}}
+{{- range $_, $v := $volumes -}}
+{{- if eq $v.type "secret" }}{{ $secrets = append $secrets $v.secretName }}{{ end -}}
+{{- if eq $v.type "configMap" }}{{ $configMaps = append $configMaps $v.name }}{{ end -}}
 {{- end -}}
 {{- $quoted := list -}}
 {{- range $secrets | uniq | sortAlpha }}{{ $quoted = append $quoted (regexQuoteMeta .) }}{{ end -}}

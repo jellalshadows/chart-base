@@ -361,3 +361,62 @@ tests:
           value:
             - name: tmp
               emptyDir: {}
+
+  - it: feeds the Reloader with the configMap and secret entries, deduplicated with env and envFrom, sorted, regex-quoted
+    template: templates/deployment.yaml
+    set:
+      env:
+        SHARED_TOKEN:
+          valueFrom:
+            secretKeyRef: {name: e2e-shared, key: TOKEN}
+      envFrom:
+        - configMapRef: {name: shared-config}
+      volumes:
+        tls: {type: secret, mountPath: /tls, secretName: api.tls}
+        shared: {type: secret, mountPath: /shared, secretName: e2e-shared}
+        rules: {type: configMap, mountPath: /rules, name: rules}
+        flags: {type: configMap, mountPath: /flags, name: shared-config}
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: claimed, claimAccessMode: ReadWriteMany}
+        cache: {type: emptyDir, mountPath: /cache}
+    asserts:
+      - equal:
+          path: metadata.annotations["secret.reloader.stakater.com/reload"]
+          value: api\.tls,e2e-shared
+      - equal:
+          path: metadata.annotations["configmap.reloader.stakater.com/reload"]
+          value: rules,shared-config
+
+  - it: lists no null entry in the Reloader annotations
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        gone: null
+        certs: {type: secret, mountPath: /certs, secretName: api-tls}
+    asserts:
+      - equal:
+          path: metadata.annotations["secret.reloader.stakater.com/reload"]
+          value: api-tls
+      - notExists:
+          path: metadata.annotations["configmap.reloader.stakater.com/reload"]
+
+  - it: renders no Reloader annotation for volumes with reloadOnChange false
+    template: templates/deployment.yaml
+    set:
+      reloadOnChange: false
+      volumes:
+        certs: {type: secret, mountPath: /certs, secretName: api-tls}
+        rules: {type: configMap, mountPath: /rules, name: rules}
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  - it: renders no Reloader annotation on a cronjob or a job with volumes (Deployments only)
+    template: templates/cronjob.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      volumes:
+        certs: {type: secret, mountPath: /certs, secretName: api-tls}
+    asserts:
+      - notExists:
+          path: metadata.annotations
