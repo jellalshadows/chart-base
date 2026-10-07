@@ -52,7 +52,7 @@ tests:
         cache: {mountPath: /cache}
     asserts:
       - failedTemplate:
-          errorPattern: "/volumes/cache': missing property 'type'"
+          errorPattern: "chart-base:\\n- at '/volumes/cache': missing property 'type'\\s*$"
 
   - it: rejects a null type
     set:

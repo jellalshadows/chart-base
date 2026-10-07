@@ -215,7 +215,7 @@ tests:
         app.yaml: {a: 1}
       volumes:
         zz-cache: {type: emptyDir, mountPath: /zz}
-        aa-cache: {type: emptyDir, mountPath: /aa}
+        aa-cache: {type: emptyDir, mountPath: /aa, sizeLimit: 1Gi}
     asserts:
       - equal:
           path: spec.template.spec.volumes
@@ -226,7 +226,7 @@ tests:
               configMap:
                 name: vending-chart-base-files
             - name: aa-cache
-              emptyDir: {}
+              emptyDir: {sizeLimit: 1Gi}
             - name: zz-cache
               emptyDir: {}
       - equal:
@@ -246,7 +246,7 @@ tests:
     template: templates/deployment.yaml
     set:
       volumes:
-        "true": {type: configMap, mountPath: "/rules #1", subPath: "true", name: "true"}
+        "true": {type: configMap, mountPath: "/rules #1", subPath: "true", name: "true", items: [{key: "true", path: "1e3"}]}
         certs: {type: secret, mountPath: /certs, secretName: "false"}
         data: {type: persistentVolumeClaim, mountPath: /data, claimName: "1e3"}
         scratch: {type: ephemeral, mountPath: /scratch, size: "1e3", storageClassName: "true"}
@@ -271,6 +271,13 @@ tests:
             name: "true"
             configMap:
               name: "true"
+              items:
+                - {key: "true", path: "1e3"}
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[2]
+          value:
+            name: data
+            mountPath: /data
       - equal:
           path: spec.template.spec.containers[0].volumeMounts[4]
           value:
