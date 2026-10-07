@@ -92,6 +92,9 @@ progressDeadlineSeconds: 240
 
 # -- (object) Deployment update strategy (`spec.strategy`): `{type: RollingUpdate, rollingUpdate: {maxSurge, maxUnavailable}}`
 # or `{type: Recreate}`. `null` = Kubernetes default (`RollingUpdate`, 25% surge, 25% unavailable). Deployments only.
+# `rollingUpdate: null` means absent and is never rendered: an override file over values that set `rollingUpdate`
+# switches to Recreate with `{type: Recreate, rollingUpdate: null}` (a `rollingUpdate` next to `Recreate`, even `{}`,
+# fails the render).
 strategy: null
 
 # -- (int) Seconds a new pod must be Ready, without any container crashing, before it counts as available

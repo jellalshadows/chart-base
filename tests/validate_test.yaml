@@ -1150,3 +1150,21 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: rejects an empty rollingUpdate with a Recreate strategy (Kubernetes rejects any rollingUpdate with Recreate)
+    set:
+      strategy:
+        type: Recreate
+        rollingUpdate: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: strategy.rollingUpdate is set and strategy.type is Recreate, which Kubernetes rejects \(an empty rollingUpdate too\): remove strategy.rollingUpdate \(from an override file over values that set it, write strategy: \{type: Recreate, rollingUpdate: null\}\), or set strategy.type: RollingUpdate'
+
+  - it: accepts a Recreate strategy whose rollingUpdate is null (an override file removes it so)
+    set:
+      strategy:
+        type: Recreate
+        rollingUpdate: null
+    asserts:
+      - hasDocuments:
+          count: 0

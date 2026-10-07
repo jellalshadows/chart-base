@@ -50,6 +50,11 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if and (eq .Values.workload.type "deployment") (not (kindIs "invalid" .Values.minReadySeconds)) (ge (int64 .Values.minReadySeconds) (int64 .Values.progressDeadlineSeconds)) -}}
 {{- include "chart-base.fail" (list . "minReadySeconds must be lower than progressDeadlineSeconds") -}}
 {{- end -}}
+{{- /* Kubernetes rejects any rollingUpdate next to Recreate, an empty one included; rollingUpdate: null is absent. */ -}}
+{{- $strategy := .Values.strategy | default dict -}}
+{{- if and (eq ($strategy.type | default "") "Recreate") (not (kindIs "invalid" $strategy.rollingUpdate)) -}}
+{{- include "chart-base.fail" (list . "strategy.rollingUpdate is set and strategy.type is Recreate, which Kubernetes rejects (an empty rollingUpdate too): remove strategy.rollingUpdate (from an override file over values that set it, write strategy: {type: Recreate, rollingUpdate: null}), or set strategy.type: RollingUpdate") -}}
+{{- end -}}
 {{- $rollingUpdate := (.Values.strategy | default dict).rollingUpdate | default dict -}}
 {{- if and (eq .Values.workload.type "deployment") (hasKey $rollingUpdate "maxSurge") (hasKey $rollingUpdate "maxUnavailable") -}}
 {{- /* Kubernetes rejects a rolling update that can neither add nor remove a pod; "0%" counts as 0. */ -}}

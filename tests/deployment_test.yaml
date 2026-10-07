@@ -605,3 +605,27 @@ tests:
             name: config-files
             mountPath: "/config/"
             readOnly: true
+
+  - it: renders a Recreate strategy whose rollingUpdate is null as type Recreate alone
+    template: templates/deployment.yaml
+    set:
+      strategy:
+        type: Recreate
+        rollingUpdate: null
+    asserts:
+      - equal:
+          path: spec.strategy
+          value:
+            type: Recreate
+
+  - it: renders a RollingUpdate strategy whose rollingUpdate is null as type RollingUpdate alone
+    template: templates/deployment.yaml
+    set:
+      strategy:
+        type: RollingUpdate
+        rollingUpdate: null
+    asserts:
+      - equal:
+          path: spec.strategy
+          value:
+            type: RollingUpdate

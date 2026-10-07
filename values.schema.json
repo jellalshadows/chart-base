@@ -467,8 +467,8 @@
       "properties": {
         "type": { "enum": ["RollingUpdate", "Recreate"] },
         "rollingUpdate": {
-          "type": "object",
-          "additionalProperties": false,
+          "description": "null means absent (never rendered); a rollingUpdate next to Recreate is rejected by templates/validate.yaml.",
+          "type": ["object", "null"], "additionalProperties": false,
           "properties": {
             "maxSurge": { "$ref": "#/definitions/intOrPercent" },
             "maxUnavailable": {
@@ -478,11 +478,6 @@
             }
           }
         }
-      },
-      "not": {
-        "type": "object",
-        "required": ["type", "rollingUpdate"],
-        "properties": { "type": { "const": "Recreate" } }
       }
     },
     "minReadySeconds": { "type": ["integer", "null"], "minimum": 0 },
