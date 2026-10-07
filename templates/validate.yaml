@@ -278,3 +278,28 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- $_ := set $claims $v.claimName $name -}}
 {{- end -}}
 {{- end -}}
+
+{{- /* volumes: an existing claim declared ReadWriteOnce or ReadWriteOncePod is attached for one pod at a time, so a Deployment that mounts it must never run two pods. Only persistentVolumeClaim entries: an ephemeral volume has a claim per pod. */ -}}
+{{- if eq .Values.workload.type "deployment" -}}
+{{- $claimStrategy := .Values.strategy | default dict -}}
+{{- $claimRollingUpdate := $claimStrategy.rollingUpdate | default dict -}}
+{{- $surges := ne ($claimStrategy.type | default "") "Recreate" -}}
+{{- if hasKey $claimRollingUpdate "maxSurge" -}}
+{{- $claimSurge := $claimRollingUpdate.maxSurge -}}
+{{- if kindIs "string" $claimSurge }}{{ $claimSurge = trimSuffix "%" $claimSurge | atoi }}{{ end -}}
+{{- if eq (int64 $claimSurge) 0 }}{{ $surges = false }}{{ end -}}
+{{- end -}}
+{{- $twoPods := list -}}
+{{- if .Values.autoscaling.enabled }}{{ $twoPods = append $twoPods "autoscaling.enabled is true" }}{{ end -}}
+{{- if and (not .Values.autoscaling.enabled) (gt (int64 .Values.replicas) 1) }}{{ $twoPods = append $twoPods (printf "replicas is %d" (int64 .Values.replicas)) }}{{ end -}}
+{{- if and $surges (not .Values.strategy) }}{{ $twoPods = append $twoPods "strategy is not set, and the Kubernetes default (RollingUpdate, maxSurge 25%) adds a pod" }}{{ end -}}
+{{- if and $surges .Values.strategy (not (hasKey $claimRollingUpdate "maxSurge")) }}{{ $twoPods = append $twoPods "strategy.rollingUpdate.maxSurge is not set, and the Kubernetes default (25%) adds a pod" }}{{ end -}}
+{{- if and $surges (hasKey $claimRollingUpdate "maxSurge") }}{{ $twoPods = append $twoPods (printf "strategy.rollingUpdate.maxSurge is %v, which adds a pod" $claimRollingUpdate.maxSurge) }}{{ end -}}
+{{- range $name, $v := $volumes -}}
+{{- $declared := $v.claimAccessMode | default "ReadWriteOnce" -}}
+{{- if and $twoPods (eq $v.type "persistentVolumeClaim") (has $declared (list "ReadWriteOnce" "ReadWriteOncePod")) -}}
+{{- $declaration := printf "%s (claimAccessMode%s)" $declared (ternary "" ", the default" (hasKey $v "claimAccessMode")) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s mounts the existing claim %q, declared %s: a node attaches such a claim for one pod at a time, and this Deployment can run a second pod (%s); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: replicas 0 or 1, autoscaling.enabled: false, and a strategy that adds no pod: strategy: {type: Recreate} for a new component; strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}} for a Deployment that already exists (with Helm 4 the API refuses a switch to Recreate in that upgrade); strategy: {type: Recreate, rollingUpdate: null} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.%s.claimAccessMode" $name $v.claimName $declaration (join "; " $twoPods) $name)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

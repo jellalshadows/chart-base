@@ -839,3 +839,152 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: 'chart-base\[chart-base\]: volumes.data and volumes.logs both mount the claim "sales-data": one claim is one volume \(before Kubernetes 1.35 a pod with two volumes of one claim stays in ContainerCreating\), and mounting it at a second path is not supported yet'
+
+  - it: rejects a ReadWriteOnce claim (the default declaration) on a Deployment with the default strategy, naming every remedy
+    set:
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOnce \(claimAccessMode, the default\): a node attaches such a claim for one pod at a time, and this Deployment can run a second pod \(strategy is not set, and the Kubernetes default \(RollingUpdate, maxSurge 25%\) adds a pod\); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: replicas 0 or 1, autoscaling.enabled: false, and a strategy that adds no pod: strategy: \{type: Recreate\} for a new component; strategy: \{type: RollingUpdate, rollingUpdate: \{maxSurge: 0, maxUnavailable: 1\}\} for a Deployment that already exists \(with Helm 4 the API refuses a switch to Recreate in that upgrade\); strategy: \{type: Recreate, rollingUpdate: null\} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.data.claimAccessMode'
+
+  - it: rejects a claim whose claimAccessMode is null (the default, ReadWriteOnce) on a Deployment with the default strategy
+    set:
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data, claimAccessMode: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOnce \(claimAccessMode, the default\): a node attaches such a claim for one pod at a time, and this Deployment can run a second pod \(strategy is not set, and the Kubernetes default \(RollingUpdate, maxSurge 25%\) adds a pod\); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: replicas 0 or 1, autoscaling.enabled: false, and a strategy that adds no pod: strategy: \{type: Recreate\} for a new component; strategy: \{type: RollingUpdate, rollingUpdate: \{maxSurge: 0, maxUnavailable: 1\}\} for a Deployment that already exists \(with Helm 4 the API refuses a switch to Recreate in that upgrade\); strategy: \{type: Recreate, rollingUpdate: null\} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.data.claimAccessMode'
+
+  - it: rejects a ReadWriteOnce claim with strategy type RollingUpdate and no maxSurge (the default 25% adds a pod)
+    set:
+      strategy: {type: RollingUpdate}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data, claimAccessMode: ReadWriteOnce}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOnce \(claimAccessMode\): a node attaches such a claim for one pod at a time, and this Deployment can run a second pod \(strategy.rollingUpdate.maxSurge is not set, and the Kubernetes default \(25%\) adds a pod\); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: replicas 0 or 1, autoscaling.enabled: false, and a strategy that adds no pod: strategy: \{type: Recreate\} for a new component; strategy: \{type: RollingUpdate, rollingUpdate: \{maxSurge: 0, maxUnavailable: 1\}\} for a Deployment that already exists \(with Helm 4 the API refuses a switch to Recreate in that upgrade\); strategy: \{type: Recreate, rollingUpdate: null\} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.data.claimAccessMode'
+
+  - it: rejects a ReadWriteOncePod claim with maxSurge 1
+    set:
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 1, maxUnavailable: 0}}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data, claimAccessMode: ReadWriteOncePod}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOncePod \(claimAccessMode\): a node attaches such a claim for one pod at a time, and this Deployment can run a second pod \(strategy.rollingUpdate.maxSurge is 1, which adds a pod\); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: replicas 0 or 1, autoscaling.enabled: false, and a strategy that adds no pod: strategy: \{type: Recreate\} for a new component; strategy: \{type: RollingUpdate, rollingUpdate: \{maxSurge: 0, maxUnavailable: 1\}\} for a Deployment that already exists \(with Helm 4 the API refuses a switch to Recreate in that upgrade\); strategy: \{type: Recreate, rollingUpdate: null\} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.data.claimAccessMode'
+
+  - it: rejects a ReadWriteOnce claim with maxSurge 25%
+    set:
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 25%, maxUnavailable: 25%}}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOnce \(claimAccessMode, the default\): a node attaches such a claim for one pod at a time, and this Deployment can run a second pod \(strategy.rollingUpdate.maxSurge is 25%, which adds a pod\); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: replicas 0 or 1, autoscaling.enabled: false, and a strategy that adds no pod: strategy: \{type: Recreate\} for a new component; strategy: \{type: RollingUpdate, rollingUpdate: \{maxSurge: 0, maxUnavailable: 1\}\} for a Deployment that already exists \(with Helm 4 the API refuses a switch to Recreate in that upgrade\); strategy: \{type: Recreate, rollingUpdate: null\} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.data.claimAccessMode'
+
+  - it: rejects a ReadWriteOnce claim on a Deployment with Recreate and 2 replicas
+    set:
+      replicas: 2
+      strategy: {type: Recreate}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOnce \(claimAccessMode, the default\): a node attaches such a claim for one pod at a time, and this Deployment can run a second pod \(replicas is 2\); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: replicas 0 or 1, autoscaling.enabled: false, and a strategy that adds no pod: strategy: \{type: Recreate\} for a new component; strategy: \{type: RollingUpdate, rollingUpdate: \{maxSurge: 0, maxUnavailable: 1\}\} for a Deployment that already exists \(with Helm 4 the API refuses a switch to Recreate in that upgrade\); strategy: \{type: Recreate, rollingUpdate: null\} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.data.claimAccessMode'
+
+  - it: rejects a ReadWriteOnce claim on a Deployment with Recreate and autoscaling
+    set:
+      strategy: {type: Recreate}
+      autoscaling.enabled: true
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOnce \(claimAccessMode, the default\): a node attaches such a claim for one pod at a time, and this Deployment can run a second pod \(autoscaling.enabled is true\); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: replicas 0 or 1, autoscaling.enabled: false, and a strategy that adds no pod: strategy: \{type: Recreate\} for a new component; strategy: \{type: RollingUpdate, rollingUpdate: \{maxSurge: 0, maxUnavailable: 1\}\} for a Deployment that already exists \(with Helm 4 the API refuses a switch to Recreate in that upgrade\); strategy: \{type: Recreate, rollingUpdate: null\} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.data.claimAccessMode'
+
+  - it: rejects a ReadWriteOnce claim mounted readOnly (readOnly does not lift the attach restriction)
+    set:
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data, readOnly: true}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOnce \(claimAccessMode, the default\): a node attaches such a claim for one pod at a time, and this Deployment can run a second pod \(strategy is not set, and the Kubernetes default \(RollingUpdate, maxSurge 25%\) adds a pod\); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: replicas 0 or 1, autoscaling.enabled: false, and a strategy that adds no pod: strategy: \{type: Recreate\} for a new component; strategy: \{type: RollingUpdate, rollingUpdate: \{maxSurge: 0, maxUnavailable: 1\}\} for a Deployment that already exists \(with Helm 4 the API refuses a switch to Recreate in that upgrade\); strategy: \{type: Recreate, rollingUpdate: null\} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.data.claimAccessMode'
+
+  - it: accepts a ReadWriteOnce claim on a Deployment with strategy Recreate
+    set:
+      strategy: {type: Recreate}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a ReadWriteOnce claim on a Deployment with maxSurge 0 alone
+    set:
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0}}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a ReadWriteOnce claim on a Deployment with maxSurge 0% (read as 0)
+    set:
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0%, maxUnavailable: 1}}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a ReadWriteOncePod claim on a Deployment with maxSurge 0 and maxUnavailable 1 (the remedy for a Deployment that exists)
+    set:
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}
+      replicas: 0
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data, claimAccessMode: ReadWriteOncePod}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts claims declared ReadWriteMany and ReadOnlyMany with 3 replicas and the default strategy
+    set:
+      replicas: 3
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data, claimAccessMode: ReadWriteMany}
+        assets: {type: persistentVolumeClaim, mountPath: /assets, claimName: assets, claimAccessMode: ReadOnlyMany}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a ReadWriteOnce claim on a cronjob and on a job (no guard on them)
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      replicas: 2
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a ReadWriteOnce claim on a job
+    set:
+      workload.type: job
+      replicas: 2
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts an ephemeral volume (ReadWriteOnce, one claim per pod) on a Deployment with RollingUpdate and 3 replicas
+    set:
+      replicas: 3
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 1, maxUnavailable: 0}}
+      volumes:
+        scratch: {type: ephemeral, mountPath: /scratch, size: 10Gi}
+    asserts:
+      - hasDocuments:
+          count: 0

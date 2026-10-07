@@ -90,7 +90,13 @@ configFiles:
 # `secret` mount, and `readOnly: true` on an `emptyDir` or `ephemeral` one (nothing could write it). `sizeLimit` and
 # `size` are strings (`size: 10` would mean 10 bytes) and not zero; `medium: Memory` requires `sizeLimit`: the files
 # count against the container's memory limit. A volume must not name the component's own `<fullname>-env`,
-# `<fullname>-files` or `<fullname>-secrets`, and two `persistentVolumeClaim` entries must not name one claim.
+# `<fullname>-files` or `<fullname>-secrets`, and two `persistentVolumeClaim` entries must not name one claim. A
+# `persistentVolumeClaim` entry DECLARES the claim's access mode in `claimAccessMode`: `ReadWriteOnce` (the default),
+# `ReadWriteOncePod`, `ReadWriteMany` or `ReadOnlyMany`. chart-base cannot read the claim, so a false declaration goes
+# unnoticed. Two rules read it: `ReadOnlyMany` renders the volume and its mount read-only, and on a Deployment a
+# `ReadWriteOnce` or `ReadWriteOncePod` claim requires `replicas` 0 or 1, `autoscaling.enabled: false` and a strategy
+# that adds no pod (`{type: Recreate}`, or `{type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}` for
+# a Deployment that already exists; see `strategy`).
 volumes: {}
 
 externalSecret:
@@ -122,7 +128,10 @@ progressDeadlineSeconds: 240
 # or `{type: Recreate}`. `null` = Kubernetes default (`RollingUpdate`, 25% surge, 25% unavailable). Deployments only.
 # `rollingUpdate: null` means absent and is never rendered: an override file over values that set `rollingUpdate`
 # switches to Recreate with `{type: Recreate, rollingUpdate: null}` (a `rollingUpdate` next to `Recreate`, even `{}`,
-# fails the render).
+# fails the render). A `persistentVolumeClaim` volume declared `ReadWriteOnce` or `ReadWriteOncePod` requires a
+# strategy that adds no pod (see `volumes`). With Helm 4, a Deployment created without `strategy` cannot switch to
+# Recreate in one upgrade (the API rejects the `rollingUpdate` the server defaulted): use `maxSurge: 0` with
+# `maxUnavailable: 1`, then Recreate in a later upgrade if needed.
 strategy: null
 
 # -- (int) Seconds a new pod must be Ready, without any container crashing, before it counts as available
