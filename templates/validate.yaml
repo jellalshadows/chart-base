@@ -204,3 +204,43 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- end -}}
 {{- end -}}
 {{- end -}}
+
+{{- /* volumes: paths. A mount path is compared normalized (chart-base.cleanPath), with every mount the main container renders (chart-base.mainMounts); a relative path is checked as written. */ -}}
+{{- $mounts := dict -}}
+{{- include "chart-base.mainMounts" (dict "ctx" . "volumes" $volumes "out" $mounts) -}}
+{{- range $name, $v := $volumes -}}
+{{- $clean := include "chart-base.cleanPath" $v.mountPath -}}
+{{- if eq $clean "/" -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.mountPath %q is / once normalized: a volume cannot be mounted at the container's root; choose a directory" $name $v.mountPath)) -}}
+{{- end -}}
+{{- if eq $clean "/var/run/secrets/kubernetes.io/serviceaccount" -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.mountPath %q is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized: a volume there replaces the token, whether or not serviceAccount.automountToken is true now; choose another directory" $name $v.mountPath)) -}}
+{{- end -}}
+{{- if and (hasKey $v "subPath") (or (hasPrefix "/" $v.subPath) (has ".." (splitList "/" $v.subPath))) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.subPath %q must be a relative path without a .. element: a path inside the volume, such as tls.crt" $name $v.subPath)) -}}
+{{- end -}}
+{{- $itemPaths := list -}}
+{{- range $i, $item := $v.items | default list -}}
+{{- if or (hasPrefix "/" $item.path) (has ".." (splitList "/" $item.path)) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.items[%d].path %q must be a relative path without a .. element: a file inside the volume, such as tls.crt" $name $i $item.path)) -}}
+{{- end -}}
+{{- $itemClean := include "chart-base.cleanPath" $item.path -}}
+{{- range $seen := $itemPaths -}}
+{{- if eq $seen.clean $itemClean -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.items[%d].path %q names the same file as items[%d].path %q (%s within the volume, once normalized): the kubelet keeps only one of them; give each item a path of its own" $name $i $item.path $seen.index $seen.path $itemClean)) -}}
+{{- end -}}
+{{- end -}}
+{{- $itemPaths = append $itemPaths (dict "index" $i "path" $item.path "clean" $itemClean) -}}
+{{- end -}}
+{{- end -}}
+{{- range $i, $a := $mounts.rows -}}
+{{- range $j, $b := $mounts.rows -}}
+{{- if and (lt $j $i) (eq $a.clean $b.clean) -}}
+{{- include "chart-base.fail" (list $ (printf "%s %q and %s %q are the same path once normalized (%s): each mount of the main container needs a path of its own; choose another directory (one beneath it, such as %s/cache, is allowed)" $a.owner $a.path $b.owner $b.path $a.clean $a.clean)) -}}
+{{- end -}}
+{{- /* A file (subPath) of a ConfigMap or Secret beneath another ConfigMap or Secret mount: its mount point would be created as a directory. */ -}}
+{{- if and $a.file (has $a.source (list "configMap" "secret")) (has $b.source (list "configMap" "secret")) (ne $a.name $b.name) (hasPrefix (printf "%s/" $b.clean) $a.clean) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s mounts one file (subPath) at %q, beneath %s %q, a ConfigMap or Secret mount: the kubelet creates that mount point as a directory inside the parent volume, and a file cannot be mounted on a directory. Mount the volume as a directory beneath it (without subPath, for example %s/secrets), or the file beside it" $a.name $a.path $b.owner $b.path $b.clean)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

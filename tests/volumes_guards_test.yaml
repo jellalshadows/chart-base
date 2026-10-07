@@ -460,3 +460,239 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: 'chart-base\[chart-base\]: volumes.x.storageClassName is a field of type ephemeral and the entry is persistentVolumeClaim: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects a mount path that is the chart's /tmp once normalized (//tmp)
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: //tmp}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.cache.mountPath "//tmp" and the chart''s own tmp mount "/tmp" are the same path once normalized \(/tmp\): each mount of the main container needs a path of its own; choose another directory \(one beneath it, such as /tmp/cache, is allowed\)'
+
+  - it: rejects a mount path that is the chart's /tmp once normalized (/tmp/.)
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /tmp/.}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.cache.mountPath "/tmp/." and the chart''s own tmp mount "/tmp" are the same path once normalized \(/tmp\): each mount of the main container needs a path of its own; choose another directory \(one beneath it, such as /tmp/cache, is allowed\)'
+
+  - it: rejects a mount path that is the chart's /tmp once normalized (/./tmp)
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /./tmp}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.cache.mountPath "/./tmp" and the chart''s own tmp mount "/tmp" are the same path once normalized \(/tmp\): each mount of the main container needs a path of its own; choose another directory \(one beneath it, such as /tmp/cache, is allowed\)'
+
+  - it: rejects a mount path that is configFiles.mountPath once normalized (/config/) while a config file is rendered
+    set:
+      configFiles.files:
+        app.yaml: {a: 1}
+      volumes:
+        extra: {type: emptyDir, mountPath: /config/}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.extra.mountPath "/config/" and configFiles.mountPath "/config" are the same path once normalized \(/config\): each mount of the main container needs a path of its own; choose another directory \(one beneath it, such as /config/cache, is allowed\)'
+
+  - it: accepts the mount path /config/ when no config file is rendered (the config-files mount is not)
+    set:
+      volumes:
+        extra: {type: emptyDir, mountPath: /config/}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects two entries with the same mount path once normalized (/a and /a/.)
+    set:
+      volumes:
+        a: {type: emptyDir, mountPath: /a}
+        b: {type: emptyDir, mountPath: /a/.}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.b.mountPath "/a/." and volumes.a.mountPath "/a" are the same path once normalized \(/a\): each mount of the main container needs a path of its own; choose another directory \(one beneath it, such as /a/cache, is allowed\)'
+
+  - it: rejects the mount path / (automountToken false)
+    set:
+      volumes:
+        root: {type: emptyDir, mountPath: /}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.root.mountPath "/" is / once normalized: a volume cannot be mounted at the container''s root; choose a directory'
+
+  - it: rejects the mount path // (automountToken true)
+    set:
+      serviceAccount.automountToken: true
+      volumes:
+        root: {type: emptyDir, mountPath: //}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.root.mountPath "//" is / once normalized: a volume cannot be mounted at the container''s root; choose a directory'
+
+  - it: rejects the ServiceAccount token directory as a mount path with automountToken false (reserved unconditionally)
+    set:
+      volumes:
+        token: {type: emptyDir, mountPath: /var/run/secrets/kubernetes.io/serviceaccount}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.token.mountPath "/var/run/secrets/kubernetes.io/serviceaccount" is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized: a volume there replaces the token, whether or not serviceAccount.automountToken is true now; choose another directory'
+
+  - it: rejects the ServiceAccount token directory as a mount path with automountToken true
+    set:
+      serviceAccount.automountToken: true
+      volumes:
+        token: {type: emptyDir, mountPath: /var/run/secrets/kubernetes.io/serviceaccount}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.token.mountPath "/var/run/secrets/kubernetes.io/serviceaccount" is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized: a volume there replaces the token, whether or not serviceAccount.automountToken is true now; choose another directory'
+
+  - it: rejects the ServiceAccount token directory with a trailing slash (automountToken false)
+    set:
+      volumes:
+        token: {type: secret, mountPath: /var/run/secrets/kubernetes.io/serviceaccount/, secretName: s}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.token.mountPath "/var/run/secrets/kubernetes.io/serviceaccount/" is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized: a volume there replaces the token, whether or not serviceAccount.automountToken is true now; choose another directory'
+
+  - it: rejects an absolute subPath
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs/tls.crt, secretName: s, subPath: /tls.crt}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.certs.subPath "/tls.crt" must be a relative path without a .. element: a path inside the volume, such as tls.crt'
+
+  - it: rejects a subPath with a .. element
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs/tls.crt, secretName: s, subPath: a/../tls.crt}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.certs.subPath "a/../tls.crt" must be a relative path without a .. element: a path inside the volume, such as tls.crt'
+
+  - it: accepts a subPath whose name only starts with two dots (..data is not a .. element)
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs/tls.crt, secretName: s, subPath: ..data/tls.crt}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects an absolute items[].path
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs, secretName: s, items: [{key: tls.crt, path: /tls.crt}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.certs.items\[0\].path "/tls.crt" must be a relative path without a .. element: a file inside the volume, such as tls.crt'
+
+  - it: rejects an items[].path with a .. element
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs, secretName: s, items: [{key: a, path: ok.txt}, {key: tls.crt, path: ../tls.crt}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.certs.items\[1\].path "../tls.crt" must be a relative path without a .. element: a file inside the volume, such as tls.crt'
+
+  - it: rejects two items of one entry that name the same file once normalized (certs/tls.crt and ./certs//tls.crt)
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs, secretName: s, items: [{key: crt, path: certs/tls.crt}, {key: pem, path: ./certs//tls.crt}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.certs.items\[1\].path "./certs//tls.crt" names the same file as items\[0\].path "certs/tls.crt" \(/certs/tls.crt within the volume, once normalized\): the kubelet keeps only one of them; give each item a path of its own'
+
+  - it: accepts the same items[].path in two different entries
+    set:
+      volumes:
+        a: {type: secret, mountPath: /a, secretName: s, items: [{key: crt, path: tls.crt}]}
+        b: {type: secret, mountPath: /b, secretName: t, items: [{key: crt, path: tls.crt}]}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a null items[].path (no path the guards normalize is ever null)
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs, secretName: s, items: [{key: crt, path: null}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/certs/items/0/path': got null, want string"
+
+  - it: accepts the nested directories /tmp/cache, /config/secrets beneath the rendered config-files mount, and /data with /data/logs
+    set:
+      configFiles.files:
+        app.yaml: {a: 1}
+      volumes:
+        cache: {type: emptyDir, mountPath: /tmp/cache}
+        creds: {type: secret, mountPath: /config/secrets, secretName: s}
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: d, claimAccessMode: ReadWriteMany}
+        logs: {type: emptyDir, mountPath: /data/logs}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a subPath file at /config/creds.json when no config file is rendered
+    set:
+      volumes:
+        creds: {type: secret, mountPath: /config/creds.json, subPath: creds.json, secretName: s}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a subPath file at /configx/a.json next to the rendered /config (not beneath it)
+    set:
+      configFiles.files:
+        app.yaml: {a: 1}
+      volumes:
+        creds: {type: secret, mountPath: /configx/a.json, subPath: a.json, secretName: s}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a secret file (subPath) at /config/credentials.json beneath the rendered config-files mount, naming the remedies
+    set:
+      configFiles.files:
+        app.yaml: {a: 1}
+      volumes:
+        creds: {type: secret, mountPath: /config/credentials.json, subPath: credentials.json, secretName: s}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.creds mounts one file \(subPath\) at "/config/credentials.json", beneath configFiles.mountPath "/config", a ConfigMap or Secret mount: the kubelet creates that mount point as a directory inside the parent volume, and a file cannot be mounted on a directory. Mount the volume as a directory beneath it \(without subPath, for example /config/secrets\), or the file beside it'
+
+  - it: rejects a configMap file (subPath) beneath another configMap entry
+    set:
+      volumes:
+        rules: {type: configMap, mountPath: /etc/rules, name: r}
+        extra: {type: configMap, mountPath: /etc/rules/extra.yaml, subPath: extra.yaml, name: e}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.extra mounts one file \(subPath\) at "/etc/rules/extra.yaml", beneath volumes.rules.mountPath "/etc/rules", a ConfigMap or Secret mount: the kubelet creates that mount point as a directory inside the parent volume, and a file cannot be mounted on a directory. Mount the volume as a directory beneath it \(without subPath, for example /etc/rules/secrets\), or the file beside it'
+
+  - it: rejects a configMap file (subPath) beneath a secret entry
+    set:
+      volumes:
+        base: {type: secret, mountPath: /etc/base, secretName: s}
+        app: {type: configMap, mountPath: /etc/base/app.yaml, subPath: app.yaml, name: c}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.app mounts one file \(subPath\) at "/etc/base/app.yaml", beneath volumes.base.mountPath "/etc/base", a ConfigMap or Secret mount: the kubelet creates that mount point as a directory inside the parent volume, and a file cannot be mounted on a directory. Mount the volume as a directory beneath it \(without subPath, for example /etc/base/secrets\), or the file beside it'
+
+  - it: accepts a secret file (subPath) beneath an emptyDir entry and beneath the chart's /tmp (only ConfigMap and Secret parents count)
+    set:
+      volumes:
+        work: {type: emptyDir, mountPath: /work}
+        tls: {type: secret, mountPath: /work/tls.crt, subPath: tls.crt, secretName: s}
+        ca: {type: secret, mountPath: /tmp/ca.crt, subPath: ca.crt, secretName: t}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts /var/run/secrets as a volume mountPath with the token (a parent of the token directory is not checked, a known gap)
+    set:
+      serviceAccount.automountToken: true
+      volumes:
+        secrets: {type: emptyDir, mountPath: /var/run/secrets}
+    asserts:
+      - hasDocuments:
+          count: 0

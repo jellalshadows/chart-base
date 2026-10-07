@@ -82,7 +82,11 @@ configFiles:
 # `yes`, `no`, `y`): two such keys collide silently. A name is a lowercase DNS-1123 label (`app-data`, not `appData`);
 # `tmp`, `config-files`, `external-secret` and the prefixes `kube-api-access-` and `chart-base-` are reserved. A field
 # of another type fails the render, and so does a `null` in a type's required field (`name`, `secretName`,
-# `claimName`, `size`).
+# `claimName`, `size`). A `mountPath` is compared normalized (`//tmp` is `/tmp`) with every other mount of the main
+# container (the chart's `/tmp`, `configFiles.mountPath` while a file is rendered, the other entries) and must not be
+# `/` or the ServiceAccount token directory; a directory may lie beneath another mount (`/tmp/cache`), but a `configMap`
+# or `secret` file (`subPath`) must not lie beneath a ConfigMap or Secret mount. `subPath` and `items[].path` are
+# relative, without `..`, and the `items[].path` of one entry are unique.
 volumes: {}
 
 externalSecret:

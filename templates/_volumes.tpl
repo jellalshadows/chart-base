@@ -99,3 +99,23 @@ secret: [secretName, items, defaultMode, optional]
 persistentVolumeClaim: [claimName, claimAccessMode]
 ephemeral: [size, accessMode, storageClassName]
 {{- end -}}
+
+{{/*
+chart-base.mainMounts: sets out.rows to the mounts the main container renders, in rendering order, each a dict: name,
+path (as written), clean (chart-base.cleanPath of the path), source (emptyDir, configMap, secret, persistentVolumeClaim,
+ephemeral), file (true for a subPath mount) and owner (how a message names the path). The chart's own tmp; config-files
+only when chart-base.hasConfigFiles says it is rendered; then the entries of chart-base.volumes. The one list every
+mount-path guard reads (a later mount of the chart adds one row).
+Usage: {{- $m := dict }}{{- include "chart-base.mainMounts" (dict "ctx" $ "volumes" $volumes "out" $m) }}, then range $m.rows
+*/}}
+{{- define "chart-base.mainMounts" -}}
+{{- $rows := list (dict "name" "tmp" "path" "/tmp" "source" "emptyDir" "file" false "owner" "the chart's own tmp mount") -}}
+{{- if include "chart-base.hasConfigFiles" .ctx -}}
+{{- $rows = append $rows (dict "name" "config-files" "path" .ctx.Values.configFiles.mountPath "source" "configMap" "file" false "owner" "configFiles.mountPath") -}}
+{{- end -}}
+{{- range $name, $v := .volumes -}}
+{{- $rows = append $rows (dict "name" $name "path" $v.mountPath "source" $v.type "file" (hasKey $v "subPath") "owner" (printf "volumes.%s.mountPath" $name)) -}}
+{{- end -}}
+{{- range $r := $rows }}{{ $_ := set $r "clean" (include "chart-base.cleanPath" $r.path) }}{{ end -}}
+{{- $_ := set .out "rows" $rows -}}
+{{- end -}}
