@@ -887,3 +887,68 @@ tests:
           path: spec.template.spec.initContainers[0].volumeMounts
           value:
             - {name: work, mountPath: "/srv/a #1", subPath: "b #2"}
+
+  - it: lists the Secrets and ConfigMaps of the entries' own env for Reloader, with the main container's, once each, sorted and regex-quoted
+    template: templates/deployment.yaml
+    set:
+      env:
+        DB: {valueFrom: {secretKeyRef: {name: shared.creds, key: db}}}
+      sidecars:
+        proxy:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          env:
+            CREDS: {valueFrom: {secretKeyRef: {name: shared.creds, key: proxy}}}
+            TOKEN: {valueFrom: {secretKeyRef: {name: proxy-token, key: token}}}
+            CONF: {valueFrom: {configMapKeyRef: {name: proxy-conf, key: conf}}}
+    asserts:
+      - equal:
+          path: metadata.annotations["secret.reloader.stakater.com/reload"]
+          value: 'proxy-token,shared\.creds'
+      - equal:
+          path: metadata.annotations["configmap.reloader.stakater.com/reload"]
+          value: proxy-conf
+
+  - it: lists nothing new for inheritEnv, for an entry's fieldRef and resourceFieldRef, a null entry and a null variable
+    template: templates/deployment.yaml
+    set:
+      env:
+        DB: {valueFrom: {secretKeyRef: {name: app-db, key: db}}}
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, inheritEnv: true}
+        gone: null
+      sidecars:
+        shipper:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          env:
+            NODE: {valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
+            CPU: {valueFrom: {resourceFieldRef: {resource: requests.cpu}}}
+            OLD: null
+    asserts:
+      - equal:
+          path: metadata.annotations["secret.reloader.stakater.com/reload"]
+          value: app-db
+      - notExists:
+          path: metadata.annotations["configmap.reloader.stakater.com/reload"]
+
+  - it: renders no Reloader annotation for an entry's references on a cronjob
+    template: templates/cronjob.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, env: {TOKEN: {valueFrom: {secretKeyRef: {name: proxy-token, key: token}}}}}
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  - it: renders no Reloader annotation for an entry's references with reloadOnChange false
+    template: templates/deployment.yaml
+    set:
+      reloadOnChange: false
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, env: {TOKEN: {valueFrom: {secretKeyRef: {name: proxy-token, key: token}}}}}
+    asserts:
+      - notExists:
+          path: metadata.annotations
