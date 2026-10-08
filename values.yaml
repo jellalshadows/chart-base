@@ -99,6 +99,27 @@ configFiles:
 # a Deployment that already exists; see `strategy`).
 volumes: {}
 
+# -- Init containers, a map keyed by the container name. Each entry: `image` (`repository`; `tag` or `digest`, the
+# digest wins; `pullPolicy`, default `IfNotPresent`), `resources` (`requests.cpu` and `requests.memory` required),
+# `command`, `args` (a list: an overlay replaces it whole), `securityContext` and `order`. Init containers and
+# `sidecars` start in ONE order: ascending `order` (an integer from -1000 to 1000; default 0 for an init container,
+# 1000 for a sidecar), then init containers before sidecars, then by name. So the init containers run before every
+# sidecar whose `order` is not set: to start a sidecar before an init container, lower the sidecar's `order`; raising
+# an init container's `order` never moves it behind a sidecar whose `order` is not set. Every container starts from the
+# chart's hardened default security context (`allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true`,
+# `runAsNonRoot: true`, `capabilities.drop: [ALL]`), never from the component's `securityContext`, and its own
+# `securityContext` is merged over it field by field: a list replaces the default's (`drop: []` drops nothing, and Pod
+# Security restricted then rejects the pod). In `initContainers` and `sidecars` a `null` entry or field is absent at
+# any depth (a `null` in `securityContext` restores the hardened default of that field), and `initContainers: null` is
+# none.
+initContainers: {}
+
+# -- Sidecars: containers that keep running next to the main container (native sidecars: init containers with
+# `restartPolicy: Always`, which the chart writes), a map keyed by the container name with the fields of
+# `initContainers` (see there for the start order, the security context and `null`). The next container starts once a
+# sidecar has started (it runs, and its `startupProbe` passed if it has one).
+sidecars: {}
+
 externalSecret:
   # -- Render an ExternalSecret (external-secrets.io/v1) whose Secret `<fullname>-secrets` is injected with `envFrom`.
   enabled: false

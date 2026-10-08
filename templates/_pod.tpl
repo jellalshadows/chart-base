@@ -1,9 +1,9 @@
-{{/* repository@digest when a digest is set, repository:tag otherwise. */}}
+{{/* repository@digest when a digest is set, repository:tag otherwise, for an image map: the main container's (.Values.image), an init container's or a sidecar's. */}}
 {{- define "chart-base.image" -}}
-{{- if .Values.image.digest -}}
-{{- printf "%s@%s" .Values.image.repository .Values.image.digest -}}
+{{- if .digest -}}
+{{- printf "%s@%s" .repository .digest -}}
 {{- else -}}
-{{- printf "%s:%s" .Values.image.repository (toString .Values.image.tag) -}}
+{{- printf "%s:%s" .repository (toString .tag) -}}
 {{- end -}}
 {{- end -}}
 
@@ -27,6 +27,8 @@ Deployment-only parts (the built-in preStop sleep, topology spread) are rendered
 {{- $isDeployment := eq $.Values.workload.type "deployment" -}}
 {{- $volumes := dict -}}
 {{- include "chart-base.volumes" (dict "ctx" $ "out" $volumes) -}}
+{{- $containers := dict -}}
+{{- include "chart-base.containers" (dict "ctx" $ "out" $containers) -}}
 {{- /* An existing ServiceAccount's name comes from values: quoted, so that a name such as `on` stays a string. */ -}}
 {{- $serviceAccountName := include "chart-base.serviceAccountName" $ -}}
 {{- if and (not $.Values.serviceAccount.create) $.Values.serviceAccount.name }}{{ $serviceAccountName = quote $serviceAccountName }}{{ end -}}
@@ -43,9 +45,16 @@ imagePullSecrets:
 securityContext:
   {{- toYaml $.Values.podSecurityContext | nindent 2 }}
 terminationGracePeriodSeconds: {{ $.Values.terminationGracePeriodSeconds }}
+{{- /* Init containers and sidecars, in start order (chart-base.containers). */}}
+{{- if $containers.ordered }}
+initContainers:
+  {{- range $c := $containers.ordered }}
+  {{- include "chart-base.entryContainer" (dict "ctx" $ "container" $c) | nindent 2 }}
+  {{- end }}
+{{- end }}
 containers:
   - name: {{ include "chart-base.component" $ }}
-    image: {{ include "chart-base.image" $ | quote }}
+    image: {{ include "chart-base.image" $.Values.image | quote }}
     imagePullPolicy: {{ $.Values.image.pullPolicy }}
     {{- with $.Values.command }}
     command:

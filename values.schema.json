@@ -331,6 +331,71 @@
         { "if": { "required": ["type"], "properties": { "type": { "const": "persistentVolumeClaim" } } }, "then": { "required": ["claimName"] } },
         { "if": { "required": ["type"], "properties": { "type": { "const": "ephemeral" } } }, "then": { "required": ["size"] } }
       ]
+    },
+    "resources": {
+      "description": "Container resources, of the main container and of every init container and sidecar: requests.cpu and requests.memory required (ADR-0014); a null limit or request other than those two is absent, and limits: null is no limit.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requests"],
+      "properties": {
+        "requests": {
+          "type": "object",
+          "required": ["cpu", "memory"],
+          "properties": {
+            "cpu": { "type": ["string", "number"] },
+            "memory": { "type": ["string", "number"] }
+          }
+        },
+        "limits": { "type": ["object", "null"] }
+      }
+    },
+    "containerImage": {
+      "description": "The image of an init container or a sidecar: repository, and a tag or a digest (the digest wins); pullPolicy, default IfNotPresent (an entry has no chart default). Each anyOf branch types its field, so that a null tag is no tag.",
+      "type": "object", "additionalProperties": false, "required": ["repository"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": ["string", "null"] },
+        "digest": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" },
+        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never", null] }
+      },
+      "anyOf": [
+        { "required": ["tag"], "properties": { "tag": { "type": "string", "minLength": 1 } } },
+        { "required": ["digest"], "properties": { "digest": { "type": "string", "minLength": 1 } } }
+      ]
+    },
+    "containerArgs": {
+      "description": "command or args of an init container or a sidecar: a list of strings rendered as written (an overlay replaces a list whole); null or [] renders nothing.",
+      "type": ["array", "null"], "items": { "type": "string" }
+    },
+    "containerOrder": {
+      "description": "The start order of an init container or a sidecar, -1000 to 1000; null = the default (0 for an init container, 1000 for a sidecar). templates/_containers.tpl sorts on order + 1000 as text, an offset equal to minus this minimum: change both together.",
+      "type": ["integer", "null"],
+      "minimum": -1000,
+      "maximum": 1000
+    },
+    "initContainer": {
+      "description": "An entry of initContainers: a container that runs to completion before the next one starts. Closed at every level the chart defines; every optional field also accepts null (absent).",
+      "type": "object", "required": ["image", "resources"], "additionalProperties": false,
+      "properties": {
+        "image": { "$ref": "#/definitions/containerImage" },
+        "resources": { "$ref": "#/definitions/resources" },
+        "command": { "$ref": "#/definitions/containerArgs" },
+        "args": { "$ref": "#/definitions/containerArgs" },
+        "securityContext": { "type": ["object", "null"], "description": "Merged over the chart's hardened default, field by field; null restores the default of a field." },
+        "order": { "description": "An init container's default is 0.", "$ref": "#/definitions/containerOrder" }
+      }
+    },
+    "sidecar": {
+      "description": "An entry of sidecars: a container that keeps running next to the main container (an init container with restartPolicy: Always, written by the chart). Closed at every level the chart defines; every optional field also accepts null (absent).",
+      "type": "object", "additionalProperties": false, "required": ["image", "resources"],
+      "properties": {
+        "image": { "$ref": "#/definitions/containerImage" },
+        "resources": { "$ref": "#/definitions/resources" },
+        "command": { "$ref": "#/definitions/containerArgs" },
+        "args": { "$ref": "#/definitions/containerArgs" },
+        "securityContext": { "type": ["object", "null"], "description": "Merged over the chart's hardened default, field by field; null restores the default of a field." },
+        "order": { "description": "A sidecar's default is 1000.", "$ref": "#/definitions/containerOrder" }
+      }
     }
   },
   "properties": {
@@ -383,22 +448,7 @@
         }
       }
     },
-    "resources": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["requests"],
-      "properties": {
-        "requests": {
-          "type": "object",
-          "required": ["cpu", "memory"],
-          "properties": {
-            "cpu": { "type": ["string", "number"] },
-            "memory": { "type": ["string", "number"] }
-          }
-        },
-        "limits": { "type": ["object", "null"] }
-      }
-    },
+    "resources": { "$ref": "#/definitions/resources" },
     "config": {
       "type": "object",
       "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
@@ -421,6 +471,16 @@
       "description": "Extra volumes mounted in the main container, keyed by the volume name (templates/validate.yaml checks the name). null = none; a null entry or field is absent.",
       "type": "object",
       "additionalProperties": { "$ref": "#/definitions/volume" }
+    },
+    "initContainers": {
+      "description": "Init containers, keyed by the container name (templates/validate.yaml checks the name). null = none; a null entry or field is absent.",
+      "type": "object",
+      "additionalProperties": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/initContainer" } }
+    },
+    "sidecars": {
+      "description": "Sidecars, keyed by the container name (templates/validate.yaml checks the name). null = none; a null entry or field is absent.",
+      "type": "object",
+      "additionalProperties": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/sidecar" } }
     },
     "externalSecret": {
       "type": "object",

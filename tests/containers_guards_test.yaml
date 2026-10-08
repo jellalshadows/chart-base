@@ -1,0 +1,111 @@
+suite: init containers and sidecars (schema rules and guards)
+templates:
+  - templates/validate.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+values:
+  - values/base.yaml
+tests:
+  - it: accepts an init container and a sidecar with every field, a null entry in each map
+    set:
+      initContainers:
+        migrate: {image: {repository: r, tag: "1", digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", pullPolicy: Always}, command: [a], args: [b], resources: {requests: {cpu: 1m, memory: 1Mi}, limits: {memory: 2Mi}}, securityContext: {runAsUser: 1001}, order: -1000}
+        gone: null
+      sidecars:
+        proxy: {image: {repository: r, digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}, resources: {requests: {cpu: 1, memory: 1Mi}}, order: 1000}
+        gone2: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a null for every optional field of an entry
+    set:
+      sidecars:
+        proxy: {image: {repository: r, tag: "1", pullPolicy: null}, command: null, args: null, resources: {requests: {cpu: 1m, memory: 1Mi}, limits: null}, securityContext: null, order: null}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a misspelt field of a sidecar (a closed entry)
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, comand: [x]}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/sidecars/proxy': additional properties 'comand' not allowed"
+
+  - it: rejects a misspelt field of an init container (a closed entry)
+    set:
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, arg: [x]}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/initContainers/migrate': additional properties 'arg' not allowed"
+
+  - it: rejects an entry without image or resources
+    set:
+      sidecars:
+        proxy: {order: 1}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/sidecars/proxy': missing properties 'image', 'resources'"
+
+  - it: rejects a null image.repository (a required field null fails like a missing one)
+    set:
+      initContainers:
+        migrate: {image: {repository: null, tag: "1"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/initContainers/migrate/image/repository': got null, want string"
+
+  - it: rejects image.tag null without a digest (a null tag is no tag)
+    set:
+      sidecars:
+        proxy: {image: {repository: r, tag: null}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/sidecars/proxy/image': 'anyOf' failed"
+
+  - it: rejects a null resources.requests.cpu
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: null, memory: 1Mi}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/sidecars/proxy/resources/requests/cpu': got null, want number or string"
+
+  - it: rejects order 1001 (above the maximum)
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: 1001}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/sidecars/proxy/order': maximum: got 1,001, want 1,000"
+
+  - it: rejects order -1001 (below the minimum, the offset of the sort key)
+    set:
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: -1001}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/initContainers/migrate/order': minimum: got -1,001, want -1,000"
+
+  - it: rejects a fractional order
+    set:
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: 1.5}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/initContainers/migrate/order': got number, want null or integer"
+
+  - it: rejects a command item that is not a string (a list is taken as written)
+    set:
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, command: [run, null]}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/initContainers/migrate/command/1': got null, want string"
