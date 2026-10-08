@@ -117,3 +117,61 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: renders the built-in targets as pod-wide Resource metrics without a non-null sidecar (no sidecars, null, a map of null sidecars, init containers only)
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+      sidecars:
+        gone: null
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - equal:
+          path: spec.metrics
+          value:
+            - {type: Resource, resource: {name: cpu, target: {type: Utilization, averageUtilization: 80}}}
+
+  - it: renders a Resource metric for sidecars null
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+      sidecars: null
+    asserts:
+      - equal:
+          path: spec.metrics
+          value:
+            - {type: Resource, resource: {name: cpu, target: {type: Utilization, averageUtilization: 80}}}
+
+  - it: renders the CPU target as a ContainerResource metric for the main container once a sidecar exists
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - equal:
+          path: spec.metrics
+          value:
+            - type: ContainerResource
+              containerResource:
+                name: cpu
+                container: chart-base
+                target:
+                  type: Utilization
+                  averageUtilization: 80
+
+  - it: renders the memory target as a second ContainerResource metric with a sidecar
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.targetCPUUtilizationPercentage: 70
+      autoscaling.targetMemoryUtilizationPercentage: 75
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - equal:
+          path: spec.metrics
+          value:
+            - {type: ContainerResource, containerResource: {name: cpu, container: chart-base, target: {type: Utilization, averageUtilization: 70}}}
+            - {type: ContainerResource, containerResource: {name: memory, container: chart-base, target: {type: Utilization, averageUtilization: 75}}}

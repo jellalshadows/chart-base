@@ -232,9 +232,13 @@ autoscaling:
   minReplicas: 2
   # -- Maximum replicas.
   maxReplicas: 10
-  # -- Target average CPU utilization (percent of requests).
+  # -- Target average CPU utilization, in percent of the main container's CPU request. With a sidecar the HPA measures
+  # the main container alone (a `ContainerResource` metric for it); without one, the pod (`Resource`), which is the same
+  # while the main container is the pod's only long-running container (an init container never counts). Adding the
+  # first sidecar changes the metric's kind in that upgrade, and removing the last one changes it back.
   targetCPUUtilizationPercentage: 80
-  # -- (int) Target average memory utilization (percent of requests). `null` = not used.
+  # -- (int) Target average memory utilization, in percent of the main container's memory request, measured like the
+  # CPU target (see `targetCPUUtilizationPercentage`). `null` = not used.
   targetMemoryUtilizationPercentage: null
 
 pdb:
