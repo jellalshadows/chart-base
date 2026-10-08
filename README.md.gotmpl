@@ -402,6 +402,87 @@ reports-archive:
   strategy: {type: Recreate}   # an existing Deployment on Helm 4: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}
 ```
 
+### Sidecars and init containers (a database proxy, a migration, a log shipper)
+
+`initContainers` and `sidecars` are maps keyed by the container name, rendered in one start order
+([ADR-0051](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)):
+
+```yaml
+sales:
+  image: {repository: ghcr.io/acme/sales, tag: "1.4.0"}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+  volumes:
+    logs: {type: emptyDir, mountPath: /var/log/app}           # the main container writes its logs here
+  sidecars:
+    db-proxy:
+      image: {repository: gcr.io/cloud-sql-connectors/cloud-sql-proxy, tag: "2.26.0"}
+      args: ["--http-address=0.0.0.0", "--health-check", "--exit-zero-on-sigterm", "acme:europe-west1:sales"]
+      order: -10                   # before the init containers (default 0): migrate needs the proxy
+      resources: {requests: {cpu: 100m, memory: 128Mi}}
+      ports: [{name: proxy-health, containerPort: 9090}]      # pod-internal: the targets of its own probes
+      probes:
+        startup: {httpGet: {path: /startup, port: proxy-health}, periodSeconds: 1, failureThreshold: 60}
+        liveness: {httpGet: {path: /liveness, port: proxy-health}}
+    shipper:
+      image: {repository: fluent/fluent-bit, tag: "5.1.3"}
+      resources: {requests: {cpu: 20m, memory: 32Mi}}
+      volumeMounts:
+        logs: {mountPath: /var/log/app, readOnly: true}        # reads what the main container writes
+        tmp: {mountPath: /tmp}                                 # the chart's tmp, shared with the main container
+  initContainers:
+    migrate:
+      image: {repository: ghcr.io/acme/sales, tag: "1.4.0"}
+      command: ["/app/migrate", "up"]
+      inheritEnv: true             # exactly the main container's envFrom and env
+      resources: {requests: {cpu: 50m, memory: 64Mi}}
+```
+
+The containers start in this order: `db-proxy` (order -10), `migrate` (0), `shipper` (1000, a sidecar's default),
+then the main container. To start a sidecar before an init container, lower the sidecar's `order`; raising an init
+container's `order` never moves it behind a sidecar whose `order` is not set. The next container starts once a sidecar
+has started, so give a sidecar that another container needs a `startupProbe`; the kubelet probes the pod IP, so the
+proxy's health server listens on `0.0.0.0` (`--http-address=0.0.0.0`: it defaults to `localhost`). Each container
+starts from the chart's hardened security context, not from the component's; nothing else comes from the main
+container (`inheritEnv` and `volumeMounts` are explicit), while what the pod grants reaches every container: the
+ServiceAccount token and its `rbac` grants, the NetworkPolicy allowances, `podSecurityContext`. A `job` or `cronjob`
+with a sidecar needs `job.activeDeadlineSeconds`.
+
+### A fronting proxy (a sidecar that serves the component's port)
+
+A proxy in front of the application serves the port that the Service, the route and the NetworkPolicy use, so that
+port is the component's `ports` entry; the application's own port is NOT in `ports`:
+
+```yaml
+orders:
+  image: {repository: ghcr.io/acme/orders, tag: "2.0.0"}
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+  ports:
+    - {name: http, containerPort: 8443}                       # served by the proxy
+  probes:
+    readiness: {httpGet: {path: /healthz, port: 8080}}        # the application's port, by number
+  sidecars:
+    proxy:
+      image: {repository: ghcr.io/acme/auth-proxy, tag: "1.2.0"}
+      resources: {requests: {cpu: 50m, memory: 64Mi}}
+      probes:
+        startup: {tcpSocket: {port: 8443}}                     # by number: ports already declares 8443
+  networkPolicy:
+    enabled: true                                             # REQUIRED: it opens only the entries of ports
+    ingress:
+      fromComponents: [web]
+```
+
+Leaving the application's port out of `ports` does not close it: any pod could reach `<pod IP>:8080` and bypass the
+proxy (a `containerPort` is informational). `networkPolicy.enabled: true` closes it, or an application that listens on
+127.0.0.1 only (its probes then use `exec`). The proxy itself must listen on `0.0.0.0` (oauth2-proxy's
+`--http-address` defaults to `127.0.0.1:4180`), or the Service cannot reach it. The probes use numbers: a probe by
+name resolves among the probed container's own ports, and the proxy cannot declare again a number that `ports` holds.
+`metrics.port` on the application's port would put it back on the Service and in the policy. With an authenticating
+proxy the application's port must not be exposed anywhere else. The kind e2e installs this shape (the `front`
+component of the NetworkPolicy checks).
+
 ### Worker (e.g. a Kafka consumer)
 
 ```yaml
@@ -746,6 +827,23 @@ code, official docs) and local renders.
     `not`. *Rejected:* claims on CronJobs and Jobs only (it leaves out a one-replica Deployment and a shared
     `ReadWriteMany` claim).
     [ADR-0050](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md)
+51. **Init containers and sidecars are two maps in one start order, and nothing is inherited from the main container.**
+    `initContainers` and `sidecars` are keyed by the container name and rendered into the pod's `initContainers`, a
+    sidecar with `restartPolicy: Always`; they start by `order` (default 0 for an init container, 1000 for a sidecar),
+    init containers first on a tie. Each entry starts from the chart's hardened security context, declares its own
+    `env` (references only; `inheritEnv: true` for exactly the main container's) and its `volumeMounts`; what the pod
+    grants (the token, `rbac`, the NetworkPolicy, `podSecurityContext`) reaches every container. In these maps a
+    `null` entry or field is absent at any depth. A sidecar's ports are pod-internal, port names and numbers are
+    declared once in the pod, and a sidecar's probes are a closed object. It amends decision 49: `mountPath` is
+    optional for a volume that an init container or a sidecar mounts. *Rejected:* a Kubernetes list (an overlay
+    replaces it whole), one default order (init containers behind every sidecar), the component's security context as
+    the base (a relaxation would reach every sidecar), raw containers.
+    [ADR-0051](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)
+52. **With a sidecar, the HPA's built-in targets measure the main container.** The CPU and memory targets render as
+    `ContainerResource` metrics of the main container once the component has a non-null sidecar, and as today's
+    pod-wide `Resource` metrics otherwise: the percentage keeps meaning percent of the main container's requests.
+    *Rejected:* pod-wide utilization with sidecars (the sidecar moves the threshold), a key to choose.
+    [ADR-0052](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0052-hpa-targets-measure-the-main-container-with-sidecars.md)
 
 ## Versioning and releases
 

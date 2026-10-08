@@ -364,3 +364,33 @@ the same manifests as with its first pull request (measured on the six `ci/` sce
   Recreate in a later upgrade, once Helm owns both `rollingUpdate` keys; or run that one upgrade with
   `--server-side=false`. It matters first for a Deployment that gains an existing claim declared `ReadWriteOnce`,
   which needs a strategy that adds no pod.
+
+## 0.7.x → 0.8.0
+
+Nothing to change: 0.8.0 adds `initContainers` and `sidecars` and no required key, and a values file without them
+renders the same manifests as 0.7.0 (measured on the six `ci/` scenarios of 0.7.0, on Helm 4.3.0 and 3.22.0). A direct
+install upgraded with `--reuse-values` renders too: the new keys are absent from the reused values, and the chart reads
+that as no init container and no sidecar (measured: the 0.8.0 chart with 0.7.0's `values.yaml` renders 0.7.0's bytes
+for the same six scenarios).
+
+- **`initContainers` and `sidecars` are new and optional** ([ADR-0051](adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)). In these two maps a `null`
+  entry or field is absent at any depth, except inside an env variable's `valueFrom` and a probe's `httpGet` or `exec`.
+- **Adding a sidecar to a component with `autoscaling.enabled` changes its HPA's metrics from `Resource` to
+  `ContainerResource` for the main container (`container: <alias>`), in the same upgrade; removing the last sidecar
+  changes them back.** This is intended: the percentage keeps measuring the main container's usage against the main
+  container's requests, which is what it measured before the sidecar existed (a plain init container never counts).
+  With pod-wide `Resource` the sidecar's requests and usage would enter the sums and move the threshold, possibly
+  beyond the main container's limit ([ADR-0052](adr/0052-hpa-targets-measure-the-main-container-with-sidecars.md)). kube-apiserver 1.33.0 and 1.37.0 accept the change in
+  place, both ways, with Helm 4.3.0 (server-side apply) and Helm 3.22.0 (measured).
+- **`volumes.<name>.mountPath` is optional for a volume that an init container or a sidecar mounts**, and
+  `readOnly: true` on an `emptyDir` or `ephemeral` volume is accepted when another container mounts it writable. Two
+  values that failed in 0.7.0 still fail, with another message: a volume without `mountPath` that no container mounts
+  (`volumes.cache has no mountPath and no container mounts it: ...`), and an `emptyDir` or `ephemeral` volume mounted
+  read-only by the main container alone (`volumes.cache (emptyDir) is mounted read-only by every container that mounts
+  it, so nothing can write it: mount it writable in one container`). The first moved from the schema to a guard:
+  `helm template`, install and upgrade still fail on it, while `helm lint` of chart-base itself no longer does (it
+  prints the guard's message as an INFO line; measured on chart-base itself with Helm 4.3.0 and 3.22.0: exit 1 with
+  0.7.0, exit 0 now). A CI step that lints the chart with a deploy's values stops flagging that value: run
+  `helm template` with those values as well.
+- A main-container probe on a port name that only a sidecar declares fails, as in 0.7.0 (the name is not in `ports`);
+  the message now says where the name is declared.
