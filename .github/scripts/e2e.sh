@@ -24,6 +24,8 @@ fail() {
   if [ "$ns" = vending ]; then
     # The volume checks: the claims and their events, and the logs of the manual CronJob runs (absent before them).
     kubectl describe persistentvolumeclaims -n "$ns" >&2 || true
+    # A pod stuck Pending or failing to start (a claim that does not bind, a nested mount) shows why in its events.
+    kubectl describe pods,jobs -n "$ns" >&2 || true
     for run in cronjob-manual-run cronjob-manual-run-2; do kubectl logs -n "$ns" "job/$run" --tail=50 >&2 || true; done
   fi
   if [ "$ns" = netpol ]; then
@@ -124,12 +126,12 @@ printf '%s\n' 'volumes: {data: {type: persistentVolumeClaim, mountPath: /data, c
   'strategy: {type: Recreate}' > "$work/deployment-recreate.yaml"
 install deployment --set config.APP_MODE=api-v2 -f "$work/deployment-claim.yaml" \
   || fail "adding an existing claim with strategy RollingUpdate (maxSurge 0, maxUnavailable 1) to a Deployment installed without strategy failed"
-claim="$(kubectl get deployment -n "$ns" deployment-chart-base -o jsonpath='{.spec.template.spec.volumes[?(@.name=="data")].persistentVolumeClaim.claimName} {.status.readyReplicas}')"
+claim="$(kubectl get deployment -n "$ns" deployment-chart-base -o jsonpath='{.spec.template.spec.volumes[?(@.name=="data")].persistentVolumeClaim.claimName} {.status.readyReplicas}' || true)"
 [ "$claim" = "e2e-data 1" ] || fail "the Deployment must mount the claim e2e-data and be Ready, got '$claim'"
 pass "an existing claim is mounted after an in-place switch to RollingUpdate with maxSurge 0 (the pod is Ready)"
 install deployment --set config.APP_MODE=api-v2 -f "$work/deployment-recreate.yaml" \
   || fail "the in-place switch from RollingUpdate (maxSurge 0, maxUnavailable 1) to Recreate failed"
-strategy="$(kubectl get deployment -n "$ns" deployment-chart-base -o jsonpath='{.spec.strategy}')"
+strategy="$(kubectl get deployment -n "$ns" deployment-chart-base -o jsonpath='{.spec.strategy}' || true)"
 [ "$strategy" = '{"type":"Recreate"}' ] || fail "spec.strategy must be Recreate with no rollingUpdate, got '$strategy'"
 pass "the Deployment then switches to Recreate in place: spec.strategy has no rollingUpdate"
 
@@ -145,7 +147,8 @@ echo "== cronjob"
 install cronjob || fail "cronjob scenario failed"
 svc_ip="$(kubectl get service -n "$ns" deployment-chart-base -o jsonpath='{.spec.clusterIP}')"
 case "$svc_ip" in ""|None) fail "the service-links check needs the deployment scenario's ClusterIP Service";; esac
-kubectl create job -n "$ns" --from=cronjob/cronjob-chart-base cronjob-manual-run
+kubectl create job -n "$ns" --from=cronjob/cronjob-chart-base cronjob-manual-run \
+  || fail "could not create the first manual CronJob run"
 kubectl wait -n "$ns" job/cronjob-manual-run --for=condition=Complete --timeout=180s \
   || fail "a CronJob run must complete (restricted pod, config, env references, envFrom with prefix, no service links)"
 pass "a CronJob run sees config, env references (fieldRef, resourceFieldRef), envFrom with prefix and no service links"
@@ -154,19 +157,20 @@ pass "a CronJob run sees config, env references (fieldRef, resourceFieldRef), en
 # the second: the schedule (*/30) can start a run between the two manual ones.
 run1="$(kubectl get pods -n "$ns" -l job-name=cronjob-manual-run --field-selector=status.phase=Succeeded -o jsonpath='{.items[0].metadata.name}' || true)"
 [ -n "$run1" ] || fail "the first manual run has no succeeded pod"
-kubectl create job -n "$ns" --from=cronjob/cronjob-chart-base cronjob-manual-run-2
+kubectl create job -n "$ns" --from=cronjob/cronjob-chart-base cronjob-manual-run-2 \
+  || fail "could not create the second manual CronJob run"
 kubectl wait -n "$ns" job/cronjob-manual-run-2 --for=condition=Complete --timeout=180s \
   || fail "the second run must complete: its ephemeral volume must not hold a marker, and the claim e2e-runs must be writable"
 # The log goes to a file first: a pipeline into grep -q could fail under pipefail (SIGPIPE) when the match is not the
 # last line, and here it is not (the second run's own name follows).
 kubectl logs -n "$ns" job/cronjob-manual-run-2 > "$work/run2.log" || fail "could not read the second run's log"
-grep -qx "$run1" "$work/run2.log" \
+grep -qxF "$run1" "$work/run2.log" \
   || fail "the second run must print the first run's pod name ($run1) from the claim e2e-runs: an existing claim is the same volume for every run"
 pass "an existing claim keeps what one run wrote for the next; each run's ephemeral volume starts without the marker"
 pvc="$run1-scratch"
 owner="$(kubectl get pvc -n "$ns" "$pvc" -o jsonpath='{.metadata.ownerReferences[0].kind}/{.metadata.ownerReferences[0].name} {.metadata.labels.app\.kubernetes\.io/instance}' || true)"
 [ "$owner" = "Pod/$run1 cronjob" ] || fail "the ephemeral claim $pvc must be owned by its pod and carry app.kubernetes.io/instance, got '$owner'"
-kubectl delete pod -n "$ns" "$run1" --wait=true
+kubectl delete pod -n "$ns" "$run1" --wait=true || fail "could not delete the pod $run1 of the first manual run"
 # Garbage collection is asynchronous: poll every 2 s for up to 120 s. --ignore-not-found makes "gone" an empty list
 # with exit 0, so a kubectl error is not taken for its absence.
 gone=no
@@ -195,7 +199,7 @@ kubectl wait -n "$ns" externalsecret/full-chart-base-secrets --for=condition=Rea
 kubectl get httproute -n "$ns" full-chart-base > /dev/null || fail "HTTPRoute not accepted by the API"
 reload="$(kubectl get deployment -n "$ns" full-chart-base -o jsonpath='{.metadata.annotations.secret\.reloader\.stakater\.com/reload}')"
 [ "$reload" = "e2e-files,e2e-shared,full-chart-base-secrets" ] || fail "Reloader annotation must list the referenced and the mounted Secrets, got '$reload'"
-reload="$(kubectl get deployment -n "$ns" full-chart-base -o jsonpath='{.metadata.annotations.configmap\.reloader\.stakater\.com/reload}')"
+reload="$(kubectl get deployment -n "$ns" full-chart-base -o jsonpath='{.metadata.annotations.configmap\.reloader\.stakater\.com/reload}' || true)"
 [ "$reload" = "e2e-rules" ] || fail "Reloader annotation must list the mounted ConfigMap e2e-rules (nothing else references it), got '$reload'"
 rollout="$(kubectl get deployment -n "$ns" full-chart-base -o jsonpath='{.spec.strategy.type} {.spec.strategy.rollingUpdate.maxSurge} {.spec.strategy.rollingUpdate.maxUnavailable} {.spec.minReadySeconds} {.spec.revisionHistoryLimit}')"
 [ "$rollout" = "RollingUpdate 1 0 5 5" ] || fail "Deployment must carry strategy, minReadySeconds and revisionHistoryLimit, got '$rollout'"
@@ -209,8 +213,11 @@ fs="$(kubectl exec -n "$ns" "$pod" -- /agnhost mounttest --fs_type=/tmp 2>&1 || 
 case "$fs" in *tmpfs*) fail "/tmp (the chart's emptyDir on the node's disk) must not be tmpfs, or the check above proves nothing, got '$fs'" ;; esac
 token="$(kubectl exec -n "$ns" "$pod" -- cat /config/secrets/token 2>&1 || true)"
 [ "$token" = files-token ] || fail "the Secret e2e-files must be readable at /config/secrets/token, a directory beneath the config-files mount, got '$token'"
-kubectl exec -n "$ns" "$pod" -- sh -c 'echo x > /config/secrets/written' > /dev/null 2>&1 \
-  && fail "the Secret mount at /config/secrets must be read-only: a write succeeded"
+# Any other failure (no sh in the image, exec refused) must not pass for a read-only mount: require the kernel's message.
+if write="$(kubectl exec -n "$ns" "$pod" -- sh -c 'echo x > /config/secrets/written' 2>&1)"; then
+  fail "the Secret mount at /config/secrets must be read-only: a write succeeded"
+fi
+case "$write" in *"Read-only file system"*) ;; *) fail "the write to the Secret mount at /config/secrets must fail with 'Read-only file system', got '$write'" ;; esac
 rules="$(kubectl exec -n "$ns" "$pod" -- cat /etc/rules/alerts.yaml 2>&1 || true)"
 [ "$rules" = "groups: []" ] || fail "the ConfigMap key mounted with items and subPath at /etc/rules/alerts.yaml must hold what the script wrote, got '$rules'"
 pass "full: a tmpfs emptyDir beneath /tmp, a read-only Secret directory beneath the config-files mount, one ConfigMap key as one file"

@@ -312,7 +312,7 @@ for layer in U0 U1 F S; do
     F) out="$(lrender "$two" -f "$(over '  volumes: {cache: {sizeLimit: null}, certs: null}')")" ;;
     S) out="$(lrender "$two" --set api.volumes.certs=null --set api.volumes.cache.sizeLimit=null)" ;;
   esac
-  [ "$(vols "$out")" = '"tmp,cache"' ] && [ "$(pod "$out" '.spec.volumes[1].emptyDir')" = '{}' ] || bad_layers="$bad_layers $layer"
+  [ "$(vols "$out")" = '"tmp,cache"' ] && [ "$(pod "$out" '.spec.volumes[1].emptyDir')" = '{}' ] && [ "$(pod "$out" '.spec.containers[0].volumeMounts | map(.name) | join(",")')" = '"tmp,cache"' ] || bad_layers="$bad_layers $layer"
 done
 [ -z "$bad_layers" ] || fail "volumes: a null entry and a null field must be absent, the same in every layer; differs in:$bad_layers"
 pass "volumes: a null entry (certs) and a null field (sizeLimit) are absent in U0, U1, F and S (null table row 8)"
