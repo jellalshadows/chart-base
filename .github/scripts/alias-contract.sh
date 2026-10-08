@@ -364,6 +364,83 @@ done
 [ -z "$bad_layers" ] || fail "strategy: {type: Recreate, rollingUpdate: null} must render type Recreate alone in every layer (in F and S over an umbrella that sets rollingUpdate); differs in:$bad_layers"
 pass "strategy: {type: Recreate, rollingUpdate: null} renders type Recreate alone in U0 and U1 (the umbrella's own null), and in F and S over an umbrella that sets rollingUpdate (null table row 8)"
 
+# initContainers and sidecars (0.8.0): in these maps a null entry or field is absent at any depth, in every layer (null
+# table row 8): an entry, a mount, a probe, an env variable and a security field, where readOnlyRootFilesystem: null
+# renders the hardened default true (on Helm 3.22 too, where the umbrella's own null reaches the chart).
+side_full='  resources: {requests: {cpu: 10m, memory: 32Mi}}
+  volumes: {cache: {type: emptyDir, mountPath: /cache}}
+  sidecars:
+    proxy:
+      image: {repository: ghcr.io/acme/proxy, tag: "1.0"}
+      resources: {requests: {cpu: 10m, memory: 16Mi}}
+      env: {TOKEN: {valueFrom: {secretKeyRef: {name: t, key: k}}}, OLD: {valueFrom: {fieldRef: {fieldPath: metadata.name}}}}
+      volumeMounts: {tmp: {mountPath: /tmp}, cache: {mountPath: /cache}}
+      probes: {startup: {tcpSocket: {port: 9090}}, liveness: {tcpSocket: {port: 9090}}}
+      securityContext: {readOnlyRootFilesystem: false}
+    gone: {image: {repository: ghcr.io/acme/gone, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}'
+side_nulled='  resources: {requests: {cpu: 10m, memory: 32Mi}}
+  volumes: {cache: {type: emptyDir, mountPath: /cache}}
+  sidecars:
+    proxy:
+      image: {repository: ghcr.io/acme/proxy, tag: "1.0"}
+      resources: {requests: {cpu: 10m, memory: 16Mi}}
+      env: {TOKEN: {valueFrom: {secretKeyRef: {name: t, key: k}}}, OLD: null}
+      volumeMounts: {tmp: {mountPath: /tmp}, cache: null}
+      probes: {startup: {tcpSocket: {port: 9090}}, liveness: null}
+      securityContext: {readOnlyRootFilesystem: null}
+    gone: null'
+want_side='[{"name":"proxy","image":"ghcr.io/acme/proxy:1.0","imagePullPolicy":"IfNotPresent","restartPolicy":"Always","env":[{"name":"TOKEN","valueFrom":{"secretKeyRef":{"key":"k","name":"t"}}}],"startupProbe":{"tcpSocket":{"port":9090}},"resources":{"requests":{"cpu":"10m","memory":"16Mi"}},"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true,"runAsNonRoot":true},"volumeMounts":[{"name":"tmp","mountPath":"/tmp"}]}]'
+bad_layers=""
+for layer in U0 U1 F S; do
+  case $layer in
+    U0) out="$(lrender "$side_nulled")" ;;
+    U1) out="$(lrender "$side_nulled" --set api.replicas=2)" ;;
+    F) out="$(lrender "$side_full" -f "$(over '  sidecars: {proxy: {env: {OLD: null}, volumeMounts: {cache: null}, probes: {liveness: null}, securityContext: {readOnlyRootFilesystem: null}}, gone: null}')")" ;;
+    S) out="$(lrender "$side_full" --set api.sidecars.proxy.env.OLD=null --set api.sidecars.proxy.volumeMounts.cache=null --set api.sidecars.proxy.probes.liveness=null --set api.sidecars.proxy.securityContext.readOnlyRootFilesystem=null --set api.sidecars.gone=null)" ;;
+  esac
+  [ "$(pod "$out" '.spec.initContainers')" = "$want_side" ] || bad_layers="$bad_layers $layer"
+done
+[ -z "$bad_layers" ] || fail "sidecars: a null entry, mount, probe, env variable and security field must be absent (readOnlyRootFilesystem: null renders true), the same in every layer; differs in:$bad_layers"
+pass "sidecars: a null entry, mount, probe, env variable and security field are absent in U0, U1, F and S, and readOnlyRootFilesystem: null renders the hardened default true (null table row 8)"
+
+for out in "$(lrender "$side_full" -f "$(over '  sidecars: null
+  initContainers: null')")" "$(lrender '  sidecars: null
+  initContainers: null')"; do
+  [ "$(pod "$out" '.spec.initContainers')" = "null" ] && [ "$(pod "$out" '.spec.containers[0].name')" = '"api"' ] \
+    || fail "sidecars: null and initContainers: null (F, U0) must render no initContainers, and fail nothing (Helm 3.22 hands the chart nil maps)"
+done
+pass "sidecars: null and initContainers: null from an override file (F) and from the umbrella's own values (U0) render no initContainers (null table row 4)"
+
+ord='  resources: {requests: {cpu: 10m, memory: 32Mi}}
+  initContainers: {late: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: 6}}
+  sidecars: {proxy: {image: {repository: ghcr.io/acme/proxy, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}}'
+names="$(pod "$(lrender "$ord" --set api.sidecars.proxy.order=5)" '.spec.initContainers | map(.name) | join(",")')"
+[ "$names" = '"proxy,late"' ] || fail "an order from --set (an integer) must sort with one of the umbrella's values (a float): proxy (5) before late (6), got $names"
+pass "an order given with --set (an integer) sorts with one of the umbrella's values (a float): proxy (5) starts before late (6)"
+
+hpa_side='  resources: {requests: {cpu: 10m, memory: 32Mi}}
+  autoscaling: {enabled: true}
+  sidecars: {proxy: {image: {repository: ghcr.io/acme/proxy, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}}'
+hpa_type() { echo "$1" | yq -N 'select(.kind == "HorizontalPodAutoscaler") | .spec.metrics[0].type + "/" + (.spec.metrics[0].containerResource.container // "-")' - 2>/dev/null || true; }
+[ "$(hpa_type "$(lrender "$hpa_side")")" = ContainerResource/api ] || fail "an autoscaled component with a sidecar must render ContainerResource metrics of its main container api"
+for out in "$(lrender "$hpa_side" -f "$(over '  sidecars: {proxy: null}')")" "$(lrender "$hpa_side" --set api.sidecars.proxy=null)"; do
+  [ "$(hpa_type "$out")" = Resource/- ] || fail "an autoscaled component whose only sidecar is nulled (F, S) must render pod-wide Resource metrics"
+done
+pass "HPA: ContainerResource metrics of the main container (api) with a sidecar, and pod-wide Resource once the only sidecar is nulled from F and from S"
+
+expect_fail "$(lrender '  resources: {requests: {cpu: 10m, memory: 32Mi}}
+  sidecars: {api: {image: {repository: ghcr.io/acme/proxy, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}}')" \
+  "chart-base[api]: sidecars.api: the name api is already the name of the main container (the component's alias)" "a sidecar named like the alias"
+pass "a sidecar named like the component's alias fails, naming the main container"
+
+vf='  resources: {requests: {cpu: 10m, memory: 32Mi}}
+  sidecars: {proxy: {image: {repository: ghcr.io/acme/proxy, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, env: {TOKEN: {valueFrom: {secretKeyRef: {name: t, key: k, optional: true}}}}}}'
+expect_fail "$(lrender "$vf" -f "$(over '  sidecars: {proxy: {env: {TOKEN: {valueFrom: {secretKeyRef: {optional: null}}}}}}')")" "got null, want boolean" "row 6: a null inside a sidecar's env valueFrom, F"
+pass "null table row 6: a null inside a sidecar's env valueFrom (a definition shared with the main container) fails the schema (F)"
+
+expect_fail "$(lrender "$hpa_side" -f "$(over '  sidecars: {proxy: null}')" --set api.sidecars.proxy.order=1)" "failed parsing --set data" "--set below an entry that an override file sets to null"
+pass "--set below an entry that an override file sets to null fails in Helm itself (failed parsing --set data)"
+
 bad="$work/bad"
 make_umbrella "$bad" Sales
 cat > "$bad/values.yaml" <<'EOF'
