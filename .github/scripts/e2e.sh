@@ -197,7 +197,7 @@ kubectl wait -n "$ns" externalsecret/full-chart-base-secrets --for=condition=Rea
 [ "$(kubectl get secret -n "$ns" full-chart-base-secrets -o jsonpath='{.data.DB_PASSWORD}' | base64 -d)" = s3cr3t ] \
   || fail "Secret content mismatch"
 kubectl get httproute -n "$ns" full-chart-base > /dev/null || fail "HTTPRoute not accepted by the API"
-reload="$(kubectl get deployment -n "$ns" full-chart-base -o jsonpath='{.metadata.annotations.secret\.reloader\.stakater\.com/reload}')"
+reload="$(kubectl get deployment -n "$ns" full-chart-base -o jsonpath='{.metadata.annotations.secret\.reloader\.stakater\.com/reload}' || true)"
 [ "$reload" = "e2e-files,e2e-shared,full-chart-base-secrets" ] || fail "Reloader annotation must list the referenced and the mounted Secrets, got '$reload'"
 reload="$(kubectl get deployment -n "$ns" full-chart-base -o jsonpath='{.metadata.annotations.configmap\.reloader\.stakater\.com/reload}' || true)"
 [ "$reload" = "e2e-rules" ] || fail "Reloader annotation must list the mounted ConfigMap e2e-rules (nothing else references it), got '$reload'"
