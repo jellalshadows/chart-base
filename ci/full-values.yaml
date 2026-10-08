@@ -77,6 +77,13 @@ autoscaling:
   minReplicas: 2
   maxReplicas: 4
   targetMemoryUtilizationPercentage: 80
+# One sidecar that references nothing (the Reloader annotations stay those of the main container and the volumes): the
+# HPA's built-in targets are then ContainerResource metrics of the main container, as the API servers store them.
+sidecars:
+  shipper:
+    image: {repository: registry.k8s.io/e2e-test-images/agnhost, tag: "2.66.1"}
+    args: ["pause"]
+    resources: {requests: {cpu: 10m, memory: 16Mi}}
 strategy:
   type: RollingUpdate
   rollingUpdate:

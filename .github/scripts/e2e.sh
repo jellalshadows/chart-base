@@ -8,7 +8,9 @@
 # Job), checked with kubectl auth can-i and with API calls from their own pods. The cronjob, full and deployment
 # scenarios also check extra volumes: an existing claim kept across CronJob runs, an ephemeral claim per pod, a tmpfs
 # emptyDir, a Secret directory beneath the config-files mount, one ConfigMap key as a file, the Reloader feed, and two
-# in-place strategy changes of a Deployment that mounts an existing claim.
+# in-place strategy changes of a Deployment that mounts an existing claim. The deployment, job and full scenarios and a
+# fourth component of the NetworkPolicy umbrella check init containers and sidecars: the start order, a volume an init
+# container fills, a hook Job that completes with a sidecar, the fronting-proxy recipe and the HPA's metrics.
 # Usage: e2e.sh <chart-dir>
 # Env: GATEWAY_API_VERSION (e.g. v1.6.2), ESO_CHART_VERSION (e.g. 2.11.0),
 #      PROMETHEUS_OPERATOR_VERSION (e.g. v0.94.1)
@@ -26,10 +28,18 @@ fail() {
     kubectl describe persistentvolumeclaims -n "$ns" >&2 || true
     # A pod stuck Pending or failing to start (a claim that does not bind, a nested mount) shows why in its events.
     kubectl describe pods,jobs -n "$ns" >&2 || true
+    # Every container's log of the deployment and job scenarios: an init container that exits (wait-side's REFUSED), a
+    # sidecar that never starts.
+    kubectl logs -n "$ns" deploy/deployment-chart-base --all-containers --prefix --tail=50 >&2 || true
+    kubectl logs -n "$ns" job/job-chart-base --all-containers --prefix --tail=50 >&2 || true
     for run in cronjob-manual-run cronjob-manual-run-2; do kubectl logs -n "$ns" "job/$run" --tail=50 >&2 || true; done
   fi
   if [ "$ns" = netpol ]; then
     kubectl get pods,networkpolicies -n monitoring -o wide >&2 || true
+    # A component that does not become ready (front's sidecar proxy and its startupProbe) shows why in its events and
+    # its containers' logs.
+    kubectl describe pods -n netpol >&2 || true
+    kubectl logs -n netpol deploy/shop-front --all-containers --prefix --tail=50 >&2 || true
     # The migrate Job is kept (its delete policy is before-hook-creation only, ttl 3600); kindnet enforces the policies.
     kubectl logs -n netpol job/shop-migrate --tail=50 >&2 || true
     kubectl logs -n kube-system ds/kindnet --tail=200 >&2 || true
@@ -110,6 +120,27 @@ install() { helm upgrade --install "$1" "$chart_dir" -n "$ns" -f "$chart_dir/ci/
 echo "== deployment"
 install deployment || fail "deployment scenario did not become ready under PSS restricted"
 pass "API Deployment is Ready in a restricted namespace"
+# The init containers and the sidecar of the deployment scenario: the stored order, restartPolicy on the sidecar only,
+# wait-side's single attempt (it reached the sidecar that order placed before it: the only runtime proof of the start
+# order), the volume the init container filled and the main container reads, and the sidecar started first. -c names
+# the container: without it kubectl prints which one it picked.
+order="$(kubectl get deployment -n "$ns" deployment-chart-base -o jsonpath='{range .spec.template.spec.initContainers[*]}{.name}={.restartPolicy} {end}' || true)"
+[ "$order" = "setup= side=Always wait-side= " ] || fail "the stored initContainers must be setup, side (restartPolicy Always only there), wait-side, got '$order'"
+pod="$(kubectl get pods -n "$ns" -l app.kubernetes.io/instance=deployment --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' || true)"
+[ -n "$pod" ] || fail "the deployment scenario has no running pod"
+wait_side="$(kubectl get pod -n "$ns" "$pod" -o jsonpath='{.status.initContainerStatuses[?(@.name=="wait-side")].state.terminated.exitCode} {.status.initContainerStatuses[?(@.name=="wait-side")].restartCount}' || true)"
+[ "$wait_side" = "0 0" ] || fail "wait-side must exit 0 at its first attempt (the sidecar side, order 5, starts before it), got '$wait_side'"
+marker="$(kubectl exec -n "$ns" "$pod" -c chart-base -- cat /work/marker 2>&1 || true)"
+[ "$marker" = init-ok ] || fail "the main container must read /work/marker, written by the init container setup, got '$marker'"
+if write="$(kubectl exec -n "$ns" "$pod" -c chart-base -- sh -c 'echo x > /work/written' 2>&1)"; then
+  fail "the main container mounts /work read-only: a write succeeded"
+fi
+case "$write" in *"Read-only file system"*) ;; *) fail "the write to /work must fail with 'Read-only file system', got '$write'" ;; esac
+started="$(kubectl get pod -n "$ns" "$pod" -o jsonpath='{.status.initContainerStatuses[?(@.name=="side")].started} {.status.initContainerStatuses[?(@.name=="side")].state.running.startedAt} {.status.containerStatuses[?(@.name=="chart-base")].state.running.startedAt}' || true)"
+read -r side_started side_at main_at <<< "$started"
+[ "$side_started" = true ] && [ -n "$side_at" ] && [ -n "$main_at" ] || fail "the sidecar side must be started and running next to the main container, got '$started'"
+[[ ! "$side_at" > "$main_at" ]] || fail "the sidecar side must start no later than the main container, got side $side_at, main $main_at"
+pass "deployment: setup, side and wait-side start in order, restartPolicy Always on the sidecar only, a volume an init container filled is read-only in the main container"
 rs_before="$(kubectl get rs -n "$ns" -l app.kubernetes.io/instance=deployment -o name | wc -l)"
 install deployment --set config.APP_MODE=api-v2 || fail "config change upgrade failed"
 rs_after="$(kubectl get rs -n "$ns" -l app.kubernetes.io/instance=deployment -o name | wc -l)"
@@ -184,9 +215,17 @@ done
 pass "an ephemeral claim is owned by its pod, carries the instance label, and is deleted with the pod"
 
 echo "== job (pre-deploy hook)"
-install job || fail "job hook failed: it must see APP_MODE, DB_PASSWORD (ESO) and /config/migrations.yaml"
-kubectl logs -n "$ns" job/job-chart-base | grep -q migrations-ok || fail "job output missing"
+install job || fail "job hook failed: it must see APP_MODE, DB_PASSWORD (ESO) and /config/migrations.yaml, and reach its sidecar side on 127.0.0.1:8081"
+# The log goes to a file first (no pipeline into grep -q under pipefail); -c names the container (the pod has a sidecar).
+kubectl logs -n "$ns" job/job-chart-base -c chart-base > "$work/job.log" || fail "could not read the job's log"
+grep -qxF migrations-ok "$work/job.log" || fail "job output missing"
 pass "pre-deploy Job ran with its hook ConfigMaps and ExternalSecret"
+# A hook Job with a native sidecar completes: once the main container is done the kubelet ends the sidecar, and the pod
+# is Succeeded only when the sidecar has stopped too (kubelet source reading, measured by this check).
+job_pod="$(kubectl get pods -n "$ns" -l job-name=job-chart-base -o jsonpath='{.items[0].status.phase} {.items[0].status.initContainerStatuses[?(@.name=="side")].state.terminated.finishedAt}' || true)"
+read -r job_phase side_done <<< "$job_pod"
+[ "$job_phase" = Succeeded ] && [ -n "$side_done" ] || fail "the hook Job's pod must be Succeeded with its sidecar side terminated, got '$job_pod'"
+pass "a hook Job with a sidecar completes: its pod Succeeded and the sidecar terminated"
 install job --set-string podAnnotations.revision=2 || fail "second deploy of a job must not hit 'field is immutable'"
 pass "the Job hook is recreated on the next deploy"
 
@@ -201,24 +240,28 @@ reload="$(kubectl get deployment -n "$ns" full-chart-base -o jsonpath='{.metadat
 [ "$reload" = "e2e-files,e2e-shared,full-chart-base-secrets" ] || fail "Reloader annotation must list the referenced and the mounted Secrets, got '$reload'"
 reload="$(kubectl get deployment -n "$ns" full-chart-base -o jsonpath='{.metadata.annotations.configmap\.reloader\.stakater\.com/reload}' || true)"
 [ "$reload" = "e2e-rules" ] || fail "Reloader annotation must list the mounted ConfigMap e2e-rules (nothing else references it), got '$reload'"
+# full has a sidecar (shipper): the HPA's built-in targets measure the main container alone, as the API server stores them.
+hpa="$(kubectl get hpa -n "$ns" full-chart-base -o jsonpath='{.spec.metrics[*].type} {.spec.metrics[*].containerResource.container}' || true)"
+[ "$hpa" = "ContainerResource ContainerResource chart-base chart-base" ] || fail "full has a sidecar: the HPA's CPU and memory targets must be ContainerResource metrics of the main container chart-base, got '$hpa'"
 rollout="$(kubectl get deployment -n "$ns" full-chart-base -o jsonpath='{.spec.strategy.type} {.spec.strategy.rollingUpdate.maxSurge} {.spec.strategy.rollingUpdate.maxUnavailable} {.spec.minReadySeconds} {.spec.revisionHistoryLimit}')"
 [ "$rollout" = "RollingUpdate 1 0 5 5" ] || fail "Deployment must carry strategy, minReadySeconds and revisionHistoryLimit, got '$rollout'"
 pod="$(kubectl get pods -n "$ns" -l app.kubernetes.io/instance=full -o jsonpath='{.items[0].metadata.name}')"
 runtime="$(kubectl get pod -n "$ns" "$pod" -o jsonpath='{.spec.priorityClassName} {.spec.priority} {.spec.enableServiceLinks} {.spec.dnsConfig.options[0].name}={.spec.dnsConfig.options[0].value} {.spec.hostAliases[0].ip} {.spec.hostAliases[0].hostnames[0]}')"
 [ "$runtime" = "e2e-high 1000 false ndots=2 10.20.30.40 legacy-db.internal" ] \
   || fail "pod must carry priorityClassName (priority 1000), enableServiceLinks, dnsConfig and hostAliases, got '$runtime'"
-fs="$(kubectl exec -n "$ns" "$pod" -- /agnhost mounttest --fs_type=/tmp/cache 2>&1 || true)"
+# -c names the main container: the pod has a sidecar, and without it kubectl prints which container it picked.
+fs="$(kubectl exec -n "$ns" "$pod" -c chart-base -- /agnhost mounttest --fs_type=/tmp/cache 2>&1 || true)"
 case "$fs" in *tmpfs*) ;; *) fail "the medium: Memory emptyDir at /tmp/cache must be tmpfs, got '$fs'" ;; esac
-fs="$(kubectl exec -n "$ns" "$pod" -- /agnhost mounttest --fs_type=/tmp 2>&1 || true)"
+fs="$(kubectl exec -n "$ns" "$pod" -c chart-base -- /agnhost mounttest --fs_type=/tmp 2>&1 || true)"
 case "$fs" in *tmpfs*) fail "/tmp (the chart's emptyDir on the node's disk) must not be tmpfs, or the check above proves nothing, got '$fs'" ;; esac
-token="$(kubectl exec -n "$ns" "$pod" -- cat /config/secrets/token 2>&1 || true)"
+token="$(kubectl exec -n "$ns" "$pod" -c chart-base -- cat /config/secrets/token 2>&1 || true)"
 [ "$token" = files-token ] || fail "the Secret e2e-files must be readable at /config/secrets/token, a directory beneath the config-files mount, got '$token'"
 # Any other failure (no sh in the image, exec refused) must not pass for a read-only mount: require the kernel's message.
-if write="$(kubectl exec -n "$ns" "$pod" -- sh -c 'echo x > /config/secrets/written' 2>&1)"; then
+if write="$(kubectl exec -n "$ns" "$pod" -c chart-base -- sh -c 'echo x > /config/secrets/written' 2>&1)"; then
   fail "the Secret mount at /config/secrets must be read-only: a write succeeded"
 fi
 case "$write" in *"Read-only file system"*) ;; *) fail "the write to the Secret mount at /config/secrets must fail with 'Read-only file system', got '$write'" ;; esac
-rules="$(kubectl exec -n "$ns" "$pod" -- cat /etc/rules/alerts.yaml 2>&1 || true)"
+rules="$(kubectl exec -n "$ns" "$pod" -c chart-base -- cat /etc/rules/alerts.yaml 2>&1 || true)"
 [ "$rules" = "groups: []" ] || fail "the ConfigMap key mounted with items and subPath at /etc/rules/alerts.yaml must hold what the script wrote, got '$rules'"
 pass "full: a tmpfs emptyDir beneath /tmp, a read-only Secret directory beneath the config-files mount, one ConfigMap key as one file"
 sm="$(kubectl get servicemonitor -n "$ns" full-chart-base -o jsonpath='{.metadata.labels.release} {.spec.endpoints[0].port} {.spec.endpoints[0].interval}' || true)"
@@ -235,7 +278,7 @@ rb="$(kubectl get rolebinding -n "$ns" full-chart-base -o jsonpath='{.roleRef.ki
 rb="$(kubectl get rolebinding -n "$ns" full-chart-base.view -o jsonpath='{.roleRef.kind}/{.roleRef.name} {.subjects[0].namespace}/{.subjects[0].name}' || true)"
 [ "$rb" = "ClusterRole/view vending/full-chart-base" ] || fail "full must have a RoleBinding to the ClusterRole view for its ServiceAccount, got '$rb'"
 kubectl get hpa,pdb,ingress -n "$ns" -l app.kubernetes.io/instance=full
-pass "full scenario: ExternalSecret synced, HTTPRoute/HPA/PDB/Ingress/ServiceMonitor/PrometheusRule/NetworkPolicy/Role/RoleBindings accepted, rollout and pod runtime knobs applied"
+pass "full scenario: ExternalSecret synced, HTTPRoute/HPA (ContainerResource with a sidecar)/PDB/Ingress/ServiceMonitor/PrometheusRule/NetworkPolicy/Role/RoleBindings accepted, rollout and pod runtime knobs applied"
 
 echo "== port-names"
 install port-names || fail "port-names scenario failed to install"
@@ -308,6 +351,7 @@ dependencies:
   - {name: chart-base, version: ">=0.0.0-0", repository: "file://../chart-base", alias: api}
   - {name: chart-base, version: ">=0.0.0-0", repository: "file://../chart-base", alias: web}
   - {name: chart-base, version: ">=0.0.0-0", repository: "file://../chart-base", alias: migrate}
+  - {name: chart-base, version: ">=0.0.0-0", repository: "file://../chart-base", alias: front}
 EOF
 echo "chart-base NetworkPolicy e2e umbrella" > "$work/shop/templates/NOTES.txt"
 cat > "$work/shop/values.yaml" <<'EOF'
@@ -334,7 +378,29 @@ web:
     enabled: true                            # no ingress source: only its node reaches it
     egress:
       enabled: true                          # the cluster DNS (the default) and api, nothing else
-      toComponents: [api]
+      toComponents: [api, front]             # a toComponents rule opens every port: a refusal comes from front's ingress
+front:
+  # The fronting-proxy recipe of the README: the application listens on 8080 and is NOT in ports; the sidecar proxy
+  # serves 8081, which the component's ports declare, so the Service and the NetworkPolicy reach it by name, and the
+  # policy keeps the application's own port closed (probes by number, as the recipe says).
+  image: {repository: registry.k8s.io/e2e-test-images/agnhost, tag: "2.66.1"}
+  args: ["netexec", "--http-port=8080", "--udp-port=-1"]
+  ports:
+    - {name: http, containerPort: 8081}
+  probes:
+    readiness: {httpGet: {path: /healthz, port: 8080}}
+  resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 64Mi}}
+  sidecars:
+    proxy:
+      image: {repository: registry.k8s.io/e2e-test-images/agnhost, tag: "2.66.1"}
+      args: ["netexec", "--http-port=8081", "--udp-port=-1"]
+      resources: {requests: {cpu: 10m, memory: 16Mi}}
+      probes:
+        startup: {tcpSocket: {port: 8081}, periodSeconds: 1, failureThreshold: 30}
+  networkPolicy:
+    enabled: true
+    ingress:
+      fromComponents: [web]
 migrate:
   workload: {type: job}
   image: {repository: registry.k8s.io/e2e-test-images/agnhost, tag: "2.66.1"}
@@ -375,6 +441,18 @@ probe allow monitoring probe shop-api.netpol.svc.cluster.local:9090 \
 probe deny monitoring probe shop-api.netpol.svc.cluster.local:8080 \
   || fail "the monitoring namespace must reach only api's metrics port, not http"
 pass "the monitoring namespace reaches api's metrics port and nothing else"
+# The fronting-proxy recipe (front): the Service's named port resolves to 8081, declared on the main container and
+# served by the sidecar proxy (nothing on the main container listens on TCP 8081), and the NetworkPolicy's named port
+# too; the application's own port 8080 stays closed to a client that targets the pod IP (the bypass of the proxy).
+probe allow "$ns" deploy/shop-web shop-front:8081 \
+  || fail "web must reach front's Service port 8081: web's toComponents [api, front] and front's fromComponents [web] by the port name http"
+out="$(kubectl exec -n "$ns" deploy/shop-web -- /agnhost connect shop-front:8081 --timeout=3s 2>&1)" \
+  || fail "web's connection to shop-front:8081 must be served (by the sidecar proxy: nothing on the main container listens on TCP 8081), got: $out"
+front_ip="$(kubectl get pods -n "$ns" -l app.kubernetes.io/instance=shop,app.kubernetes.io/name=front -o jsonpath='{.items[0].status.podIP}' || true)"
+[ -n "$front_ip" ] || fail "front has no pod IP"
+probe deny "$ns" deploy/shop-web "$front_ip:8080" \
+  || fail "front's policy opens only the entries of its ports (8081, the proxy): the application's port 8080 must be closed to web on the pod IP"
+pass "the fronting recipe: web reaches front's sidecar proxy through the Service, and not the application's port on the pod IP"
 
 # The chart's own isolation: with the default-deny deleted, only the chart's policies remain. The
 # first probe also waits until the deletion is enforced.

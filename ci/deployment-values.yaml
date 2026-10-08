@@ -20,3 +20,30 @@ probes:
     httpGet:
       path: /healthz
       port: http
+
+# Init containers and a sidecar (the kind e2e checks them), in start order: setup (order 0) writes /work/marker, the
+# sidecar side (order 5) serves TCP 8081 and passes its startupProbe, then wait-side (order 10) connects to it. The
+# main container reads /work read-only: an emptyDir that the init container filled.
+volumes:
+  work: {type: emptyDir, mountPath: /work, readOnly: true}
+initContainers:
+  setup:
+    image: {repository: registry.k8s.io/e2e-test-images/agnhost, tag: "2.66.1"}
+    command: ["sh", "-c", "echo init-ok > /work/marker"]
+    resources: {requests: {cpu: 10m, memory: 16Mi}}
+    volumeMounts:
+      work: {mountPath: /work}
+  wait-side:
+    image: {repository: registry.k8s.io/e2e-test-images/agnhost, tag: "2.66.1"}
+    args: ["connect", "127.0.0.1:8081", "--timeout=2s"]
+    order: 10
+    resources: {requests: {cpu: 10m, memory: 16Mi}}
+sidecars:
+  side:
+    image: {repository: registry.k8s.io/e2e-test-images/agnhost, tag: "2.66.1"}
+    args: ["netexec", "--http-port=8081", "--udp-port=-1"]
+    order: 5
+    resources: {requests: {cpu: 10m, memory: 16Mi}}
+    ports: [{name: side, containerPort: 8081}]
+    probes:
+      startup: {tcpSocket: {port: side}, periodSeconds: 1, failureThreshold: 30}
