@@ -70,7 +70,7 @@ configFiles:
 # read-only; `persistentVolumeClaim`, an EXISTING claim; `ephemeral`, a claim created and deleted with each pod) and an
 # absolute `mountPath`, and may have `subPath` and `readOnly`. The fields of each type: `emptyDir`: `medium` (`Memory`),
 # `sizeLimit`; `configMap`: `name`, `items`, `defaultMode`, `optional`; `secret`: `secretName`, `items`, `defaultMode`,
-# `optional`; `persistentVolumeClaim`: `claimName`; `ephemeral`: `size`, `accessMode` (default `ReadWriteOnce`),
+# `optional`; `persistentVolumeClaim`: `claimName`, `claimAccessMode` (default `ReadWriteOnce`); `ephemeral`: `size`, `accessMode` (default `ReadWriteOnce`),
 # `storageClassName` (default: the cluster's default class). An `ephemeral` claim lives as long as its pod (source
 # reading): a CronJob keeps those of the finished runs its history limits keep, a Job keeps its own for
 # `job.ttlSecondsAfterFinished`, and each retry gets one of its own. In `volumes`, a `null` entry or field is absent, and
@@ -119,7 +119,8 @@ externalSecret:
 # The cost: a mounted certificate or trust bundle that the application reloads in place still restarts the Deployment
 # on every rotation (and every component that mounts it), and `false` is the only switch: it also stops the restarts
 # for `env`/`envFrom` Secrets. Mounted files are updated in place without a restart, except `subPath` mounts, which are
-# never updated: with `false` such a file stays stale until the next deploy.
+# never updated: with `false` such a file stays stale until the pod restarts (a deploy restarts it only when the pod
+# template changes).
 reloadOnChange: true
 
 # -- Deployment replicas. Ignored when `autoscaling.enabled`.
@@ -133,9 +134,9 @@ progressDeadlineSeconds: 240
 # `rollingUpdate: null` means absent and is never rendered: an override file over values that set `rollingUpdate`
 # switches to Recreate with `{type: Recreate, rollingUpdate: null}` (a `rollingUpdate` next to `Recreate`, even `{}`,
 # fails the render). A `persistentVolumeClaim` volume declared `ReadWriteOnce` or `ReadWriteOncePod` requires a
-# strategy that adds no pod (see `volumes`). With Helm 4, a Deployment created without `strategy` cannot switch to
-# Recreate in one upgrade (the API rejects the `rollingUpdate` the server defaulted): use `maxSurge: 0` with
-# `maxUnavailable: 1`, then Recreate in a later upgrade if needed.
+# strategy that adds no pod (see `volumes`). With Helm 4, a Deployment created without `strategy` (in a release that
+# Helm 4 installed) cannot switch to Recreate in one upgrade (the API rejects the `rollingUpdate` the server defaulted):
+# use `maxSurge: 0` with `maxUnavailable: 1`, then Recreate in a later upgrade if needed.
 strategy: null
 
 # -- (int) Seconds a new pod must be Ready, without any container crashing, before it counts as available

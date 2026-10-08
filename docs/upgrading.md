@@ -353,11 +353,13 @@ the same manifests as with its first pull request (measured on the six `ci/` sce
 - **`helm lint` no longer fails on `rollingUpdate` next to `Recreate`**: the rule moved from the schema to a guard,
   which fails `helm template`, install and upgrade with a remedy (measured on chart-base itself: `helm lint --strict`
   exited 1 before, 0 now). Gate on `helm template` with the deploy's real values.
-- **On Helm 4, a Deployment that exists without `strategy`, or with `{type: RollingUpdate}` only, cannot switch to
+- **On Helm 4, for a release that Helm 4 installed, a Deployment that exists without `strategy` cannot switch to
   `{type: Recreate}` in one upgrade.** Helm 4 applies server-side, the `rollingUpdate` that the API server defaulted
-  stays, and the API rejects it: `spec.strategy.rollingUpdate: Forbidden: may not be specified when strategy` `type`
-  `is 'Recreate'` (measured on kube-apiserver 1.33.0 and 1.37.0; Helm 3.22.0 switches in place). The routes, each
-  measured there: stay on `{type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}`; switch to
+  stays, and the API rejects it: `` spec.strategy.rollingUpdate: Forbidden: may not be specified when strategy `type`
+  is 'Recreate' `` (measured on kube-apiserver 1.33.0 and 1.37.0; Helm 3.22.0 switches in place). The same holds for a
+  Deployment created with `{type: RollingUpdate}` only by the same mechanism (Helm then owns only `type`; not run).
+  `--server-side auto` keeps a release that Helm 3 installed on client-side apply, which switches in place (source
+  reading). The routes, each measured there: stay on `{type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}`; switch to
   Recreate in a later upgrade, once Helm owns both `rollingUpdate` keys; or run that one upgrade with
   `--server-side=false`. It matters first for a Deployment that gains an existing claim declared `ReadWriteOnce`,
   which needs a strategy that adds no pod.

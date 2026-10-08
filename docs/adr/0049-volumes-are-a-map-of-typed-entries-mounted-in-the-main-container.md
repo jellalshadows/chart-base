@@ -21,7 +21,8 @@ mounted. The facts that shape the contract:
 - **Helm's schema library reports a `propertyNames` failure at an unrelated path** (measured on both Helm versions:
   `--set config.bad-key=x` gives `at '/prometheusRule': invalid propertyName 'bad-key'`).
 - **The API server compares mount paths as written, the kubelet normalizes them**: `//tmp` next to `/tmp` is accepted
-  and gives two mounts on one directory (measured on kube-apiserver 1.33.0 and 1.37.0 when 0.7.0 was designed). A
+  (measured on kube-apiserver 1.33.0 and 1.37.0 when 0.7.0 was designed) and gives two mounts on one directory (kubelet
+  and containerd source reading, not run). A
   volume whose name starts with `kube-api-access-` is taken for the ServiceAccount token volume, and a mount at the token
   directory hides the token (measured then too).
 - **A file (`subPath`) beneath a ConfigMap or Secret mount fails**: the kubelet creates every mount point nested beneath
@@ -118,17 +119,19 @@ shape belongs to the 0.13.0 design.
   rotation, and every component that mounts it; `reloadOnChange: false` is the only switch, and it also stops the
   restarts for `env`/`envFrom` Secrets. Mounted files are updated in place, except a `subPath` file, which never is
   (Kubernetes documentation).
-- A read-only `emptyDir` that masks a path of the image cannot be written in 0.7.0.
+- A read-only `emptyDir` that masks a path of the image cannot be declared in 0.7.0.
 - An ephemeral claim, and its storage, lives as long as its pod (the claim is owned by the pod; source reading): a
   CronJob keeps the claims of the finished runs its history limits keep (`cronjob.successfulJobsHistoryLimit`, default 3,
   and `failedJobsHistoryLimit`, default 1), a `job` component keeps its claim for `job.ttlSecondsAfterFinished`
   (default 3600), and every retry (`job.backoffLimit`) gets a claim of its own.
-- `storageClassName: ""` fails, because it turns off dynamic provisioning: an ephemeral claim cannot bind a class-less
-  PersistentVolume. A size is a string: `size: 10` would mean 10 bytes.
+- `storageClassName: ""` fails, because it silently turns off dynamic provisioning; the cost: an ephemeral claim cannot
+  target a pre-made PersistentVolume that has no class. A size is a string: `size: 10` would mean 10 bytes.
 - Only the API server or the kubelet catches: a missing ConfigMap, Secret or claim (the pod stays in
   `ContainerCreating` or `Pending`); a file from a claim mounted beneath a ConfigMap mount (the chart cannot tell a file
   from a directory there; it fails in the kubelet: source reading, `nested_volumes.go`); a mount beneath a claim
   mounted read-only, which works only if the directory exists in the claim (kubernetes#121294).
+- The nested-file guard reads every `subPath` as a file: a `subPath` that names a directory built by `items[].path`
+  beneath a ConfigMap or Secret mount is rejected too (rare; mounting the volume as a directory works).
 - An unquoted key `on`, `yes`, `no` or `y` is read as a boolean: a volume named `y` renders as `"true"` (measured on
   Helm 4.3.0 and 3.22.0), and two such keys collide silently. No guard can see the original key: quote such keys.
 

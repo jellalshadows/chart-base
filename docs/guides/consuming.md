@@ -365,10 +365,12 @@ so `helm template` and `helm lint` do not catch it):
   Role was rejected fails too (`not found`), and the release fails; the objects already created stay. An upgrade that
   changes a Role needs every rule of it held again
   ([ADR-0042](../adr/0042-existing-serviceaccount-and-namespaced-rbac.md)).
-- On Helm 4, a switch to `strategy: {type: Recreate}` of a Deployment created without `strategy` (or with
-  `{type: RollingUpdate}` only): Helm 4 applies server-side, the `rollingUpdate` that the API server defaulted stays,
-  and the API rejects it next to Recreate (`spec.strategy.rollingUpdate: Forbidden`; measured on kube-apiserver 1.33.0
-  and 1.37.0; Helm 3.22.0 switches in place). Stay on `{type: RollingUpdate, rollingUpdate: {maxSurge: 0,
+- On Helm 4, for a release that Helm 4 installed, a switch to `strategy: {type: Recreate}` of a Deployment created
+  without `strategy`: Helm 4 applies server-side, the `rollingUpdate` that the API server defaulted stays, and the API
+  rejects it next to Recreate (`spec.strategy.rollingUpdate: Forbidden`; measured on kube-apiserver 1.33.0 and 1.37.0;
+  Helm 3.22.0 switches in place). A Deployment created with `{type: RollingUpdate}` only is the same mechanism (Helm
+  then owns only `type`; not run), and `--server-side auto` keeps a release that Helm 3 installed on client-side apply,
+  which switches in place (source reading). Stay on `{type: RollingUpdate, rollingUpdate: {maxSurge: 0,
   maxUnavailable: 1}}`, switch to Recreate in a later upgrade, or run that one upgrade with `--server-side=false` (each
   measured; [ADR-0050](../adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md)).
 

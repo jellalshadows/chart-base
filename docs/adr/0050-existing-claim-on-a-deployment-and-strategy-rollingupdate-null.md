@@ -20,7 +20,7 @@
 
 | Install with, then upgrade to | Helm 4.3.0 | Helm 3.22.0 |
 |---|---|---|
-| no `strategy`, then `{type: Recreate}` | rejected: `spec.strategy.rollingUpdate: Forbidden: may not be specified when strategy` `type` `is 'Recreate'`; server-side apply keeps the `rollingUpdate` the API server defaulted (25%, 25%), which no field manager owns. Accepted with `--server-side=false` | accepted |
+| no `strategy`, then `{type: Recreate}` | rejected: `` spec.strategy.rollingUpdate: Forbidden: may not be specified when strategy `type` is 'Recreate' ``; server-side apply keeps the `rollingUpdate` the API server defaulted (25%, 25%), which no field manager owns. Accepted with `--server-side=false` | accepted |
 | no `strategy`, then `{type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}` | accepted | accepted |
 | no `strategy`, then `{type: RollingUpdate, rollingUpdate: {maxSurge: 0}}` | accepted; stored `maxUnavailable: 25%` (the server default) | accepted; the same |
 | the previous `{maxSurge: 0, maxUnavailable: 1}`, then `{type: Recreate}` | accepted: Helm owns both keys and removes them | accepted |
@@ -42,16 +42,20 @@
   does not lift it; `ReadWriteMany` and `ReadOnlyMany` do; `ephemeral` entries are not read (one claim per pod). The
   message names the remedies with their literal values: `strategy: {type: Recreate}` for a new component; `strategy:
   {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}` for a Deployment that already exists (with
-  Helm 4 the API refuses a switch to Recreate in one upgrade of a Deployment created without `strategy` or with
-  `{type: RollingUpdate}` only: measured; both keys are written, so that Helm owns the block and a later switch to
-  Recreate removes it); `strategy: {type: Recreate, rollingUpdate: null}` from an override file over
+  Helm 4, for a release that Helm 4 installed, the API refuses a switch to Recreate in one upgrade of a Deployment
+  created without `strategy`: measured on kube-apiserver 1.33.0 and 1.37.0; created with `{type: RollingUpdate}` only
+  it is the same mechanism, Helm then owns only `type` (not run); `--server-side auto` keeps a release that Helm 3
+  installed on client-side apply, which switches in place (source reading); both keys are written, so that Helm owns
+  the block and a later switch to Recreate removes it); `strategy: {type: Recreate, rollingUpdate: null}` from an override file over
   values that set `rollingUpdate`; `replicas` 0 or 1 and no autoscaling; or the claim's real mode in
   `claimAccessMode`.
 - **`strategy.rollingUpdate: null` means absent**: the schema accepts it, and it is never rendered.
   `strategy.rollingUpdate.maxSurge: null` and `.maxUnavailable: null` stay schema errors.
 - **The Recreate rule is a guard**, no longer the schema's `not`: a `rollingUpdate` next to `Recreate`, `{}` included,
   fails with its remedy. This amends [ADR-0036](0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md).
-- **The routes for a Deployment that already exists, on Helm 4** (each measured): stay on `{type: RollingUpdate,
+- **The routes for a Deployment that already exists, on Helm 4 for a release that Helm 4 installed** (each measured;
+  `--server-side auto` keeps a release that Helm 3 installed on client-side apply, which switches in place: source
+  reading): stay on `{type: RollingUpdate,
   rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}`; switch to Recreate in a later upgrade, once Helm owns both
   `rollingUpdate` keys; or run that one upgrade with `--server-side=false`. Going back to rolling updates needs no
   `strategy` written out.
@@ -77,8 +81,9 @@
   ([ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md)).
 - A node-pinned `ReadWriteOnce` Deployment with two replicas on one node must declare `ReadWriteMany` or run one
   replica, and a false declaration goes unnoticed.
-- `helm lint` and schema-only tooling no longer flag `rollingUpdate` next to `Recreate` (measured on chart-base itself:
-  `helm lint --strict` exited 1 before, 0 now); `helm template` and install do.
+- `helm lint` no longer fails on `rollingUpdate` next to `Recreate` (it prints the guard's message as an INFO line and
+  exits 0; measured on chart-base itself: `helm lint --strict` exited 1 before, 0 now), and schema-only tooling no
+  longer flags it; `helm template` and install do fail.
 - **Not reversible without `feat!`:** after this release, restricting claims to CronJobs and Jobs would be breaking. The
   key name `claimAccessMode` freezes at 1.0.
 - The two forms differ (source reading, not run): with `maxSurge: 0` the new pod is created while the old one
