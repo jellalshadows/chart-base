@@ -69,9 +69,9 @@ configFiles:
 
 # -- Extra volumes of the pod: a map keyed by the volume name, rendered in key order after the chart's own `tmp` and
 # `config-files`. Every entry has a `type` (`emptyDir`; `configMap` and `secret`, mounted read-only;
-# `persistentVolumeClaim`, an EXISTING claim; `ephemeral`, a claim created and deleted with each pod) and an absolute
-# `mountPath`, the main container's mount, with its `subPath` and `readOnly`. `mountPath` is optional when an init
-# container or a sidecar mounts the volume (`initContainers.<name>.volumeMounts`): without it the main container does
+# `persistentVolumeClaim`, an EXISTING claim; `ephemeral`, a claim created and deleted with each pod) and, unless only
+# init containers or sidecars mount the volume (`initContainers.<name>.volumeMounts`), an absolute `mountPath`, the main
+# container's mount, with its `subPath` and `readOnly`. Without `mountPath` the main container does
 # not mount it, and `subPath` and `readOnly` fail; a volume that no container mounts fails. The fields of each type:
 # `emptyDir`: `medium` (`Memory`),
 # `sizeLimit`; `configMap`: `name`, `items`, `defaultMode`, `optional`; `secret`: `secretName`, `items`, `defaultMode`,
@@ -137,7 +137,8 @@ volumes: {}
 # or `secret` mount, and one of a claim declared `ReadOnlyMany`, is read-only (`readOnly: false` fails: the kubelet
 # forces it). Each container's mount paths are compared normalized among its own mounts (two equal paths, `/`, the
 # ServiceAccount token directory, and a ConfigMap or Secret file beneath a ConfigMap or Secret mount fail), `subPath`
-# is relative without `..`, and with `items` a `subPath` must name one of them or a directory that holds one. What the
+# is relative without `..`, and with `items` a `subPath` must name one of them, a directory that holds one or `.` (the
+# whole volume); a `subPath` of `config-files` is one of the files rendered or `.`. What the
 # pod grants reaches every container, whatever an entry declares: the ServiceAccount token (with
 # `serviceAccount.automountToken`) and with it the `rbac` grants and the cloud identity, the NetworkPolicy allowances
 # (an init container that calls out needs its destination in `networkPolicy.egress`), `podSecurityContext` (one UID
@@ -472,7 +473,7 @@ rbac:
   # namespace and mount its Secrets), `pods/exec`, `pods/attach` and `pods/ephemeralcontainers` (commands in other
   # pods), `create` on `serviceaccounts/token`, `escalate`, `bind` and `impersonate`. Whoever runs the deploy must hold
   # every permission granted here, and every container of the pod, init containers and sidecars included, gets the
-# token and with it these grants. Requires a ServiceAccount of the component (the chart's, or `serviceAccount.name`),
+  # token and with it these grants. Requires a ServiceAccount of the component (the chart's, or `serviceAccount.name`),
   # never `default`, and `serviceAccount.automountToken: true` unless `use` is the only verb of every rule (an
   # admission plugin checks such a grant on the ServiceAccount itself: an OpenShift SecurityContextConstraints, for
   # example). With `resourceNames`, `deletecollection` fails the render (Kubernetes never matches it by name), and so

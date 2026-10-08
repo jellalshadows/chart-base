@@ -864,3 +864,64 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "at '/sidecars/a/volumeMounts/tmp': additional properties 'readonly' not allowed"
+
+  - it: rejects a subPath of config-files that names no file rendered
+    set:
+      configFiles.files:
+        app.yaml: {a: b}
+      sidecars:
+        shipper: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {config-files: {mountPath: /etc/app/app.yaml, subPath: ap.yaml}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.shipper.volumeMounts.config-files.subPath "ap.yaml" names no file of configFiles.files \(app.yaml\): config-files holds only those files; name one of them, or . for the whole directory'
+
+  - it: accepts a subPath of config-files that names a file rendered, and . for the whole directory
+    set:
+      configFiles.files:
+        app.yaml: {a: b}
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {config-files: {mountPath: /etc/app/app.yaml, subPath: app.yaml}}}
+        b: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {config-files: {mountPath: /etc/app, subPath: .}}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects an absolute subPath in a mount
+    set:
+      volumes:
+        work: {type: emptyDir}
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {work: {mountPath: /work, subPath: /x}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.proxy.volumeMounts.work.subPath "/x" must be a relative path without a .. element: a path inside the volume, such as tls.crt'
+
+  - it: rejects a subPath that is a prefix of an item's path without ending at a / (alerts against alerts.yaml)
+    set:
+      volumes:
+        rules: {type: configMap, name: rules, items: [{key: alerts, path: alerts.yaml}]}
+      sidecars:
+        reloader: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {rules: {mountPath: /etc/alerts, subPath: alerts}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.reloader.volumeMounts.rules.subPath "alerts" names no file of volumes.rules.items \(alerts.yaml\)'
+
+  - it: accepts a secret file (subPath) beneath the container's own tmp mount (tmp is not a ConfigMap or Secret mount)
+    set:
+      volumes:
+        creds: {type: secret, secretName: creds}
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {tmp: {mountPath: /scratch}, creds: {mountPath: /scratch/creds.json, subPath: creds.json}}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts any subPath of a configMap volume whose items is null (null = every key)
+    set:
+      volumes:
+        rules: {type: configMap, name: rules, items: null}
+      sidecars:
+        reloader: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {rules: {mountPath: /etc/alerts.yaml, subPath: alerts.yaml}}}
+    asserts:
+      - hasDocuments:
+          count: 0

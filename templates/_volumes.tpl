@@ -124,9 +124,9 @@ Usage: {{- $m := dict }}{{- include "chart-base.mainMounts" (dict "ctx" $ "volum
 {{- end -}}
 
 {{/*
-chart-base.readOnlyMount: "true" when every mount of the named volume is read-only, whatever the mount says (the kubelet
-forces it): config-files, a configMap or secret entry of volumes, and a persistentVolumeClaim entry declared
-ReadOnlyMany; nothing otherwise. Read by the mounts of init containers and sidecars and by their readOnly guard (the
+chart-base.readOnlyMount: "true" when every mount of the named volume is read-only, whatever the mount says: the kubelet
+forces it for config-files and for a configMap or secret entry of volumes; for a persistentVolumeClaim entry declared
+ReadOnlyMany the CHART forces it (the claim's volume source carries no readOnly); nothing otherwise. Read by the mounts of init containers and sidecars and by their readOnly guard (the
 main container's mounts state the same rule in templates/_pod.tpl).
 Usage: include "chart-base.readOnlyMount" (dict "volumes" <the dict of chart-base.volumes> "name" <volume name>)
 */}}

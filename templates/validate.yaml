@@ -435,6 +435,18 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list $ (printf "%s.subPath %q names no file of volumes.%s.items (%s): with items, the volume holds only those paths, and the kubelet would mount an empty directory there; name one of them, or a directory that holds one" $at $m.subPath $vol (join ", " $paths))) -}}
 {{- end -}}
 {{- end -}}
+{{- /* A subPath of config-files is . (the whole directory) or one of the files rendered: the keys of configFiles.files are flat file names, and a null one is no file. */ -}}
+{{- if and (hasKey $m "subPath") (eq $vol "config-files") $hasConfigFiles -}}
+{{- $sub := include "chart-base.cleanPath" $m.subPath -}}
+{{- $named := eq $sub "/" -}}
+{{- $files := list -}}
+{{- range $file, $content := $.Values.configFiles.files -}}
+{{- if not (kindIs "invalid" $content) }}{{ $files = append $files $file }}{{ if eq (printf "/%s" $file) $sub }}{{ $named = true }}{{ end }}{{ end -}}
+{{- end -}}
+{{- if not $named -}}
+{{- include "chart-base.fail" (list $ (printf "%s.subPath %q names no file of configFiles.files (%s): config-files holds only those files; name one of them, or . for the whole directory" $at $m.subPath (join ", " $files))) -}}
+{{- end -}}
+{{- end -}}
 {{- $rows = append $rows (dict "name" $vol "path" $m.mountPath "clean" (include "chart-base.cleanPath" $m.mountPath) "source" $source "file" (hasKey $m "subPath") "owner" (printf "%s.mountPath" $at) "mount" $at) -}}
 {{- end -}}
 {{- range $r := $rows -}}
