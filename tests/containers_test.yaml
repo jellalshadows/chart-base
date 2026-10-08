@@ -236,11 +236,11 @@ tests:
           path: spec.template.spec.initContainers[1].imagePullPolicy
           value: Never
 
-  - it: quotes every string from values (a container name, args and a tag that YAML reads as booleans or numbers)
+  - it: quotes every string from values (a container name that YAML reads as a boolean, a command word, args; the image is rendered as written, repo:tag)
     template: templates/deployment.yaml
     set:
       sidecars:
-        "true": {image: {repository: r, tag: "1.10"}, command: ["no"], args: ["on", "8080", "true"], resources: {requests: {cpu: 10m, memory: 16Mi}}}
+        "true": {image: {repository: r, tag: "1.10"}, command: ["true"], args: ["on", "8080", "true"], resources: {requests: {cpu: 10m, memory: 16Mi}}}
     asserts:
       - equal:
           path: spec.template.spec.initContainers[0].name
@@ -250,7 +250,7 @@ tests:
           value: r:1.10
       - equal:
           path: spec.template.spec.initContainers[0].command
-          value: ["no"]
+          value: ["true"]
       - equal:
           path: spec.template.spec.initContainers[0].args
           value: ["on", "8080", "true"]
@@ -449,6 +449,29 @@ tests:
           value: b
       - equal:
           path: spec.template.spec.initContainers[1].name
+          value: a
+
+  - it: starts a sidecar at order -1 before an init container whose order is not set (the init default is 0)
+    template: templates/deployment.yaml
+    set:
+      initContainers:
+        b: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: -1}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: a
+
+  - it: starts a sidecar whose order is not set before a sidecar named later at order 1000 (the sidecar default is 1000, ties by name)
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        z: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: 1000}
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
           value: a
 
   - it: sorts an order from a values file together with one from set (an integer from --set is in the alias contract)
