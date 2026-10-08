@@ -369,7 +369,8 @@ so `helm template` and `helm lint` do not catch it):
   without `strategy`: Helm 4 applies server-side, the `rollingUpdate` that the API server defaulted stays, and the API
   rejects it next to Recreate (`spec.strategy.rollingUpdate: Forbidden`; measured on kube-apiserver 1.33.0 and 1.37.0;
   Helm 3.22.0 switches in place). A Deployment created with `{type: RollingUpdate}` only is the same mechanism (Helm
-  then owns only `type`; not run), and `--server-side auto` keeps a release that Helm 3 installed on client-side apply,
+  then owns only `type`; measured on kube-apiserver 1.33.0 and 1.37.0: Helm 4.3.0 is refused, Helm 3.22.0 switches in
+  place), and `--server-side auto` keeps a release that Helm 3 installed on client-side apply,
   which switches in place (source reading). Stay on `{type: RollingUpdate, rollingUpdate: {maxSurge: 0,
   maxUnavailable: 1}}`, switch to Recreate in a later upgrade, or run that one upgrade with `--server-side=false` (each
   measured; [ADR-0050](../adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md)).

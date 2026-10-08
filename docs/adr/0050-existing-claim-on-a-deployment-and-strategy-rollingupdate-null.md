@@ -44,7 +44,8 @@
   {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}` for a Deployment that already exists (with
   Helm 4, for a release that Helm 4 installed, the API refuses a switch to Recreate in one upgrade of a Deployment
   created without `strategy`: measured on kube-apiserver 1.33.0 and 1.37.0; created with `{type: RollingUpdate}` only
-  it is the same mechanism, Helm then owns only `type` (not run); `--server-side auto` keeps a release that Helm 3
+  it is the same mechanism, Helm then owns only `type` (measured on both API servers: Helm 4.3.0 is refused, Helm
+  3.22.0 switches in place); `--server-side auto` keeps a release that Helm 3
   installed on client-side apply, which switches in place (source reading); both keys are written, so that Helm owns
   the block and a later switch to Recreate removes it); `strategy: {type: Recreate, rollingUpdate: null}` from an override file over
   values that set `rollingUpdate`; `replicas` 0 or 1 and no autoscaling; or the claim's real mode in
