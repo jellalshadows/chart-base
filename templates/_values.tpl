@@ -65,8 +65,11 @@ the container's ports: the kubelet resolves the name among that container's port
 chart-base.fail. A probe that is not a map is skipped, and so is a nil handler; a port that is not a string (a number, an
 absent port) and the exec and grpc handlers are not checked; a handler that is neither a map nor nil fails.
 Usage: include "chart-base.validateProbePorts" (dict "ctx" $ "path" "probes" "probes" .Values.probes "portNames" <list of
-the container's port names> "portsPath" "ports"). `path` and `portsPath` name the values in the messages; the note about
-the Service and the NetworkPolicy is printed only for the main container (portsPath "ports").
+the container's port names> "portsPath" "ports" "declared" <optional map>). `path` and `portsPath` name the values in
+the messages; the note about the Service and the NetworkPolicy is printed only for the main container (portsPath
+"ports"). `declared` maps a port name of another container of the pod to the values that declare it (a sidecar's
+ports, the main container's): when the unresolved name is there, the message says where (without it, the message is
+the same as before sidecars existed).
 */}}
 {{- define "chart-base.validateProbePorts" -}}
 {{- $note := "" -}}
@@ -80,7 +83,9 @@ the Service and the NetworkPolicy is printed only for the main container (portsP
 {{- $h := index $probe $handler -}}
 {{- if kindIs "map" $h -}}
 {{- if and (kindIs "string" $h.port) (not (has $h.port $.portNames)) -}}
-{{- include "chart-base.fail" (list $.ctx (printf "%s.%s.%s.port %q is not the name of an entry in %s: the kubelet cannot resolve it and never runs the probe. Use the port number, or declare the name in %s%s, or remove the probe" $.path $kind $handler $h.port $.portsPath $.portsPath $note)) -}}
+{{- $where := "" -}}
+{{- if hasKey ($.declared | default dict) $h.port }}{{ $where = printf " (%q is declared in %s: a probe resolves a port name only among the ports of its own container)" $h.port (index $.declared $h.port) }}{{ end -}}
+{{- include "chart-base.fail" (list $.ctx (printf "%s.%s.%s.port %q is not the name of an entry in %s%s: the kubelet cannot resolve it and never runs the probe. Use the port number, or declare the name in %s%s, or remove the probe" $.path $kind $handler $h.port $.portsPath $where $.portsPath $note)) -}}
 {{- end -}}
 {{- else if not (kindIs "invalid" $h) -}}
 {{- include "chart-base.fail" (list $.ctx (printf "%s.%s.%s must be a map, e.g. {port: 8080}, got %s" $.path $kind $handler (kindOf $h))) -}}

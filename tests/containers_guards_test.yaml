@@ -404,3 +404,203 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: rejects a misspelt probe field of a sidecar (a closed probe)
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, probes: {liveness: {tcpSocket: {port: 9090}, periodSecond: 5}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/sidecars/proxy/probes/liveness': additional properties 'periodSecond' not allowed"
+
+  - it: rejects a sidecar probe with two handlers
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, probes: {liveness: {httpGet: {port: 9090}, tcpSocket: {port: 9090}}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/sidecars/proxy/probes/liveness': 'oneOf' failed, subschemas 1, 2 matched"
+
+  - it: rejects a sidecar probe without a handler (a handler set to null is no handler)
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, probes: {liveness: {httpGet: null, periodSeconds: 5}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/sidecars/proxy/probes/liveness': 'oneOf' failed, none matched"
+
+  - it: rejects httpGet.host on a sidecar probe (Pod Security rejects it from policy v1.34)
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, probes: {readiness: {httpGet: {port: 9090, host: 127.0.0.1}}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/sidecars/proxy/probes/readiness/httpGet': additional properties 'host' not allowed"
+
+  - it: rejects tcpSocket.host on a sidecar probe (Pod Security rejects it from policy v1.34)
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, probes: {readiness: {tcpSocket: {port: 9090, host: 127.0.0.1}}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/sidecars/proxy/probes/readiness/tcpSocket': additional properties 'host' not allowed"
+
+  - it: rejects httpGet.protocol and grpc.mode on sidecar probes (alpha in Kubernetes 1.37)
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, probes: {readiness: {httpGet: {port: 9090, protocol: h2c}}}}
+        mesh: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, probes: {readiness: {grpc: {port: 9090, mode: tls}}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/sidecars/proxy/probes/readiness/httpGet': additional properties 'protocol' not allowed"
+      - failedTemplate:
+          errorPattern: "at '/sidecars/mesh/probes/readiness/grpc': additional properties 'mode' not allowed"
+
+  - it: rejects a null inside a sidecar probe's httpGet (the definition is shared with lifecycle)
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, probes: {liveness: {httpGet: {port: 9090, path: null}}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/sidecars/proxy/probes/liveness/httpGet/path': got null, want string"
+
+  - it: rejects probes under an init container (the API forbids them)
+    set:
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, probes: {startup: {tcpSocket: {port: 9090}}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/initContainers/migrate': additional properties 'probes' not allowed"
+
+  - it: rejects ports under an init container
+    set:
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, ports: [{name: web, containerPort: 9090}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/initContainers/migrate': additional properties 'ports' not allowed"
+
+  - it: accepts a sidecar probe on a port name of its own ports, on a number, and null probes
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, ports: [{name: proxy-health, containerPort: 9090}], probes: {startup: {tcpSocket: {port: proxy-health}}, liveness: {httpGet: {port: 9091}}, readiness: null}}
+        shipper: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, probes: null}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a sidecar probe on a name of the main container's ports, naming where it is declared
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, probes: {startup: {tcpSocket: {port: http}}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.proxy.probes.startup.tcpSocket.port "http" is not the name of an entry in sidecars.proxy.ports \("http" is declared in ports: a probe resolves a port name only among the ports of its own container\): the kubelet cannot resolve it and never runs the probe. Use the port number, or declare the name in sidecars.proxy.ports, or remove the probe'
+
+  - it: rejects a sidecar probe on another sidecar's port name, naming where it is declared
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, ports: [{name: proxy-health, containerPort: 9090}]}
+        shipper: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, probes: {liveness: {httpGet: {path: /, port: proxy-health}}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.shipper.probes.liveness.httpGet.port "proxy-health" is not the name of an entry in sidecars.shipper.ports \("proxy-health" is declared in sidecars.proxy.ports: a probe resolves a port name only among the ports of its own container\): the kubelet cannot resolve it and never runs the probe. Use the port number, or declare the name in sidecars.shipper.ports, or remove the probe'
+
+  - it: rejects a sidecar probe on an undeclared name, without the main container's note on the Service
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, ports: [{name: proxy-health, containerPort: 9090}], probes: {readiness: {tcpSocket: {port: proxy-healht}}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.proxy.probes.readiness.tcpSocket.port "proxy-healht" is not the name of an entry in sidecars.proxy.ports: the kubelet cannot resolve it and never runs the probe. Use the port number, or declare the name in sidecars.proxy.ports, or remove the probe$'
+
+  - it: rejects a main-container probe on a sidecar's port name, naming where it is declared
+    set:
+      probes.liveness.httpGet: {path: /liveness, port: proxy-health}
+      sidecars:
+        db-proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, ports: [{name: proxy-health, containerPort: 9090}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: probes.liveness.httpGet.port "proxy-health" is not the name of an entry in ports \("proxy-health" is declared in sidecars.db-proxy.ports: a probe resolves a port name only among the ports of its own container\): the kubelet cannot resolve it and never runs the probe. Use the port number, or declare the name in ports \(a ports entry also becomes a Service port when a Service is rendered, and is opened by networkPolicy.ingress.fromComponents/fromNamespaces\), or remove the probe'
+
+  - it: rejects a main-container probe handler that is a number (from a values file or set, a float64)
+    set:
+      probes.liveness.tcpSocket: 8080
+    asserts:
+      - failedTemplate:
+          errorPattern: 'probes.liveness.tcpSocket must be a map, e.g. .port: 8080., got float64$'
+
+  - it: rejects a main-container probe handler that is a boolean
+    set:
+      probes.readiness.httpGet: true
+    asserts:
+      - failedTemplate:
+          errorPattern: 'probes.readiness.httpGet must be a map, e.g. .port: 8080., got bool$'
+
+  - it: rejects a sidecar port name already declared in the component's ports
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, ports: [{name: http, containerPort: 9090}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.proxy.ports\[0\].name "http" is already declared in ports\[0\]: a Service and the probes would pick one of the two without telling, rename it'
+
+  - it: rejects a port name declared by two sidecars
+    set:
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, ports: [{name: admin, containerPort: 9901}]}
+        b: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, ports: [{name: admin, containerPort: 9902}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.b.ports\[0\].name "admin" is already declared in sidecars.a.ports\[0\]: a Service and the probes would pick one of the two without telling, rename it'
+
+  - it: rejects a port name declared twice in one sidecar
+    set:
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, ports: [{name: admin, containerPort: 9901}, {name: admin, containerPort: 9902}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.a.ports\[1\].name "admin" is already declared in sidecars.a.ports\[0\]: a Service and the probes would pick one of the two without telling, rename it'
+
+  - it: rejects a sidecar port number already declared in the component's ports, naming probes by number
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, ports: [{name: proxy, containerPort: 8080}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.proxy.ports\[0\].containerPort 8080 is already declared in ports\[0\]: the containers of a pod share one network namespace, so a port is declared once: remove it here, and probe it by number from the container that serves it'
+
+  - it: rejects a port number declared by two sidecars
+    set:
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, ports: [{name: admin-a, containerPort: 9901}]}
+        b: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, ports: [{name: admin-b, containerPort: 9901}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.b.ports\[0\].containerPort 9901 is already declared in sidecars.a.ports\[0\]: the containers of a pod share one network namespace, so a port is declared once: remove it here, and probe it by number from the container that serves it'
+
+  - it: rejects a port number declared twice in one sidecar
+    set:
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, ports: [{name: admin, containerPort: 9901}, {name: metrics, containerPort: 9901}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.a.ports\[1\].containerPort 9901 is already declared in sidecars.a.ports\[0\]: the containers of a pod share one network namespace, so a port is declared once: remove it here, and probe it by number from the container that serves it'
+
+  - it: accepts distinct port names and numbers across the main container and the sidecars
+    set:
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, ports: [{name: admin, containerPort: 9901}]}
+        b: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, ports: [{name: metrics, containerPort: 9902}]}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: does not compare two ports of the main container with each other (the API checks one container's names)
+    set:
+      ports:
+        - {name: http, containerPort: 8080}
+        - {name: http, containerPort: 8080}
+    asserts:
+      - hasDocuments:
+          count: 0

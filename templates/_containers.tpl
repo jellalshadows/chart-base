@@ -91,6 +91,14 @@ Usage: include "chart-base.entryContainer" (dict "ctx" $ "container" <an item of
     - {{ $arg | quote }}
     {{- end }}
   {{- end }}
+  {{- with $e.ports }}
+  ports:
+    {{- range $port := . }}
+    - name: {{ $port.name | quote }}
+      containerPort: {{ $port.containerPort | int64 }}
+      protocol: TCP
+    {{- end }}
+  {{- end }}
   {{- /* One env map: with inheritEnv the main container's env, then the entry's own (a name in both fails in templates/validate.yaml). */}}
   {{- $env := dict }}
   {{- if and $e.inheritEnv (kindIs "map" $.Values.env) }}
@@ -108,6 +116,20 @@ Usage: include "chart-base.entryContainer" (dict "ctx" $ "container" <an item of
   envFrom:
     {{- . | nindent 4 }}
   {{- end }}
+  {{- end }}
+  {{- /* A sidecar's probes: each a pruned sub-object of a closed definition (no null field, no null handler). */}}
+  {{- $probes := $e.probes | default dict }}
+  {{- with $probes.startup }}
+  startupProbe:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $probes.liveness }}
+  livenessProbe:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $probes.readiness }}
+  readinessProbe:
+    {{- toYaml . | nindent 4 }}
   {{- end }}
   resources:
     {{- toYaml $e.resources | nindent 4 }}

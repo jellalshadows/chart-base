@@ -77,10 +77,12 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list . (printf "metrics.port %q is not the name of an entry in ports: Prometheus scrapes a named port, so declare it in ports (a worker without a Service too), e.g. ports: [{name: metrics, containerPort: 9090}]" .Values.metrics.port)) -}}
 {{- end -}}
 {{- end -}}
-{{- /* A main-container probe port given by NAME must be the name of an entry of ports, on every workload type. */ -}}
+{{- /* A main-container probe port given by NAME must be the name of an entry of ports, on every workload type: the kubelet resolves a name among the probed container's own ports only, so a sidecar's port name is not one, and the message says where such a name is declared. */ -}}
+{{- $sidecarPortPaths := dict -}}
+{{- range $c := $containers.ordered }}{{ range $p := $c.entry.ports | default list }}{{ $_ := set $sidecarPortPaths $p.name (printf "sidecars.%s.ports" $c.name) }}{{ end }}{{ end -}}
 {{- $mainPortNames := list -}}
 {{- range (.Values.ports | default list) }}{{ $mainPortNames = append $mainPortNames .name }}{{ end -}}
-{{- include "chart-base.validateProbePorts" (dict "ctx" . "path" "probes" "probes" .Values.probes "portNames" $mainPortNames "portsPath" "ports") -}}
+{{- include "chart-base.validateProbePorts" (dict "ctx" . "path" "probes" "probes" .Values.probes "portNames" $mainPortNames "portsPath" "ports" "declared" $sidecarPortPaths) -}}
 {{- if .Values.networkPolicy.enabled -}}
 {{- $in := .Values.networkPolicy.ingress -}}
 {{- $eg := .Values.networkPolicy.egress -}}
@@ -356,5 +358,29 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list $ (printf "%s.env.%s is also a variable of the main container, which inheritEnv: true already gives this container: rename it, or drop inheritEnv and reference what the container needs" $path $name)) -}}
 {{- end -}}
 {{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Ports: a port name and a port number are declared once in the pod, across the main container's ports and every sidecar's (the API only warns, and a Service and the probes would pick one silently). Two ports of the main container are not compared here (the API rejects two names in one container). */ -}}
+{{- $portRows := list -}}
+{{- range $i, $p := .Values.ports | default list }}{{ $portRows = append $portRows (dict "path" (printf "ports[%d]" $i) "name" $p.name "number" (int64 $p.containerPort) "container" "") }}{{ end -}}
+{{- range $c := $containers.ordered }}{{ range $i, $p := $c.entry.ports | default list }}{{ $portRows = append $portRows (dict "path" (printf "sidecars.%s.ports[%d]" $c.name $i) "name" $p.name "number" (int64 $p.containerPort) "container" $c.name) }}{{ end }}{{ end -}}
+{{- range $i, $a := $portRows -}}
+{{- range $j, $b := $portRows -}}
+{{- if and (ne $a.container "") (lt $j $i) (eq $a.name $b.name) -}}
+{{- include "chart-base.fail" (list $ (printf "%s.name %q is already declared in %s: a Service and the probes would pick one of the two without telling, rename it" $a.path $a.name $b.path)) -}}
+{{- end -}}
+{{- if and (ne $a.container "") (lt $j $i) (eq $a.number $b.number) -}}
+{{- include "chart-base.fail" (list $ (printf "%s.containerPort %d is already declared in %s: the containers of a pod share one network namespace, so a port is declared once: remove it here, and probe it by number from the container that serves it" $a.path $a.number $b.path)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- /* A sidecar's probe port given by NAME must be one of that sidecar's own ports (chart-base.validateProbePorts per sidecar; the message names where else the name is declared). */ -}}
+{{- range $c := $containers.ordered -}}
+{{- if eq $c.kind "sidecars" -}}
+{{- $own := list -}}
+{{- $elsewhere := dict -}}
+{{- range $r := $portRows }}{{ if eq $r.container $c.name }}{{ $own = append $own $r.name }}{{ else }}{{ $_ := set $elsewhere $r.name (ternary "ports" (printf "sidecars.%s.ports" $r.container) (eq $r.container "")) }}{{ end }}{{ end -}}
+{{- include "chart-base.validateProbePorts" (dict "ctx" $ "path" (printf "sidecars.%s.probes" $c.name) "probes" ($c.entry.probes | default dict) "portNames" $own "portsPath" (printf "sidecars.%s.ports" $c.name) "declared" $elsewhere) -}}
 {{- end -}}
 {{- end -}}

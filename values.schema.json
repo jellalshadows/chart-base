@@ -63,42 +63,46 @@
         { "required": ["sleep"] }
       ],
       "properties": {
-        "exec": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["command"],
-          "properties": {
-            "command": { "type": "array", "minItems": 1, "items": { "type": "string" } }
-          }
-        },
-        "httpGet": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["port"],
-          "properties": {
-            "path": { "type": "string" },
-            "port": { "type": ["integer", "string"] },
-            "scheme": { "enum": ["HTTP", "HTTPS"] },
-            "httpHeaders": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["name", "value"],
-                "properties": {
-                  "name": { "type": "string" },
-                  "value": { "type": "string" }
-                }
-              }
-            }
-          }
-        },
+        "exec": { "$ref": "#/definitions/execHandler" },
+        "httpGet": { "$ref": "#/definitions/httpGetHandler" },
         "sleep": {
           "type": "object",
           "additionalProperties": false,
           "required": ["seconds"],
           "properties": {
             "seconds": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "execHandler": {
+      "description": "An exec handler, shared by the lifecycle hooks and the probes of a sidecar: a command of at least one string. Inside it a null stays an error.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command"],
+      "properties": {
+        "command": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+      }
+    },
+    "httpGetHandler": {
+      "description": "An httpGet handler, shared by the lifecycle hooks and the probes of a sidecar; no host (Pod Security baseline rejects it from policy v1.34). Inside it a null stays an error.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["port"],
+      "properties": {
+        "path": { "type": "string" },
+        "port": { "type": ["integer", "string"] },
+        "scheme": { "enum": ["HTTP", "HTTPS"] },
+        "httpHeaders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "value"],
+            "properties": {
+              "name": { "type": "string" },
+              "value": { "type": "string" }
+            }
           }
         }
       }
@@ -400,6 +404,45 @@
       "propertyNames": { "$ref": "#/definitions/envName" },
       "additionalProperties": { "type": ["object", "string", "number", "boolean", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/envVar" } }
     },
+    "probe": {
+      "description": "A probe of a sidecar: exactly one handler (each oneOf branch types it as an object, so that a handler set to null is no handler), closed at every level; no host (Pod Security baseline rejects one from policy v1.34), no httpGet.protocol or grpc.mode (alpha in Kubernetes 1.37). A null field or handler is absent; inside httpGet and exec, shared with lifecycle, a null stays an error.",
+      "additionalProperties": false, "type": "object",
+      "oneOf": [
+        { "required": ["exec"], "properties": { "exec": { "type": "object" } } },
+        { "required": ["httpGet"], "properties": { "httpGet": { "type": "object" } } },
+        { "required": ["tcpSocket"], "properties": { "tcpSocket": { "type": "object" } } },
+        { "required": ["grpc"], "properties": { "grpc": { "type": "object" } } }
+      ],
+      "properties": {
+        "exec": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/execHandler" } },
+        "httpGet": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/httpGetHandler" } },
+        "tcpSocket": { "type": ["object", "null"], "additionalProperties": false, "required": ["port"], "properties": { "port": { "type": ["integer", "string"] } } },
+        "grpc": { "type": ["object", "null"], "additionalProperties": false, "required": ["port"], "properties": { "port": { "type": "integer", "minimum": 1, "maximum": 65535 }, "service": { "type": ["string", "null"] } } },
+        "initialDelaySeconds": { "type": ["integer", "null"], "minimum": 0 },
+        "periodSeconds": { "type": ["integer", "null"], "minimum": 0 },
+        "timeoutSeconds": { "type": ["integer", "null"], "minimum": 0 },
+        "successThreshold": { "type": ["integer", "null"], "minimum": 0 },
+        "failureThreshold": { "type": ["integer", "null"], "minimum": 0 },
+        "terminationGracePeriodSeconds": { "type": ["integer", "null"], "minimum": 1 }
+      }
+    },
+    "sidecarProbes": {
+      "description": "The probes of a sidecar (definitions.probe each; null = none).",
+      "type": ["object", "null"], "additionalProperties": false,
+      "properties": {
+        "startup": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/probe" } },
+        "liveness": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/probe" } },
+        "readiness": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/probe" } }
+      }
+    },
+    "sidecarPort": {
+      "description": "A port of a sidecar, TCP: pod-internal, a target of the sidecar's own probes only (not in the Service, the NetworkPolicy or metrics). A definition of its own, apart from the component's ports (0.11.0 adds appProtocol to the Service's ports only).",
+      "type": "object", "additionalProperties": false, "required": ["name", "containerPort"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z]([-a-z0-9]*[a-z0-9])?$", "maxLength": 15 },
+        "containerPort": { "type": "integer", "minimum": 1, "maximum": 65535 }
+      }
+    },
     "containerImage": {
       "description": "The image of an init container or a sidecar: repository, and a tag or a digest (the digest wins); pullPolicy, default IfNotPresent (an entry has no chart default). Each anyOf branch types its field, so that a null tag is no tag.",
       "type": "object", "additionalProperties": false, "required": ["repository"],
@@ -451,6 +494,8 @@
         "restartPolicy": { "description": "Written by the chart, never a value: templates/validate.yaml rejects the key with a remedy (null is absent)." },
         "env": { "$ref": "#/definitions/containerEnv" },
         "inheritEnv": { "type": ["boolean", "null"], "description": "true: exactly the main container's envFrom and env (default false)." },
+        "ports": { "type": ["array", "null"], "items": { "$ref": "#/definitions/sidecarPort" } },
+        "probes": { "$ref": "#/definitions/sidecarProbes" },
         "order": { "description": "A sidecar's default is 1000.", "$ref": "#/definitions/containerOrder" }
       }
     }
