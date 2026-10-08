@@ -25,6 +25,8 @@ Deployment-only parts (the built-in preStop sleep, topology spread) are rendered
 {{- $ := .ctx -}}
 {{- $fullname := include "chart-base.fullname" $ -}}
 {{- $isDeployment := eq $.Values.workload.type "deployment" -}}
+{{- $volumes := dict -}}
+{{- include "chart-base.volumes" (dict "ctx" $ "out" $volumes) -}}
 {{- /* An existing ServiceAccount's name comes from values: quoted, so that a name such as `on` stays a string. */ -}}
 {{- $serviceAccountName := include "chart-base.serviceAccountName" $ -}}
 {{- if and (not $.Values.serviceAccount.create) $.Values.serviceAccount.name }}{{ $serviceAccountName = quote $serviceAccountName }}{{ end -}}
@@ -132,6 +134,19 @@ containers:
         mountPath: {{ $.Values.configFiles.mountPath | quote }}
         readOnly: true
       {{- end }}
+      {{- range $name, $v := $volumes }}
+      - name: {{ $name | quote }}
+        mountPath: {{ $v.mountPath | quote }}
+        {{- if hasKey $v "subPath" }}
+        subPath: {{ $v.subPath | quote }}
+        {{- end }}
+        {{- /* A configMap or secret mount is read-only (the kubelet forces it), and so is a claim declared ReadOnlyMany. */}}
+        {{- if or (eq $v.type "configMap") (eq $v.type "secret") (and (eq $v.type "persistentVolumeClaim") (eq ($v.claimAccessMode | default "ReadWriteOnce") "ReadOnlyMany")) }}
+        readOnly: true
+        {{- else if hasKey $v "readOnly" }}
+        readOnly: {{ $v.readOnly }}
+        {{- end }}
+      {{- end }}
 volumes:
   - name: tmp
     emptyDir: {}
@@ -139,6 +154,10 @@ volumes:
   - name: config-files
     configMap:
       name: {{ $fullname }}-files
+  {{- end }}
+  {{- range $volumeName, $v := $volumes }}
+  - name: {{ $volumeName | quote }}
+    {{- include "chart-base.volumeSource" (dict "ctx" $ "volume" $v) | nindent 4 }}
   {{- end }}
 {{- with $.Values.nodeSelector }}
 nodeSelector:

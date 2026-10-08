@@ -279,7 +279,7 @@ out="$(lrender '  securityContext: {readOnlyRootFilesystem: null}')"
 pass "null table row 3: another chart default is removed (F$($helm4 || echo ', U0')); Helm 4.3 U0 keeps it"
 [ "$(pod "$(lrender '  nodeSelector: {disk: ssd}' -f "$(over '  nodeSelector: null')")" '.spec.nodeSelector')" = "null" ] || fail "row 4: F must clear nodeSelector"
 [ "$(pod "$(lrender '  nodeSelector: null')" '.spec.nodeSelector')" = "null" ] || fail "row 4: U0 must leave no nodeSelector"
-pass "null table row 4: a whole map of the chart's values.yaml is cleared (F, U0)"
+pass "null table row 4: a whole map of the chart's values.yaml is cleared (F; U0 renders the same either way)"
 expect_fail "$(lrender '' -f "$(over '  resources: {requests: null}')")" "got null, want object" "row 5, F"
 expect_fail "$(lrender '  resources: {requests: null}')" "$($helm4 && echo "missing property 'requests'" || echo 'got null, want object')" "row 5, U0"
 pass "null table row 5: a map that the chart's values.yaml does not define (resources.requests) fails the schema (F, U0)"
@@ -292,6 +292,77 @@ af='.spec.affinity'
 [ "$(pod "$(lrender '  affinity: {nodeAffinity: null}')" "$af")" = "$($helm4 && echo null || echo '{"nodeAffinity":null}')" ] || fail "row 7: U0 affinity"
 [ "$(pod "$(lrender '' -f "$(over '  affinity: {nodeAffinity: null}')")" "$af")" = '{"nodeAffinity":null}' ] || fail "row 7: F must render the null"
 pass "null table row 7: a key inside a pass-through object is rendered as null (F$($helm4 || echo ', U0')); Helm 4.3 U0 drops it"
+
+# volumes (0.7.0): in this map a null entry or field is absent in every layer (null table row 8); an overlay changes a
+# volume's type by setting the previous type's fields to null; volumes: null leaves the chart's own volume only (row 4),
+# also on Helm 3.22, where the umbrella's own null reaches the chart as a nil volumes. Then strategy.rollingUpdate: null.
+vols() { pod "$1" '.spec.volumes | map(.name) | join(",")'; }
+dep() { echo "$1" | yq -N -o=json -I=0 "select(.kind == \"Deployment\") | .spec$2" - 2>/dev/null || true; }
+two='  volumes:
+    cache: {type: emptyDir, mountPath: /cache, sizeLimit: 1Gi}
+    certs: {type: secret, mountPath: /certs, secretName: api-tls}'
+nulled='  volumes:
+    cache: {type: emptyDir, mountPath: /cache, sizeLimit: null}
+    certs: null'
+bad_layers=""
+for layer in U0 U1 F S; do
+  case $layer in
+    U0) out="$(lrender "$nulled")" ;;
+    U1) out="$(lrender "$nulled" --set api.replicas=2)" ;;
+    F) out="$(lrender "$two" -f "$(over '  volumes: {cache: {sizeLimit: null}, certs: null}')")" ;;
+    S) out="$(lrender "$two" --set api.volumes.certs=null --set api.volumes.cache.sizeLimit=null)" ;;
+  esac
+  [ "$(vols "$out")" = '"tmp,cache"' ] && [ "$(pod "$out" '.spec.volumes[1].emptyDir')" = '{}' ] && [ "$(pod "$out" '.spec.containers[0].volumeMounts | map(.name) | join(",")')" = '"tmp,cache"' ] || bad_layers="$bad_layers $layer"
+done
+[ -z "$bad_layers" ] || fail "volumes: a null entry and a null field must be absent, the same in every layer; differs in:$bad_layers"
+pass "volumes: a null entry (certs) and a null field (sizeLimit) are absent in U0, U1, F and S (null table row 8)"
+
+emp='  volumes: {cache: {type: emptyDir, mountPath: /cache, sizeLimit: 1Gi}}'
+eph='  volumes: {cache: {type: ephemeral, mountPath: /cache, size: 10Gi, sizeLimit: null}}'
+eph_kept='  volumes: {cache: {type: ephemeral, mountPath: /cache, size: 10Gi, sizeLimit: 1Gi}}'
+size='.spec.volumes[1].ephemeral.volumeClaimTemplate.spec.resources.requests.storage'
+bad_layers=""
+for layer in U0 U1 F S; do
+  case $layer in
+    U0) out="$(lrender "$eph")" ;;
+    U1) out="$(lrender "$eph" --set api.replicas=2)" ;;
+    F) out="$(lrender "$emp" -f "$(over '  volumes: {cache: {type: ephemeral, size: 10Gi, sizeLimit: null}}')")" ;;
+    S) out="$(lrender "$emp" --set api.volumes.cache.type=ephemeral --set api.volumes.cache.size=10Gi --set api.volumes.cache.sizeLimit=null)" ;;
+  esac
+  [ "$(pod "$out" "$size")" = '"10Gi"' ] || bad_layers="$bad_layers $layer"
+done
+[ -z "$bad_layers" ] || fail "volumes: a type change (emptyDir to ephemeral) with sizeLimit set to null must render, the same in every layer; differs in:$bad_layers"
+msg='chart-base[api]: volumes.cache.sizeLimit is a field of type emptyDir and the entry is ephemeral: remove it (from an overlay, set it to null)'
+expect_fail "$(lrender "$eph_kept")" "$msg" "a type change that keeps sizeLimit, U0"
+expect_fail "$(lrender "$eph_kept" --set api.replicas=2)" "$msg" "a type change that keeps sizeLimit, U1"
+expect_fail "$(lrender "$emp" -f "$(over '  volumes: {cache: {type: ephemeral, size: 10Gi}}')")" "$msg" "a type change that keeps sizeLimit, F"
+expect_fail "$(lrender "$emp" --set api.volumes.cache.type=ephemeral --set api.volumes.cache.size=10Gi)" "$msg" "a type change that keeps sizeLimit, S"
+pass "volumes: a type change (emptyDir to ephemeral) renders with the old field set to null in U0, U1, F and S, and fails with the guard's message without it"
+
+expect_fail "$(lrender '  volumes: {certs: {type: secret, mountPath: /certs, secretName: null}}')" \
+  "$($helm4 && echo "missing property 'secretName'" || echo 'volumes.certs.secretName is null, and a secret entry needs it')" "a null secretName, U0"
+expect_fail "$(lrender '  volumes: {certs: {type: secret, mountPath: /certs, secretName: s}}' -f "$(over '  volumes: {certs: {secretName: null}}')")" \
+  'chart-base[api]: volumes.certs.secretName is null, and a secret entry needs it' "a null secretName, F"
+pass "volumes: a null secretName fails (F: the guard; U0: $($helm4 && echo 'Helm 4.3 drops the null and the schema reports the missing property' || echo 'the guard'))"
+
+for out in "$(lrender "$two" -f "$(over '  volumes: null')")" "$(lrender '  volumes: null')"; do
+  [ "$(vols "$out")" = '"tmp"' ] || fail "volumes: null (F, U0) must leave only the chart's own tmp volume, and fail nothing (Helm 3.22 hands the chart a nil volumes)"
+done
+pass "volumes: null from an override file (F) and from the umbrella's own values (U0) leaves only the chart's own volume (null table row 4)"
+
+ru='  strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 1, maxUnavailable: 0}}'
+bad_layers=""
+for layer in U0 U1 F S; do
+  case $layer in
+    U0) out="$(lrender '  strategy: {type: Recreate, rollingUpdate: null}')" ;;
+    U1) out="$(lrender '  strategy: {type: Recreate, rollingUpdate: null}' --set api.replicas=2)" ;;
+    F) out="$(lrender "$ru" -f "$(over '  strategy: {type: Recreate, rollingUpdate: null}')")" ;;
+    S) out="$(lrender "$ru" --set api.strategy.type=Recreate --set api.strategy.rollingUpdate=null)" ;;
+  esac
+  [ "$(dep "$out" '.strategy')" = '{"type":"Recreate"}' ] || bad_layers="$bad_layers $layer"
+done
+[ -z "$bad_layers" ] || fail "strategy: {type: Recreate, rollingUpdate: null} must render type Recreate alone in every layer (in F and S over an umbrella that sets rollingUpdate); differs in:$bad_layers"
+pass "strategy: {type: Recreate, rollingUpdate: null} renders type Recreate alone in U0 and U1 (the umbrella's own null), and in F and S over an umbrella that sets rollingUpdate (null table row 8)"
 
 bad="$work/bad"
 make_umbrella "$bad" Sales

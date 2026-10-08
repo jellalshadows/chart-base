@@ -50,6 +50,11 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if and (eq .Values.workload.type "deployment") (not (kindIs "invalid" .Values.minReadySeconds)) (ge (int64 .Values.minReadySeconds) (int64 .Values.progressDeadlineSeconds)) -}}
 {{- include "chart-base.fail" (list . "minReadySeconds must be lower than progressDeadlineSeconds") -}}
 {{- end -}}
+{{- /* Kubernetes rejects any rollingUpdate next to Recreate, an empty one included; rollingUpdate: null is absent. */ -}}
+{{- $strategy := .Values.strategy | default dict -}}
+{{- if and (eq ($strategy.type | default "") "Recreate") (not (kindIs "invalid" $strategy.rollingUpdate)) -}}
+{{- include "chart-base.fail" (list . "strategy.rollingUpdate is set and strategy.type is Recreate, which Kubernetes rejects (an empty rollingUpdate too): remove strategy.rollingUpdate (from an override file over values that set it, write strategy: {type: Recreate, rollingUpdate: null}), or set strategy.type: RollingUpdate") -}}
+{{- end -}}
 {{- $rollingUpdate := (.Values.strategy | default dict).rollingUpdate | default dict -}}
 {{- if and (eq .Values.workload.type "deployment") (hasKey $rollingUpdate "maxSurge") (hasKey $rollingUpdate "maxUnavailable") -}}
 {{- /* Kubernetes rejects a rolling update that can neither add nor remove a pod; "0%" counts as 0. */ -}}
@@ -167,5 +172,134 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- end -}}
 {{- if or (hasKey (default dict $.Values.config) $name) (hasKey (default dict $.Values.externalSecret.data) $name) -}}
 {{- include "chart-base.fail" (list $ (printf "env.%s duplicates a key of config or externalSecret.data: literal values belong in config, secrets in externalSecret, references in env" $name)) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* volumes: every check reads chart-base.volumes, so a null entry and a null field are absent before any check. */ -}}
+{{- $volumes := dict -}}
+{{- include "chart-base.volumes" (dict "ctx" . "out" $volumes) -}}
+{{- /* The name: a DNS-1123 label that chart-base does not reserve. The fields: those of the entry's type, and its required one set. */ -}}
+{{- $typeFields := include "chart-base.volumeTypeFields" . | fromYaml -}}
+{{- $requiredField := dict "configMap" "name" "secret" "secretName" "persistentVolumeClaim" "claimName" "ephemeral" "size" -}}
+{{- range $name, $v := $volumes -}}
+{{- if or (not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $name)) (gt (len $name) 63) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s: a volume name is a lowercase DNS-1123 label (a-z, 0-9, \"-\", at most 63 characters), e.g. app-data" $name)) -}}
+{{- end -}}
+{{- if has $name (list "tmp" "config-files" "external-secret") -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s: tmp, config-files and external-secret are the names of volumes chart-base mounts itself (external-secret from 0.9.0): choose another name" $name)) -}}
+{{- end -}}
+{{- if or (hasPrefix "kube-api-access-" $name) (hasPrefix "chart-base-" $name) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s: a name that starts with kube-api-access- (Kubernetes takes such a volume for the ServiceAccount token volume) or chart-base- (reserved for volumes chart-base adds) is not allowed: choose another name" $name)) -}}
+{{- end -}}
+{{- $required := index $requiredField $v.type -}}
+{{- if and $required (not (hasKey $v $required)) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.%s is null, and %s %s entry needs it: set it, or remove the entry with volumes.%s: null" $name $required (ternary "an" "a" (eq $v.type "ephemeral")) $v.type $name)) -}}
+{{- end -}}
+{{- $own := concat (list "type" "mountPath" "subPath" "readOnly") (index $typeFields $v.type) -}}
+{{- range $field := keys $v | sortAlpha -}}
+{{- if not (has $field $own) -}}
+{{- $owners := list -}}
+{{- range $t := keys $typeFields | sortAlpha }}{{ if has $field (index $typeFields $t) }}{{ $owners = append $owners $t }}{{ end }}{{ end -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.%s is a field of type %s and the entry is %s: remove it (from an overlay, set it to null)" $name $field (join " or " $owners) $v.type)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* volumes: paths. A mount path is compared normalized (chart-base.cleanPath), with every mount the main container renders (chart-base.mainMounts); a relative path is checked as written. */ -}}
+{{- $mounts := dict -}}
+{{- include "chart-base.mainMounts" (dict "ctx" . "volumes" $volumes "out" $mounts) -}}
+{{- range $name, $v := $volumes -}}
+{{- $clean := include "chart-base.cleanPath" $v.mountPath -}}
+{{- if eq $clean "/" -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.mountPath %q is / once normalized: a volume cannot be mounted at the container's root; choose a directory" $name $v.mountPath)) -}}
+{{- end -}}
+{{- if eq $clean "/var/run/secrets/kubernetes.io/serviceaccount" -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.mountPath %q is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized: a volume there replaces the token, whether or not serviceAccount.automountToken is true now; choose another directory" $name $v.mountPath)) -}}
+{{- end -}}
+{{- if and (hasKey $v "subPath") (or (hasPrefix "/" $v.subPath) (has ".." (splitList "/" $v.subPath))) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.subPath %q must be a relative path without a .. element: a path inside the volume, such as tls.crt" $name $v.subPath)) -}}
+{{- end -}}
+{{- $itemPaths := list -}}
+{{- range $i, $item := $v.items | default list -}}
+{{- if or (hasPrefix "/" $item.path) (has ".." (splitList "/" $item.path)) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.items[%d].path %q must be a relative path without a .. element: a file inside the volume, such as tls.crt" $name $i $item.path)) -}}
+{{- end -}}
+{{- $itemClean := include "chart-base.cleanPath" $item.path -}}
+{{- range $seen := $itemPaths -}}
+{{- if eq $seen.clean $itemClean -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.items[%d].path %q names the same file as items[%d].path %q (%s within the volume, once normalized): the kubelet keeps only one of them; give each item a path of its own" $name $i $item.path $seen.index $seen.path $itemClean)) -}}
+{{- end -}}
+{{- end -}}
+{{- $itemPaths = append $itemPaths (dict "index" $i "path" $item.path "clean" $itemClean) -}}
+{{- end -}}
+{{- end -}}
+{{- range $i, $a := $mounts.rows -}}
+{{- range $j, $b := $mounts.rows -}}
+{{- if and (lt $j $i) (eq $a.clean $b.clean) -}}
+{{- include "chart-base.fail" (list $ (printf "%s %q and %s %q are the same path once normalized (%s): each mount of the main container needs a path of its own; choose another directory (one beneath it, such as %s/cache, is allowed)" $a.owner $a.path $b.owner $b.path $a.clean $a.clean)) -}}
+{{- end -}}
+{{- /* A file (subPath) of a ConfigMap or Secret beneath another ConfigMap or Secret mount: its mount point would be created as a directory. */ -}}
+{{- if and $a.file (has $a.source (list "configMap" "secret")) (has $b.source (list "configMap" "secret")) (ne $a.name $b.name) (hasPrefix (printf "%s/" $b.clean) $a.clean) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s mounts one file (subPath) at %q, beneath %s %q, a ConfigMap or Secret mount: the kubelet creates that mount point as a directory inside the parent volume, and a file cannot be mounted on a directory. Mount the volume as a directory beneath it (without subPath, for example %s/secrets), or the file beside it" $a.name $a.path $b.owner $b.path $b.clean)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* volumes: the rules of each type (readOnly, a size of zero, medium Memory, the chart's own objects, one claim one entry). */ -}}
+{{- $claims := dict -}}
+{{- range $name, $v := $volumes -}}
+{{- if and (has $v.type (list "configMap" "secret")) (hasKey $v "readOnly") (not $v.readOnly) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.readOnly is false, and a %s mount is always read-only (the kubelet forces it): remove readOnly" $name $v.type)) -}}
+{{- end -}}
+{{- if and (eq $v.type "persistentVolumeClaim") (eq ($v.claimAccessMode | default "ReadWriteOnce") "ReadOnlyMany") (hasKey $v "readOnly") (not $v.readOnly) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.readOnly is false, and the claim is declared ReadOnlyMany (claimAccessMode), so its mount is read-only: remove readOnly, or declare the claim's real access mode" $name)) -}}
+{{- end -}}
+{{- if and (has $v.type (list "emptyDir" "ephemeral")) (hasKey $v "readOnly") $v.readOnly -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.readOnly is true on an %s volume: the main container is the only one that mounts it, so nothing could ever write it; remove readOnly" $name $v.type)) -}}
+{{- end -}}
+{{- range $field := list "sizeLimit" "size" -}}
+{{- if and (hasKey $v $field) (not (regexMatch "^[0-9.]*[1-9]" (index $v $field))) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.%s is %q, a size of zero: %s; write a positive quantity, e.g. 1Gi" $name $field (index $v $field) (ternary "it limits nothing" "the claim would request no storage" (eq $field "sizeLimit")))) -}}
+{{- end -}}
+{{- end -}}
+{{- if and (eq ($v.medium | default "") "Memory") (not (hasKey $v "sizeLimit")) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.medium is Memory and sizeLimit is not set: the files count against the container's memory limit, and the volume is capped at the smaller of the pod's memory limit and sizeLimit (without a memory limit, at sizeLimit); without both it could grow to the node's allocatable memory. Set sizeLimit, e.g. 256Mi" $name)) -}}
+{{- end -}}
+{{- if and (eq $v.type "configMap") (has $v.name (list (printf "%s-env" $fullname) (printf "%s-files" $fullname))) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.name %q is a ConfigMap of this component, which chart-base renders and rolls the pods on (or deletes when nothing fills it): mount the component's files with configFiles (at configFiles.mountPath) instead" $name $v.name)) -}}
+{{- end -}}
+{{- if and (eq $v.type "secret") (eq $v.secretName (printf "%s-secrets" $fullname)) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.secretName %q is the Secret of this component's ExternalSecret: its keys already reach the container as environment variables, env can reference one under another name with secretKeyRef, and mounting it as files comes with externalSecret.mountPath (0.9.0)" $name $v.secretName)) -}}
+{{- end -}}
+{{- if eq $v.type "persistentVolumeClaim" -}}
+{{- if hasKey $claims $v.claimName -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s and volumes.%s both mount the claim %q: one claim is one volume (before Kubernetes 1.35 a pod with two volumes of one claim stays in ContainerCreating), and mounting it at a second path is not supported yet" (index $claims $v.claimName) $name $v.claimName)) -}}
+{{- end -}}
+{{- $_ := set $claims $v.claimName $name -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* volumes: an existing claim declared ReadWriteOnce or ReadWriteOncePod is attached for one pod at a time, so a Deployment that mounts it must never run two pods. Only persistentVolumeClaim entries: an ephemeral volume has a claim per pod. */ -}}
+{{- if eq .Values.workload.type "deployment" -}}
+{{- $claimStrategy := .Values.strategy | default dict -}}
+{{- $claimRollingUpdate := $claimStrategy.rollingUpdate | default dict -}}
+{{- $surges := ne ($claimStrategy.type | default "") "Recreate" -}}
+{{- if hasKey $claimRollingUpdate "maxSurge" -}}
+{{- $claimSurge := $claimRollingUpdate.maxSurge -}}
+{{- if kindIs "string" $claimSurge }}{{ $claimSurge = trimSuffix "%" $claimSurge | atoi }}{{ end -}}
+{{- if eq (int64 $claimSurge) 0 }}{{ $surges = false }}{{ end -}}
+{{- end -}}
+{{- $twoPods := list -}}
+{{- if .Values.autoscaling.enabled }}{{ $twoPods = append $twoPods "autoscaling.enabled is true" }}{{ end -}}
+{{- if and (not .Values.autoscaling.enabled) (gt (int64 .Values.replicas) 1) }}{{ $twoPods = append $twoPods (printf "replicas is %d" (int64 .Values.replicas)) }}{{ end -}}
+{{- if and $surges (not .Values.strategy) }}{{ $twoPods = append $twoPods "strategy is not set, and the Kubernetes default (RollingUpdate, maxSurge 25%) adds a pod" }}{{ end -}}
+{{- if and $surges .Values.strategy (not (hasKey $claimRollingUpdate "maxSurge")) }}{{ $twoPods = append $twoPods "strategy.rollingUpdate.maxSurge is not set, and the Kubernetes default (25%) adds a pod" }}{{ end -}}
+{{- if and $surges (hasKey $claimRollingUpdate "maxSurge") }}{{ $twoPods = append $twoPods (printf "strategy.rollingUpdate.maxSurge is %v, which adds a pod" $claimRollingUpdate.maxSurge) }}{{ end -}}
+{{- range $name, $v := $volumes -}}
+{{- $declared := $v.claimAccessMode | default "ReadWriteOnce" -}}
+{{- if and $twoPods (eq $v.type "persistentVolumeClaim") (has $declared (list "ReadWriteOnce" "ReadWriteOncePod")) -}}
+{{- $declaration := printf "%s (claimAccessMode%s)" $declared (ternary "" ", the default" (hasKey $v "claimAccessMode")) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s mounts the existing claim %q, declared %s: a node attaches such a claim for one pod at a time, and this Deployment can run a second pod (%s); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: replicas 0 or 1, autoscaling.enabled: false, and a strategy that adds no pod: strategy: {type: Recreate} for a new component; strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}} for a Deployment that already exists (with Helm 4 the API refuses a switch to Recreate in that upgrade); strategy: {type: Recreate, rollingUpdate: null} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.%s.claimAccessMode" $name $v.claimName $declaration (join "; " $twoPods) $name)) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}

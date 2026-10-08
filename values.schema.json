@@ -280,6 +280,57 @@
         "type": { "enum": ["Exact", "RegularExpression"] },
         "value": { "type": "string" }
       }
+    },
+    "fileMode": {
+      "description": "A file mode of a mounted ConfigMap or Secret, 0 to 0777 (511): write it in octal with a leading zero, unquoted (0440); 440 is decimal (0670). --set cannot pass an octal literal: use the decimal value (288). null = absent.",
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 511
+    },
+    "positiveQuantity": {
+      "description": "A size: a Kubernetes quantity string without a sign (1Gi, 500Mi, 1e3), or null (absent). A YAML number is rejected (write \"1000000000\" or 1Gi); a size of zero is rejected by templates/validate.yaml.",
+      "type": ["string", "null"],
+      "pattern": "^([0-9.]+)([eEinumkKMGTP]*[-+]?[0-9]*)$"
+    },
+    "volumeItems": {
+      "description": "Keys of the ConfigMap or Secret to mount, each at a relative path: absent or null = every key; [] is rejected (the API reads an empty list as every key). A list: an overlay replaces it whole, and a null item or mode is rejected.",
+      "type": ["array", "null"], "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["key", "path"],
+        "properties": {
+          "key": { "type": "string", "minLength": 1 },
+          "path": { "type": "string", "minLength": 1 },
+          "mode": { "allOf": [{ "$ref": "#/definitions/fileMode" }], "type": "integer" }
+        }
+      }
+    },
+    "volume": {
+      "description": "An entry of volumes: one pod volume and its mount in the main container. null = no entry; every optional field also accepts null (absent). One closed list of the fields of every type: a field of another type is rejected by templates/validate.yaml, so that an overlay can change the type by setting the previous type's fields to null.",
+      "type": ["object", "null"], "additionalProperties": false, "required": ["type", "mountPath"],
+      "properties": {
+        "type": { "enum": ["emptyDir", "configMap", "secret", "persistentVolumeClaim", "ephemeral"] },
+        "mountPath": { "type": "string", "pattern": "^/", "description": "Absolute: the kubelet would resolve a relative path against /." },
+        "subPath": { "type": ["string", "null"], "minLength": 1 },
+        "readOnly": { "type": ["boolean", "null"] },
+        "medium": { "enum": ["Memory", null] },
+        "sizeLimit": { "$ref": "#/definitions/positiveQuantity" },
+        "name": { "type": ["string", "null"], "minLength": 1 },
+        "secretName": { "type": ["string", "null"], "minLength": 1 },
+        "items": { "$ref": "#/definitions/volumeItems" },
+        "defaultMode": { "$ref": "#/definitions/fileMode" },
+        "optional": { "type": ["boolean", "null"] },
+        "claimName": { "type": ["string", "null"], "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?([.][a-z0-9]([-a-z0-9]*[a-z0-9])?)*$", "maxLength": 253 },
+        "claimAccessMode": { "enum": ["ReadWriteOnce", "ReadWriteOncePod", "ReadWriteMany", "ReadOnlyMany", null] },
+        "size": { "$ref": "#/definitions/positiveQuantity" },
+        "accessMode": { "enum": ["ReadWriteOnce", "ReadWriteOncePod", "ReadWriteMany", null] },
+        "storageClassName": { "type": ["string", "null"], "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?([.][a-z0-9]([-a-z0-9]*[a-z0-9])?)*$", "maxLength": 253 }
+      },
+      "allOf": [
+        { "if": { "required": ["type"], "properties": { "type": { "const": "configMap" } } }, "then": { "required": ["name"] } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "secret" } } }, "then": { "required": ["secretName"] } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "persistentVolumeClaim" } } }, "then": { "required": ["claimName"] } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "ephemeral" } } }, "then": { "required": ["size"] } }
+      ]
     }
   },
   "properties": {
@@ -365,6 +416,11 @@
           "additionalProperties": { "type": ["string", "object", "null"] }
         }
       }
+    },
+    "volumes": {
+      "description": "Extra volumes mounted in the main container, keyed by the volume name (templates/validate.yaml checks the name). null = none; a null entry or field is absent.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/volume" }
     },
     "externalSecret": {
       "type": "object",
@@ -467,8 +523,8 @@
       "properties": {
         "type": { "enum": ["RollingUpdate", "Recreate"] },
         "rollingUpdate": {
-          "type": "object",
-          "additionalProperties": false,
+          "description": "null means absent (never rendered); a rollingUpdate next to Recreate is rejected by templates/validate.yaml.",
+          "type": ["object", "null"], "additionalProperties": false,
           "properties": {
             "maxSurge": { "$ref": "#/definitions/intOrPercent" },
             "maxUnavailable": {
@@ -478,11 +534,6 @@
             }
           }
         }
-      },
-      "not": {
-        "type": "object",
-        "required": ["type", "rollingUpdate"],
-        "properties": { "type": { "const": "Recreate" } }
       }
     },
     "minReadySeconds": { "type": ["integer", "null"], "minimum": 0 },

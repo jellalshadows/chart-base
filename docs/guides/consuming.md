@@ -119,22 +119,24 @@ pinned by one check of the alias contract, on both Helm versions
 | The `null` is written on | From `-f`/`--set`; from the umbrella's own values on Helm 3.22; from the umbrella's own values on Helm 4.3 when a `-f`/`--set` value names that alias | From the umbrella's own values on Helm 4.3 when nothing is passed for that alias |
 |---|---|---|
 | a chart default the schema requires ([ADR-0027](../adr/0027-required-keys-in-the-schema.md): `serviceAccount.automountToken`, `job.ttlSecondsAfterFinished`, `podSecurityContext`) | Helm removes it; the render fails (`missing property`) | ignored: the default stays (nothing fails when the default is valid; `resources` and `image.repository` then fail the schema like the next row) |
-| a key that an enabled block needs ([ADR-0047](../adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md): `cronjob.schedule`, `externalSecret.secretStoreRef.kind` (its default `ClusterSecretStore` then renders) and `.name`, `httpRoute.parentRefs`, `ingress.hosts`) | Helm removes it; the render fails (`missing property`) | ignored: the default (`""`, `[]`) stays and fails the schema (`minLength: got 0, want 1`, `minItems`) |
+| a key that an enabled block needs ([ADR-0047](../adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md): `cronjob.schedule`, `externalSecret.secretStoreRef.kind` and `.name`, `httpRoute.parentRefs`, `ingress.hosts`) | Helm removes it; the render fails (`missing property`) | ignored: the default (`""`, `[]`) stays and fails the schema (`minLength: got 0, want 1`, `minItems`); for `secretStoreRef.kind` the default `ClusterSecretStore` stays and renders |
 | any other chart default (`podSecurityContext.runAsUser`, `securityContext.readOnlyRootFilesystem`, `ingress.className`) | the default is gone | ignored: the default stays |
-| a whole map that the chart's `values.yaml` defines (`config`, `env`, `podLabels`, `podAnnotations`, `nodeSelector`, `configFiles.files`) | cleared | same result |
+| a whole map that the chart's `values.yaml` defines (`config`, `env`, `podLabels`, `podAnnotations`, `nodeSelector`, `configFiles.files`, `volumes`) | cleared | same result |
 | a whole map that the chart's `values.yaml` does not define (`resources.requests`) | schema error `got null, want object` | Helm drops it, and the required `requests` is then missing (`missing property 'requests'`) |
-| one entry of a typed map (`config.<KEY>`, `env.<NAME>`, `externalSecret.data.<KEY>`, labels, annotations, `nodeSelector.<key>`), or an optional member of a closed object (`lifecycle.postStart`, `strategy.rollingUpdate`, `dnsConfig.options`) | schema error `got null, want …` | Helm drops the entry (an ExternalSecret left without a `data` entry then fails the source guard) |
+| one entry of a typed map (`config.<KEY>`, `env.<NAME>`, `externalSecret.data.<KEY>`, labels, annotations, `nodeSelector.<key>`), or an optional member of a closed object (`lifecycle.postStart`, `strategy.rollingUpdate.maxSurge`, `dnsConfig.options`) | schema error `got null, want …` | Helm drops the entry (an ExternalSecret left without a `data` entry then fails the source guard) |
 | a key inside a pass-through object (`affinity.<key>`, a key of a probe) | rendered as `null` in the manifest | dropped |
-| a file of `configFiles.files` or a key of a map-form file (maps reached through maps); an entry of `resources.limits`, an entry of `resources.requests` other than `cpu` and `memory`, or `resources.limits` itself | removed by chart-base ([ADR-0045](../adr/0045-null-in-configfiles-and-resources-is-absent.md)) | removed |
+| a file of `configFiles.files` or a key of a map-form file (maps reached through maps); an entry of `resources.limits`, an entry of `resources.requests` other than `cpu` and `memory`, or `resources.limits` itself; an entry of `volumes` or a field of an entry; `strategy.rollingUpdate` | removed by chart-base ([ADR-0045](../adr/0045-null-in-configfiles-and-resources-is-absent.md), [ADR-0049](../adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md), [ADR-0050](../adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md)) | removed |
 
 `externalSecret.data: null` with `externalSecret.enabled: true` is cleared and then fails the source guard
 ([ADR-0047](../adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md)). In `configFiles.files`, a `null` file is no file, and in a map-form
-file a key whose value is `null` or empty (`key:`) is removed; a list inside it is rendered as written. This is a rule
-of these maps, not of every map.
+file a key whose value is `null` or empty (`key:`) is removed; a list inside it is rendered as written. In `volumes`, a
+`null` entry or field is absent: an entry can also be removed with `null` and re-added under another name, and an
+overlay changes a volume's type by setting the previous type's fields to `null`
+([ADR-0049](../adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)). These are rules of these maps, not of every map.
 
 An overlay can add entries to a map, and can clear with `null` a whole map that the chart's `values.yaml` defines; it
 cannot remove one entry, except where this guide says so per map (in 0.7.0: a file of `configFiles.files`, a key of a
-map-form file, and an entry of `resources.limits` or `resources.requests`, other than `requests.cpu` and `requests.memory`, which stay required): keep the entries that differ per
+map-form file, an entry of `resources.limits` or `resources.requests`, other than `requests.cpu` and `requests.memory`, which stay required, and an entry of `volumes` or one of its fields): keep the entries that differ per
 environment in the overlays. On Helm 4, lint and template an umbrella with the same `-f`/`--set` values the deploy
 uses: a `null` in the umbrella's own values is ignored until a value is passed for that component.
 
@@ -328,7 +330,8 @@ release name and `--namespace`, not on `helm lint`
   `test-release`, so the name guards judge a name the deploy never uses. The guards are, for example, a name that is
   not a DNS-1035 label, a name longer than 63 characters (52 for a CronJob), a Kubernetes version below 1.33,
   `autoscaling.minReplicas` greater than `maxReplicas`, a rollout that Kubernetes would reject (`maxSurge` and
-  `maxUnavailable` both 0, `minReadySeconds` not lower than `progressDeadlineSeconds`), a custom
+  `maxUnavailable` both 0, `minReadySeconds` not lower than `progressDeadlineSeconds`, a `strategy.rollingUpdate` next
+  to `Recreate`), a custom
   `lifecycle.preStop` next to the built-in preStop sleep, a lifecycle `sleep` longer than
   `terminationGracePeriodSeconds`, a `metrics.port` that is not the name of an entry in `ports`, a probe
   `httpGet.port` or `tcpSocket.port` given by a name that no `ports` entry declares (or a probe handler that is not a
@@ -343,6 +346,13 @@ release name and `--namespace`, not on `helm lint`
   `automountToken: true` (unless no ClusterRole is bound and `use` is the only verb of every rule), `cluster-admin` in
   `rbac.clusterRoles`, and, in a rule with `resourceNames`, a `deletecollection`, or a `create` on a resource when that
   rule grants neither `patch` nor `update`.
+- The guards of `volumes` ([ADR-0049](../adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md), [ADR-0050](../adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md)): a volume
+  name that is not a DNS-1123 label or that chart-base reserves; a field of another type, or a `null` in a type's
+  required field; a mount path that is another mount's once normalized, `/`, or the token directory; a `subPath` or
+  `items[].path` that is absolute or has a `..` element, and two items with one path; a `configMap` or `secret` file
+  (`subPath`) beneath a ConfigMap or Secret mount; a `readOnly` that the type contradicts; a size of zero;
+  `medium: Memory` without `sizeLimit`; a reference to the component's own ConfigMaps or Secret; two entries of one
+  claim; an existing claim declared `ReadWriteOnce` or `ReadWriteOncePod` on a Deployment that can run two pods.
 
 What fails **at install or upgrade**, when Helm talks to the cluster (rendering does not need the CRD,
 so `helm template` and `helm lint` do not catch it):
@@ -355,6 +365,15 @@ so `helm template` and `helm lint` do not catch it):
   Role was rejected fails too (`not found`), and the release fails; the objects already created stay. An upgrade that
   changes a Role needs every rule of it held again
   ([ADR-0042](../adr/0042-existing-serviceaccount-and-namespaced-rbac.md)).
+- On Helm 4, for a release that Helm 4 installed, a switch to `strategy: {type: Recreate}` of a Deployment created
+  without `strategy`: Helm 4 applies server-side, the `rollingUpdate` that the API server defaulted stays, and the API
+  rejects it next to Recreate (`spec.strategy.rollingUpdate: Forbidden`; measured on kube-apiserver 1.33.0 and 1.37.0;
+  Helm 3.22.0 switches in place). A Deployment created with `{type: RollingUpdate}` only is the same mechanism (Helm
+  then owns only `type`; measured on kube-apiserver 1.33.0 and 1.37.0: Helm 4.3.0 is refused, Helm 3.22.0 switches in
+  place), and `--server-side auto` keeps a release that Helm 3 installed on client-side apply,
+  which switches in place (source reading). Stay on `{type: RollingUpdate, rollingUpdate: {maxSurge: 0,
+  maxUnavailable: 1}}`, switch to Recreate in a later upgrade, or run that one upgrade with `--server-side=false` (each
+  measured; [ADR-0050](../adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md)).
 
 What fails **at rollout**, in the cluster:
 
@@ -375,6 +394,16 @@ What fails **at rollout**, in the cluster:
   ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)).
 - A slow component that legitimately needs more than 240 seconds must raise
   `progressDeadlineSeconds` under its alias.
+- A volume whose ConfigMap, Secret or claim does not exist: the pod stays in `ContainerCreating` (a ConfigMap or a
+  Secret that is not `optional`) or `Pending` (a claim), and the rollout fails after `progressDeadlineSeconds` (not
+  verified for each case). Also caught only there: a file from a claim mounted beneath a ConfigMap mount (the kubelet
+  creates that mount point as a directory: source reading, `pkg/volume/util/nested_volumes.go`), and a mount beneath a
+  claim mounted read-only, which works only if that directory exists in the claim (kubernetes#121294).
+- A `ReadWriteOnce` or `ReadWriteOncePod` claim belongs to ONE component (source reading, unverified): a cronjob or a
+  job that shares the claim of a running Deployment waits on another node for the attachment; with
+  `job.activeDeadlineSeconds: null` and `concurrencyPolicy: Forbid` every later run is skipped without an error, and
+  a hook fails the release at `--timeout`. Set `job.activeDeadlineSeconds` to turn the wait into a failed Job;
+  `concurrencyPolicy: Allow` with such a claim waits the same way.
 - An existing ServiceAccount (`serviceAccount.name`) that does not exist: the API server rejects every pod
   (`error looking up service account <namespace>/<name>: serviceaccount "<name>" not found`), so none is created. A
   Deployment's rollout is then expected to fail after `progressDeadlineSeconds`, and a Job hook to make Helm wait until
@@ -460,7 +489,7 @@ which release-please writes from the conventional commits, and the [upgrade guid
 for what to change in your values after each breaking release and after a fix release that changes
 rendered objects (0.4.1).
 
-- Before 1.0, a breaking change is marked `feat!:` and bumps the **minor** version, and a `feat:`
+- Before 1.0, a breaking change is marked `feat!:` or `fix!:` and bumps the **minor** version, and a `feat:`
   also bumps the minor. So a `0.x` minor bump can break your values: read it before you bump.
   A `fix:` bumps the patch.
 - Bump the `version:` in **every** dependency entry of the umbrella at the same time (one version per

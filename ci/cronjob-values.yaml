@@ -19,7 +19,17 @@ command:
     test "$SHARED_TOKEN" = abc &&
     test -n "$KUBERNETES_SERVICE_HOST" &&
     test -z "$DEPLOYMENT_CHART_BASE_SERVICE_HOST" &&
-    echo ok
+    echo ok &&
+    echo "$POD_NAME" > /work/pod &&
+    test ! -e /scratch/marker && touch /scratch/marker &&
+    echo "$POD_NAME" >> /runs/pods.log && cat /runs/pods.log
+# Volumes (the e2e creates the claim e2e-runs): an emptyDir; an existing claim shared by every run (each run appends its
+# pod name to /runs/pods.log and prints the file); an ephemeral claim per pod (a run fails if its marker is already
+# there, so a reused volume is caught).
+volumes:
+  work: {type: emptyDir, mountPath: /work}
+  runs: {type: persistentVolumeClaim, mountPath: /runs, claimName: e2e-runs}
+  scratch: {type: ephemeral, mountPath: /scratch, size: 64Mi}
 ports: []
 resources:
   requests:

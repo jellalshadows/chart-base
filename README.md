@@ -362,6 +362,46 @@ The ServiceAccount's `imagePullSecrets` are added to pods that set none. With
 `169.254.169.252/32` on port 988, and `169.254.169.254/32` on port 80 with Dataplane V2. IRSA calls AWS STS and Azure
 calls Microsoft Entra ID, outside the cluster; their addresses are not covered here.
 
+### A cache, a mounted certificate and a scratch disk (volumes)
+
+Each entry of `volumes` is one volume and its mount in the main container
+([ADR-0049](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)):
+
+```yaml
+reports:
+  image: {repository: ghcr.io/acme/reports, tag: "3.1.0"}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 1Gi}
+  volumes:
+    cache: {type: emptyDir, mountPath: /tmp/cache, medium: Memory, sizeLimit: 256Mi}   # counts against the memory limit
+    certs: {type: secret, mountPath: /etc/reports/tls, secretName: reports-tls}       # read-only; a rotation restarts the pods
+    scratch: {type: ephemeral, mountPath: /scratch, size: 10Gi}                       # one claim per pod, deleted with it
+```
+
+An overlay changes the type of a volume that the umbrella defines by setting the previous type's fields to `null`
+(here, production moves the cache from memory to a claim per pod), and removes a volume with `<name>: null`:
+
+```yaml
+# values-production.yaml
+reports:
+  volumes:
+    cache: {type: ephemeral, size: 20Gi, medium: null, sizeLimit: null}
+```
+
+An existing claim declares its access mode in `claimAccessMode`. On a Deployment, a `ReadWriteOnce` claim (the
+default) needs one pod at a time ([ADR-0050](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md)):
+
+```yaml
+reports-archive:
+  image: {repository: ghcr.io/acme/reports, tag: "3.1.0"}
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+  volumes:
+    data: {type: persistentVolumeClaim, mountPath: /data, claimName: reports-data}
+  strategy: {type: Recreate}   # an existing Deployment on Helm 4: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}
+```
+
 ### Worker (e.g. a Kafka consumer)
 
 ```yaml
@@ -501,7 +541,7 @@ sales-migrations:
 | prometheusRule.labels | object | `{}` | Extra labels on the PrometheusRule, e.g. `{release: kube-prometheus-stack}`; the chart's own label keys are rejected (see `metrics.labels`). |
 | rbac.clusterRoles | list | `[]` | Existing ClusterRoles granted to the pods' ServiceAccount in the release namespace only, one RoleBinding `<fullname>.<ClusterRole>` each (`[view]` renders `<fullname>.view`; a `<fullname>` never contains a `.`, so two components of a release never share a binding name). No ClusterRole's rules are checked: only `cluster-admin` is rejected for what it grants (and `*`, which a `roleRef` reads as a name); any other is granted as it is, and ClusterRoles such as Kubernetes' controller role `system:controller:generic-garbage-collector` hold wildcard rules; `edit` and `admin` let the pods act as any ServiceAccount of the namespace. A ClusterRole that does not exist is not detected. Requires a ServiceAccount of the component and `serviceAccount.automountToken: true` (the chart does not know a ClusterRole's rules; a grant that needs no token is written as a `use` rule in `rules`). |
 | rbac.rules | list | `[]` | Namespaced permissions for the pods' ServiceAccount: a Role and a RoleBinding named `<fullname>`, e.g. `[{apiGroups: [coordination.k8s.io], resources: [leases], verbs: [get, list, watch, create, update, patch]}]`. Each rule needs `apiGroups` (`""` is the core group), `resources` (a subresource is written `pods/log`) and `verbs`, and may restrict `resourceNames`. `*` is rejected in every list (it would grant future resources and verbs; in `resourceNames` it is no wildcard), and the verbs are the standard ones: `get`, `list`, `watch`, `create`, `update`, `patch`, `delete`, `deletecollection`, `use`, `bind`, `escalate`, `impersonate`. The main escalation paths (Kubernetes' RBAC Good Practices) grant more than the rule names: reading Secrets (`list` and `watch` reveal them like `get`), creating or changing workloads (a pod may run as any ServiceAccount of the namespace and mount its Secrets), `pods/exec`, `pods/attach` and `pods/ephemeralcontainers` (commands in other pods), `create` on `serviceaccounts/token`, `escalate`, `bind` and `impersonate`. Whoever runs the deploy must hold every permission granted here. Requires a ServiceAccount of the component (the chart's, or `serviceAccount.name`), never `default`, and `serviceAccount.automountToken: true` unless `use` is the only verb of every rule (an admission plugin checks such a grant on the ServiceAccount itself: an OpenShift SecurityContextConstraints, for example). With `resourceNames`, `deletecollection` fails the render (Kubernetes never matches it by name), and so does `create` on a resource without `patch` or `update` in the same rule: only a server-side apply or a create through an update carries the name; `create` on a subresource such as `pods/exec` is matched by name. |
-| reloadOnChange | bool | `true` | Restart Deployments (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is updated: the ExternalSecret's Secret and every Secret/ConfigMap referenced in `env`/`envFrom`. The chart's own ConfigMaps roll pods through checksum annotations instead. |
+| reloadOnChange | bool | `true` | Restart Deployments (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is updated: the ExternalSecret's Secret and every Secret/ConfigMap referenced in `env`/`envFrom` or mounted by a `configMap` or `secret` entry of `volumes`. The chart's own ConfigMaps roll pods through checksum annotations instead. The cost: a mounted certificate or trust bundle that the application reloads in place still restarts the Deployment on every rotation (and every component that mounts it), and `false` is the only switch: it also stops the restarts for `env`/`envFrom` Secrets. Mounted files are updated in place without a restart, except `subPath` mounts, which are never updated: with `false` such a file stays stale until the pod restarts (a deploy restarts it only when the pod template changes). |
 | replicas | int | `1` | Deployment replicas. Ignored when `autoscaling.enabled`. |
 | resources | object | `{}` | Required: `requests.cpu` and `requests.memory`. Container resources. A `null` entry of `limits` or `requests` (other than `requests.cpu` and `requests.memory`, which stay required), and `limits: null`, mean absent: no such limit or request is rendered (the API server would store a null as `"0"`). |
 | revisionHistoryLimit | int | `nil` | Old ReplicaSets kept for `kubectl rollout undo` (`spec.revisionHistoryLimit`). `null` = Kubernetes default (10). Deployments only. |
@@ -513,10 +553,11 @@ sales-migrations:
 | serviceAccount.automountToken | bool | `false` | Mount the ServiceAccount token into the pods. The pods' own `automountServiceAccountToken` is always rendered, so it wins over the ServiceAccount's, an existing one's too. A cloud identity does not need it: EKS IRSA and Pod Identity and Azure Workload Identity inject a token of their own, and GKE Workload Identity's metadata server requests one itself. Required, `true`, with `rbac.clusterRoles` and with any `rbac.rules` verb other than `use` (the render fails otherwise). |
 | serviceAccount.create | bool | `true` | Create a ServiceAccount named `<fullname>` for the pods. When `false`, the pods run as the existing ServiceAccount `name` or, without a `name`, as the namespace's `default` ServiceAccount. |
 | serviceAccount.name | string | `nil` | The name of an existing ServiceAccount of the release namespace for the pods (e.g. one that a platform team created with a cloud identity), only with `create: false`, never `default` (that is `create: false` without a `name`). It must exist before the pods do: Kubernetes rejects a pod whose ServiceAccount does not exist. Its `imagePullSecrets` are added to pods that set none, and its deprecated `kubernetes.io/enforce-mountable-secrets` annotation can reject pods that reference the `externalSecret` Secret. A `pre-deploy` Job runs before the release's other objects exist: it must not name a ServiceAccount that a sibling component creates. To keep the chart's own ServiceAccount under its name (`<fullname>`, e.g. for a cloud identity's trust policy) on a `deployment` or `cronjob`, hand it over in two deploys: first with `create: true` and `annotations: {helm.sh/resource-policy: keep}`, then with `create: false`, `name: <fullname>` and the annotations removed from the values. In one step Helm deletes it, and the pods, which do not roll (the pod template does not change), lose it. A `job`'s ServiceAccount is a hook, which Helm deletes once the Job's phase succeeds, `keep` or not: after a successful deploy, once it is gone, its owner creates `<fullname>`, then the next deploy sets `create: false` and `name: <fullname>` (a deploy that still renders the hook deletes it: `before-hook-creation`). |
-| strategy | object | `nil` | Deployment update strategy (`spec.strategy`): `{type: RollingUpdate, rollingUpdate: {maxSurge, maxUnavailable}}` or `{type: Recreate}`. `null` = Kubernetes default (`RollingUpdate`, 25% surge, 25% unavailable). Deployments only. |
+| strategy | object | `nil` | Deployment update strategy (`spec.strategy`): `{type: RollingUpdate, rollingUpdate: {maxSurge, maxUnavailable}}` or `{type: Recreate}`. `null` = Kubernetes default (`RollingUpdate`, 25% surge, 25% unavailable). Deployments only. `rollingUpdate: null` means absent and is never rendered: an override file over values that set `rollingUpdate` switches to Recreate with `{type: Recreate, rollingUpdate: null}` (a `rollingUpdate` next to `Recreate`, even `{}`, fails the render). A `persistentVolumeClaim` volume declared `ReadWriteOnce` or `ReadWriteOncePod` requires a strategy that adds no pod (see `volumes`). With Helm 4, a Deployment created without `strategy` (in a release that Helm 4 installed) cannot switch to Recreate in one upgrade (the API rejects the `rollingUpdate` the server defaulted): use `maxSurge: 0` with `maxUnavailable: 1`, then Recreate in a later upgrade if needed. |
 | terminationGracePeriodSeconds | int | `30` | Pod termination grace period. Must be greater than `preStopSleepSeconds`; a `lifecycle` sleep must not exceed it. |
 | tolerations | list | `[]` | Tolerations. |
 | topologySpreadConstraints | list | `nil` | `null` = chart defaults (zone + hostname spread, ScheduleAnyway); `[]` = none; a list = used verbatim. |
+| volumes | object | `{}` | Extra volumes, each mounted in the main container: a map keyed by the volume name, rendered in key order after the chart's own `tmp` and `config-files`. Every entry has a `type` (`emptyDir`; `configMap` and `secret`, mounted read-only; `persistentVolumeClaim`, an EXISTING claim; `ephemeral`, a claim created and deleted with each pod) and an absolute `mountPath`, and may have `subPath` and `readOnly`. The fields of each type: `emptyDir`: `medium` (`Memory`), `sizeLimit`; `configMap`: `name`, `items`, `defaultMode`, `optional`; `secret`: `secretName`, `items`, `defaultMode`, `optional`; `persistentVolumeClaim`: `claimName`, `claimAccessMode` (default `ReadWriteOnce`); `ephemeral`: `size`, `accessMode` (default `ReadWriteOnce`), `storageClassName` (default: the cluster's default class). An `ephemeral` claim lives as long as its pod (source reading): a CronJob keeps those of the finished runs its history limits keep, a Job keeps its own for `job.ttlSecondsAfterFinished`, and each retry gets one of its own. In `volumes`, a `null` entry or field is absent, and `volumes: null` is no volume: an overlay changes the type of a volume that the umbrella defines by setting the previous type's fields to `null` (`cache: {type: ephemeral, size: 10Gi, sizeLimit: null}`), or removes it with `cache: null` and adds one under another name. Write `defaultMode` and `items[].mode` in octal with a leading zero, unquoted (`0440`): `440` is decimal and means `0670`, and `--set` cannot pass an octal literal (use the decimal value, `288`). Omit `items`, or set it to `null`, for every key. Quote a key that YAML 1.1 reads as a boolean (`on`, `yes`, `no`, `y`): two such keys collide silently. A name is a lowercase DNS-1123 label (`app-data`, not `appData`); `tmp`, `config-files`, `external-secret` and the prefixes `kube-api-access-` and `chart-base-` are reserved. A field of another type fails the render, and so does a `null` in a type's required field (`name`, `secretName`, `claimName`, `size`). A `mountPath` is compared normalized (`//tmp` is `/tmp`) with every other mount of the main container (the chart's `/tmp`, `configFiles.mountPath` while a file is rendered, the other entries) and must not be `/` or the ServiceAccount token directory; a directory may lie beneath another mount (`/tmp/cache`), but a `configMap` or `secret` file (`subPath`) must not lie beneath a ConfigMap or Secret mount. `subPath` and `items[].path` are relative, without `..`, and the `items[].path` of one entry are unique. `readOnly: false` fails on a `configMap` or `secret` mount, and `readOnly: true` on an `emptyDir` or `ephemeral` one (nothing could write it). `sizeLimit` and `size` are strings (`size: 10` would mean 10 bytes) and not zero; `medium: Memory` requires `sizeLimit`: the files count against the container's memory limit. A volume must not name the component's own `<fullname>-env`, `<fullname>-files` or `<fullname>-secrets`, and two `persistentVolumeClaim` entries must not name one claim. A `persistentVolumeClaim` entry DECLARES the claim's access mode in `claimAccessMode`: `ReadWriteOnce` (the default), `ReadWriteOncePod`, `ReadWriteMany` or `ReadOnlyMany`. chart-base cannot read the claim, so a false declaration goes unnoticed. Two rules read it: `ReadOnlyMany` renders the volume and its mount read-only, and on a Deployment a `ReadWriteOnce` or `ReadWriteOncePod` claim requires `replicas` 0 or 1, `autoscaling.enabled: false` and a strategy that adds no pod (`{type: Recreate}`, or `{type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}` for a Deployment that already exists; see `strategy`). |
 | workload.type | string | `"deployment"` | Workload kind: `deployment` (API or worker), `cronjob`, or `job` (a Helm hook, see `job.phase`). |
 
 ## Design decisions
@@ -794,6 +835,25 @@ code, official docs) and local renders.
     dropped by the API server, which would widen the route (`pathh: /api` matches every request). *Rejected:* open
     objects (a typo silently exposes more).
     [ADR-0048](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0048-httproute-parentrefs-and-matches-are-closed.md)
+49. **Extra volumes are a map of typed entries, each mounted in the main container.** `volumes.<name>` is one pod
+    volume of type `emptyDir`, `configMap`, `secret`, `persistentVolumeClaim` (an existing claim) or `ephemeral`, and
+    its mount. In this map a `null` entry or field is absent, so an overlay changes a volume's type by setting the
+    previous type's fields to `null`. The schema closes the list of fields and a guard rejects a field of another type;
+    mount paths are compared normalized with every other mount of the container; ConfigMap and Secret mounts are
+    read-only; the ephemeral claim template carries only the selector labels; the mounted ConfigMaps and Secrets feed
+    the Reloader annotations. *Rejected:* a list (an overlay replaces it whole), a schema `oneOf` per type (it blocks
+    the type change), the name in `propertyNames` (its error names another path).
+    [ADR-0049](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)
+50. **An existing claim on a Deployment declares its access mode; `strategy.rollingUpdate: null` is absent.** A
+    `persistentVolumeClaim` entry declared `ReadWriteOnce` (the default) or `ReadWriteOncePod` requires a Deployment
+    that never runs two pods: `replicas` 0 or 1, no autoscaling, and `strategy: {type: Recreate}` or a rolling update
+    with `maxSurge: 0`. The message names the remedy for a Deployment that already exists, because with Helm 4 the API
+    refuses a switch to Recreate in one upgrade of a Deployment created without `strategy` (measured).
+    `strategy.rollingUpdate: null` is accepted and never
+    rendered, and `rollingUpdate` next to `Recreate` fails through a guard with a remedy instead of the schema's
+    `not`. *Rejected:* claims on CronJobs and Jobs only (it leaves out a one-replica Deployment and a shared
+    `ReadWriteMany` claim).
+    [ADR-0050](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md)
 
 ## Versioning and releases
 
@@ -804,7 +864,7 @@ code, official docs) and local renders.
 - Before 1.0: `fix:` → patch, `feat:` → minor, `feat!:` and `fix!:` → minor. 1.0.0 will be declared on purpose,
   and from then on the selector labels are frozen forever.
 - An existing version is never overwritten: the publish job fails if the tag already exists.
-- Every breaking release (`feat!`) has migration steps in the [upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md).
+- Every breaking release (`feat!` or `fix!`) has migration steps in the [upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md).
 - How a release is cut, re-published or recovered: [release runbooks](https://github.com/jellalshadows/chart-base/blob/main/docs/README.md#runbooks).
 - Verify where a version was built (provenance) and who signed it (cosign signature):
 

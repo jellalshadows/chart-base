@@ -22,8 +22,11 @@ spec:
   revisionHistoryLimit: {{ .Values.revisionHistoryLimit | int64 }}
   {{- end }}
   {{- with .Values.strategy }}
+  {{- /* strategy.rollingUpdate: null means absent: it is never rendered. */}}
+  {{- $strategy := . }}
+  {{- if and (hasKey . "rollingUpdate") (kindIs "invalid" .rollingUpdate) }}{{ $strategy = omit . "rollingUpdate" }}{{ end }}
   strategy:
-    {{- toYaml . | nindent 4 }}
+    {{- toYaml $strategy | nindent 4 }}
   {{- end }}
   selector:
     matchLabels:

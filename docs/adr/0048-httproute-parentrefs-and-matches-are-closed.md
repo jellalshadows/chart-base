@@ -1,6 +1,6 @@
 # ADR-0048: The entries of `httpRoute.parentRefs` and `httpRoute.matches` are closed objects
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0050](0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md) (0.7.0)
 - **Date:** 2026-10-06
 - **Since:** 0.7.0
 - **Related:** [ADR-0011](0011-strict-draft-07-schema.md), [ADR-0016](0016-httproute-first-ingress-optional.md)

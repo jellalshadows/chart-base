@@ -362,6 +362,46 @@ The ServiceAccount's `imagePullSecrets` are added to pods that set none. With
 `169.254.169.252/32` on port 988, and `169.254.169.254/32` on port 80 with Dataplane V2. IRSA calls AWS STS and Azure
 calls Microsoft Entra ID, outside the cluster; their addresses are not covered here.
 
+### A cache, a mounted certificate and a scratch disk (volumes)
+
+Each entry of `volumes` is one volume and its mount in the main container
+([ADR-0049](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)):
+
+```yaml
+reports:
+  image: {repository: ghcr.io/acme/reports, tag: "3.1.0"}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 1Gi}
+  volumes:
+    cache: {type: emptyDir, mountPath: /tmp/cache, medium: Memory, sizeLimit: 256Mi}   # counts against the memory limit
+    certs: {type: secret, mountPath: /etc/reports/tls, secretName: reports-tls}       # read-only; a rotation restarts the pods
+    scratch: {type: ephemeral, mountPath: /scratch, size: 10Gi}                       # one claim per pod, deleted with it
+```
+
+An overlay changes the type of a volume that the umbrella defines by setting the previous type's fields to `null`
+(here, production moves the cache from memory to a claim per pod), and removes a volume with `<name>: null`:
+
+```yaml
+# values-production.yaml
+reports:
+  volumes:
+    cache: {type: ephemeral, size: 20Gi, medium: null, sizeLimit: null}
+```
+
+An existing claim declares its access mode in `claimAccessMode`. On a Deployment, a `ReadWriteOnce` claim (the
+default) needs one pod at a time ([ADR-0050](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md)):
+
+```yaml
+reports-archive:
+  image: {repository: ghcr.io/acme/reports, tag: "3.1.0"}
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+  volumes:
+    data: {type: persistentVolumeClaim, mountPath: /data, claimName: reports-data}
+  strategy: {type: Recreate}   # an existing Deployment on Helm 4: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}
+```
+
 ### Worker (e.g. a Kafka consumer)
 
 ```yaml
@@ -687,6 +727,25 @@ code, official docs) and local renders.
     dropped by the API server, which would widen the route (`pathh: /api` matches every request). *Rejected:* open
     objects (a typo silently exposes more).
     [ADR-0048](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0048-httproute-parentrefs-and-matches-are-closed.md)
+49. **Extra volumes are a map of typed entries, each mounted in the main container.** `volumes.<name>` is one pod
+    volume of type `emptyDir`, `configMap`, `secret`, `persistentVolumeClaim` (an existing claim) or `ephemeral`, and
+    its mount. In this map a `null` entry or field is absent, so an overlay changes a volume's type by setting the
+    previous type's fields to `null`. The schema closes the list of fields and a guard rejects a field of another type;
+    mount paths are compared normalized with every other mount of the container; ConfigMap and Secret mounts are
+    read-only; the ephemeral claim template carries only the selector labels; the mounted ConfigMaps and Secrets feed
+    the Reloader annotations. *Rejected:* a list (an overlay replaces it whole), a schema `oneOf` per type (it blocks
+    the type change), the name in `propertyNames` (its error names another path).
+    [ADR-0049](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)
+50. **An existing claim on a Deployment declares its access mode; `strategy.rollingUpdate: null` is absent.** A
+    `persistentVolumeClaim` entry declared `ReadWriteOnce` (the default) or `ReadWriteOncePod` requires a Deployment
+    that never runs two pods: `replicas` 0 or 1, no autoscaling, and `strategy: {type: Recreate}` or a rolling update
+    with `maxSurge: 0`. The message names the remedy for a Deployment that already exists, because with Helm 4 the API
+    refuses a switch to Recreate in one upgrade of a Deployment created without `strategy` (measured).
+    `strategy.rollingUpdate: null` is accepted and never
+    rendered, and `rollingUpdate` next to `Recreate` fails through a guard with a remedy instead of the schema's
+    `not`. *Rejected:* claims on CronJobs and Jobs only (it leaves out a one-replica Deployment and a shared
+    `ReadWriteMany` claim).
+    [ADR-0050](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md)
 
 ## Versioning and releases
 
@@ -697,7 +756,7 @@ code, official docs) and local renders.
 - Before 1.0: `fix:` → patch, `feat:` → minor, `feat!:` and `fix!:` → minor. 1.0.0 will be declared on purpose,
   and from then on the selector labels are frozen forever.
 - An existing version is never overwritten: the publish job fails if the tag already exists.
-- Every breaking release (`feat!`) has migration steps in the [upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md).
+- Every breaking release (`feat!` or `fix!`) has migration steps in the [upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md).
 - How a release is cut, re-published or recovered: [release runbooks](https://github.com/jellalshadows/chart-base/blob/main/docs/README.md#runbooks).
 - Verify where a version was built (provenance) and who signed it (cosign signature):
 

@@ -1,6 +1,6 @@
 # ADR-0047: When-enabled keys are required, an ExternalSecret needs a source, and a probe port name must be declared
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0050](0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md) (0.7.0)
 - **Date:** 2026-10-06
 - **Since:** 0.7.0
 - **Related:** [ADR-0027](0027-required-keys-in-the-schema.md) (amended), [ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md), [ADR-0045](0045-null-in-configfiles-and-resources-is-absent.md)

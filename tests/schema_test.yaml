@@ -381,7 +381,7 @@ tests:
       strategy.rollingUpdate.maxSurge: 1
     asserts:
       - failedTemplate:
-          errorPattern: "/strategy': 'not' failed"
+          errorPattern: 'strategy.rollingUpdate is set and strategy.type is Recreate, which Kubernetes rejects \(an empty rollingUpdate too\): remove strategy.rollingUpdate \(from an override file over values that set it, write strategy: \{type: Recreate, rollingUpdate: null\}\), or set strategy.type: RollingUpdate'
 
   - it: rejects a maxSurge that is neither an integer nor a percentage
     set:
@@ -1715,3 +1715,14 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "/httpRoute/matches/0/headers/0/type': value must be one of"
+
+  - it: still rejects a null strategy.rollingUpdate.maxSurge (only rollingUpdate itself means absent when null)
+    set:
+      strategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: null
+          maxUnavailable: 1
+    asserts:
+      - failedTemplate:
+          errorPattern: "/strategy/rollingUpdate/maxSurge': got null, want integer or string"

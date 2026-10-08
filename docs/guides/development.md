@@ -97,13 +97,14 @@ responsibility so that each one can be developed and tested on its own:
 | `_names.tpl` | The component name (the alias), `<release>-<component>` and the `fail` helper that prefixes errors with the component. |
 | `_labels.tpl` | Selector labels (frozen from 1.0.0), the labels shared by pods and objects, and `helm.sh/chart`. |
 | `_pod.tpl` | The image reference, the pods' ServiceAccount name (the chart's, an existing one, or `default`) and the pod spec shared by Deployment, CronJob and Job. |
-| `_reloader.tpl` | The Reloader annotations for objects that change outside the deploy: the ExternalSecret's Secret and every Secret or ConfigMap referenced in `env` or `envFrom` ([ADR-0033](../adr/0033-component-level-reload-on-change.md)). |
+| `_reloader.tpl` | The Reloader annotations for objects that change outside the deploy: the ExternalSecret's Secret and every Secret or ConfigMap referenced in `env` or `envFrom` or mounted by `volumes` ([ADR-0033](../adr/0033-component-level-reload-on-change.md), [ADR-0049](../adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)). |
 | `_service.tpl` | The port a Service exposes for a `ports` entry. |
 | `_metrics.tpl` | The single scrape endpoint of the ServiceMonitor and the PodMonitor ([ADR-0038](../adr/0038-one-metrics-endpoint-servicemonitor-or-podmonitor.md)). |
 | `_hooks.tpl` | The Helm hook annotations of `workload.type: job` and of its support resources ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)). |
 | `_networkpolicy.tpl` | The peers of the NetworkPolicy: a sibling component of the release by alias, and namespaces by name ([ADR-0040](../adr/0040-networkpolicy-per-component-with-sibling-references.md)). |
 | `_rbac.tpl` | A RoleBinding of the component, for the pods' ServiceAccount in the release namespace ([ADR-0042](../adr/0042-existing-serviceaccount-and-namespaced-rbac.md)). |
 | `_values.tpl` | Helpers that read values for templates and guards: `chart-base.pruneNulls`, `chart-base.hasConfigFiles`, `chart-base.cleanPath` and `chart-base.validateProbePorts` ([ADR-0045](../adr/0045-null-in-configfiles-and-resources-is-absent.md), [ADR-0046](../adr/0046-configfiles-mountpath-compared-normalized-rendered-as-written.md), [ADR-0047](../adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md)). |
+| `_volumes.tpl` | The extra volumes: `chart-base.volumes` (the one accessor: the non-null entries without their null fields), `chart-base.volumeSource` (a volume's source, field by field), `chart-base.volumeTypeFields` (the fields of each type, for the ownership guard) and `chart-base.mainMounts` (every mount the main container renders, for the path guards) ([ADR-0049](../adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)). |
 
 `templates/validate.yaml` renders nothing. It holds the guards, `fail` calls for the rules the schema
 cannot express: the alias and resource-name format and length, the Kubernetes 1.33 floor, and rules that
@@ -248,7 +249,7 @@ Each of these has already broken something. The reason is the important part.
 - **Pull requests are squash-merged and the PR title becomes the commit message on `main`.** The
   `pr-title` job fails a title that is not a conventional commit, so write the title as the commit you want
   in the history.
-- **Breaking changes before 1.0 are marked `feat!:`** and bump the minor version (`fix:` bumps the patch and
+- **Breaking changes before 1.0 are marked `feat!:` or `fix!:`** and bump the minor version (`fix:` bumps the patch and
   `feat:` the minor). Changing a default, renaming a key or removing one is breaking
   ([ADR-0002](../adr/0002-repository-is-the-chart.md) explains which paths release the chart).
 - **Only changes to the chart release it.** Commits that touch only `.github`, `tests`, `ci` or `docs` are

@@ -29,6 +29,20 @@ configFiles:
       <configuration>
         <root level="INFO"/>
       </configuration>
+# Volumes (the e2e creates the Secret e2e-files and the ConfigMap e2e-rules; nothing else references them, so the
+# Reloader annotations list them only through volumes): a tmpfs emptyDir beneath /tmp, a Secret directory beneath the
+# config-files mount (/config), and one ConfigMap key as one file, with every field of its type.
+volumes:
+  cache: {type: emptyDir, mountPath: /tmp/cache, medium: Memory, sizeLimit: 16Mi}
+  files: {type: secret, mountPath: /config/secrets, secretName: e2e-files}
+  rules:
+    type: configMap
+    mountPath: /etc/rules/alerts.yaml
+    subPath: alerts.yaml
+    name: e2e-rules
+    items: [{key: alerts, path: alerts.yaml, mode: 0444}]
+    defaultMode: 0440
+    optional: false
 env:
   POD_NAMESPACE:
     valueFrom:

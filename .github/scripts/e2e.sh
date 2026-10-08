@@ -5,7 +5,10 @@
 # components in a namespace with a default-deny NetworkPolicy, probed with agnhost connect
 # (kindnet enforces NetworkPolicy), and probed again once the default-deny is deleted. Then an
 # umbrella of three components with RBAC (an existing ServiceAccount, a ClusterRole, a pre-deploy
-# Job), checked with kubectl auth can-i and with API calls from their own pods.
+# Job), checked with kubectl auth can-i and with API calls from their own pods. The cronjob, full and deployment
+# scenarios also check extra volumes: an existing claim kept across CronJob runs, an ephemeral claim per pod, a tmpfs
+# emptyDir, a Secret directory beneath the config-files mount, one ConfigMap key as a file, the Reloader feed, and two
+# in-place strategy changes of a Deployment that mounts an existing claim.
 # Usage: e2e.sh <chart-dir>
 # Env: GATEWAY_API_VERSION (e.g. v1.6.2), ESO_CHART_VERSION (e.g. 2.11.0),
 #      PROMETHEUS_OPERATOR_VERSION (e.g. v0.94.1)
@@ -17,7 +20,14 @@ ns=vending
 
 fail() {
   echo "FAIL: $*" >&2
-  kubectl get all,externalsecrets,servicemonitors,podmonitors,prometheusrules,networkpolicies,serviceaccounts,roles,rolebindings -n "$ns" >&2 || true
+  kubectl get all,persistentvolumeclaims,externalsecrets,servicemonitors,podmonitors,prometheusrules,networkpolicies,serviceaccounts,roles,rolebindings -n "$ns" >&2 || true
+  if [ "$ns" = vending ]; then
+    # The volume checks: the claims and their events, and the logs of the manual CronJob runs (absent before them).
+    kubectl describe persistentvolumeclaims -n "$ns" >&2 || true
+    # A pod stuck Pending or failing to start (a claim that does not bind, a nested mount) shows why in its events.
+    kubectl describe pods,jobs -n "$ns" >&2 || true
+    for run in cronjob-manual-run cronjob-manual-run-2; do kubectl logs -n "$ns" "job/$run" --tail=50 >&2 || true; done
+  fi
   if [ "$ns" = netpol ]; then
     kubectl get pods,networkpolicies -n monitoring -o wide >&2 || true
     # The migrate Job is kept (its delete policy is before-hook-creation only, ttl 3600); kindnet enforces the policies.
@@ -31,6 +41,9 @@ fail() {
   exit 1
 }
 pass() { echo "ok - $*"; }
+# Throwaway files of the script: the umbrellas below, and the extra values of the deployment checks.
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
 
 echo "== platform prerequisites"
 kubectl apply --server-side \
@@ -64,6 +77,22 @@ kubectl label namespace "$ns" \
   pod-security.kubernetes.io/enforce=restricted pod-security.kubernetes.io/enforce-version=latest
 # An existing Secret that components reference by name (like the ones CNPG or Strimzi create).
 kubectl create secret generic e2e-shared -n "$ns" --from-literal=TOKEN=abc
+# The sources of the scenarios' volumes: a Secret and a ConfigMap that nothing else references (the full scenario mounts
+# them, so the Reloader annotations list them only through volumes), and two existing claims (kind's default class:
+# local-path, WaitForFirstConsumer).
+kubectl create secret generic e2e-files -n "$ns" --from-literal=token=files-token
+kubectl create configmap e2e-rules -n "$ns" --from-literal=alerts='groups: []'
+for claim in e2e-runs e2e-data; do
+  kubectl apply -n "$ns" -f - <<EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: $claim
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 64Mi}}
+EOF
+done
 # The PriorityClass the full scenario's priorityClassName points to.
 kubectl apply -f - <<'EOF'
 apiVersion: scheduling.k8s.io/v1
@@ -86,6 +115,25 @@ install deployment --set config.APP_MODE=api-v2 || fail "config change upgrade f
 rs_after="$(kubectl get rs -n "$ns" -l app.kubernetes.io/instance=deployment -o name | wc -l)"
 [ "$rs_after" -gt "$rs_before" ] || fail "a config change must roll the pods (checksum annotation)"
 pass "a config change rolls the Deployment"
+# An existing claim on the Deployment, which was installed without strategy, then two in-place strategy changes (Helm 4.3
+# applies server-side): (1) RollingUpdate with maxSurge 0 and maxUnavailable 1, the remedy for a Deployment that exists
+# (the API refuses a direct switch to Recreate there: measured on kube-apiserver 1.33 and 1.37); (2) Recreate, once Helm
+# owns both rollingUpdate keys and can remove them. The values come from files of this script: every ci/ scenario stays
+# as it is.
+printf '%s\n' 'volumes: {data: {type: persistentVolumeClaim, mountPath: /data, claimName: e2e-data}}' \
+  'strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}' > "$work/deployment-claim.yaml"
+printf '%s\n' 'volumes: {data: {type: persistentVolumeClaim, mountPath: /data, claimName: e2e-data}}' \
+  'strategy: {type: Recreate}' > "$work/deployment-recreate.yaml"
+install deployment --set config.APP_MODE=api-v2 -f "$work/deployment-claim.yaml" \
+  || fail "adding an existing claim with strategy RollingUpdate (maxSurge 0, maxUnavailable 1) to a Deployment installed without strategy failed"
+claim="$(kubectl get deployment -n "$ns" deployment-chart-base -o jsonpath='{.spec.template.spec.volumes[?(@.name=="data")].persistentVolumeClaim.claimName} {.status.readyReplicas}' || true)"
+[ "$claim" = "e2e-data 1" ] || fail "the Deployment must mount the claim e2e-data and be Ready, got '$claim'"
+pass "an existing claim is mounted after an in-place switch to RollingUpdate with maxSurge 0 (the pod is Ready)"
+install deployment --set config.APP_MODE=api-v2 -f "$work/deployment-recreate.yaml" \
+  || fail "the in-place switch from RollingUpdate (maxSurge 0, maxUnavailable 1) to Recreate failed"
+strategy="$(kubectl get deployment -n "$ns" deployment-chart-base -o jsonpath='{.spec.strategy}' || true)"
+[ "$strategy" = '{"type":"Recreate"}' ] || fail "spec.strategy must be Recreate with no rollingUpdate, got '$strategy'"
+pass "the Deployment then switches to Recreate in place: spec.strategy has no rollingUpdate"
 
 echo "== worker"
 install worker || fail "worker scenario did not become ready"
@@ -99,10 +147,41 @@ echo "== cronjob"
 install cronjob || fail "cronjob scenario failed"
 svc_ip="$(kubectl get service -n "$ns" deployment-chart-base -o jsonpath='{.spec.clusterIP}')"
 case "$svc_ip" in ""|None) fail "the service-links check needs the deployment scenario's ClusterIP Service";; esac
-kubectl create job -n "$ns" --from=cronjob/cronjob-chart-base cronjob-manual-run
+kubectl create job -n "$ns" --from=cronjob/cronjob-chart-base cronjob-manual-run \
+  || fail "could not create the first manual CronJob run"
 kubectl wait -n "$ns" job/cronjob-manual-run --for=condition=Complete --timeout=180s \
   || fail "a CronJob run must complete (restricted pod, config, env references, envFrom with prefix, no service links)"
 pass "a CronJob run sees config, env references (fieldRef, resourceFieldRef), envFrom with prefix and no service links"
+# The volumes of the cronjob scenario: a run fails if the marker is already on its ephemeral volume, appends its pod name
+# to /runs/pods.log on the existing claim e2e-runs, and prints that file. No check depends on a run being the first or
+# the second: the schedule (*/30) can start a run between the two manual ones.
+run1="$(kubectl get pods -n "$ns" -l job-name=cronjob-manual-run --field-selector=status.phase=Succeeded -o jsonpath='{.items[0].metadata.name}' || true)"
+[ -n "$run1" ] || fail "the first manual run has no succeeded pod"
+kubectl create job -n "$ns" --from=cronjob/cronjob-chart-base cronjob-manual-run-2 \
+  || fail "could not create the second manual CronJob run"
+kubectl wait -n "$ns" job/cronjob-manual-run-2 --for=condition=Complete --timeout=180s \
+  || fail "the second run must complete: its ephemeral volume must not hold a marker, and the claim e2e-runs must be writable"
+# The log goes to a file first: a pipeline into grep -q could fail under pipefail (SIGPIPE) when the match is not the
+# last line, and here it is not (the second run's own name follows).
+kubectl logs -n "$ns" job/cronjob-manual-run-2 > "$work/run2.log" || fail "could not read the second run's log"
+grep -qxF "$run1" "$work/run2.log" \
+  || fail "the second run must print the first run's pod name ($run1) from the claim e2e-runs: an existing claim is the same volume for every run"
+pass "an existing claim keeps what one run wrote for the next; each run's ephemeral volume starts without the marker"
+pvc="$run1-scratch"
+owner="$(kubectl get pvc -n "$ns" "$pvc" -o jsonpath='{.metadata.ownerReferences[0].kind}/{.metadata.ownerReferences[0].name} {.metadata.labels.app\.kubernetes\.io/instance}' || true)"
+[ "$owner" = "Pod/$run1 cronjob" ] || fail "the ephemeral claim $pvc must be owned by its pod and carry app.kubernetes.io/instance, got '$owner'"
+kubectl delete pod -n "$ns" "$run1" --wait=true || fail "could not delete the pod $run1 of the first manual run"
+# Garbage collection is asynchronous: poll every 2 s for up to 120 s. --ignore-not-found makes "gone" an empty list
+# with exit 0, so a kubectl error is not taken for its absence.
+gone=no
+for _ in $(seq 1 60); do
+  left="$(kubectl get pvc -n "$ns" "$pvc" --ignore-not-found -o name)" \
+    || fail "could not look up the ephemeral claim $pvc (a kubectl error, not its absence)"
+  [ -z "$left" ] && { gone=yes; break; }
+  sleep 2
+done
+[ "$gone" = yes ] || fail "the ephemeral claim $pvc must be deleted with its pod (garbage collection, polled for 120 s)"
+pass "an ephemeral claim is owned by its pod, carries the instance label, and is deleted with the pod"
 
 echo "== job (pre-deploy hook)"
 install job || fail "job hook failed: it must see APP_MODE, DB_PASSWORD (ESO) and /config/migrations.yaml"
@@ -118,14 +197,30 @@ kubectl wait -n "$ns" externalsecret/full-chart-base-secrets --for=condition=Rea
 [ "$(kubectl get secret -n "$ns" full-chart-base-secrets -o jsonpath='{.data.DB_PASSWORD}' | base64 -d)" = s3cr3t ] \
   || fail "Secret content mismatch"
 kubectl get httproute -n "$ns" full-chart-base > /dev/null || fail "HTTPRoute not accepted by the API"
-reload="$(kubectl get deployment -n "$ns" full-chart-base -o jsonpath='{.metadata.annotations.secret\.reloader\.stakater\.com/reload}')"
-[ "$reload" = "e2e-shared,full-chart-base-secrets" ] || fail "Reloader annotation must list the referenced Secrets, got '$reload'"
+reload="$(kubectl get deployment -n "$ns" full-chart-base -o jsonpath='{.metadata.annotations.secret\.reloader\.stakater\.com/reload}' || true)"
+[ "$reload" = "e2e-files,e2e-shared,full-chart-base-secrets" ] || fail "Reloader annotation must list the referenced and the mounted Secrets, got '$reload'"
+reload="$(kubectl get deployment -n "$ns" full-chart-base -o jsonpath='{.metadata.annotations.configmap\.reloader\.stakater\.com/reload}' || true)"
+[ "$reload" = "e2e-rules" ] || fail "Reloader annotation must list the mounted ConfigMap e2e-rules (nothing else references it), got '$reload'"
 rollout="$(kubectl get deployment -n "$ns" full-chart-base -o jsonpath='{.spec.strategy.type} {.spec.strategy.rollingUpdate.maxSurge} {.spec.strategy.rollingUpdate.maxUnavailable} {.spec.minReadySeconds} {.spec.revisionHistoryLimit}')"
 [ "$rollout" = "RollingUpdate 1 0 5 5" ] || fail "Deployment must carry strategy, minReadySeconds and revisionHistoryLimit, got '$rollout'"
 pod="$(kubectl get pods -n "$ns" -l app.kubernetes.io/instance=full -o jsonpath='{.items[0].metadata.name}')"
 runtime="$(kubectl get pod -n "$ns" "$pod" -o jsonpath='{.spec.priorityClassName} {.spec.priority} {.spec.enableServiceLinks} {.spec.dnsConfig.options[0].name}={.spec.dnsConfig.options[0].value} {.spec.hostAliases[0].ip} {.spec.hostAliases[0].hostnames[0]}')"
 [ "$runtime" = "e2e-high 1000 false ndots=2 10.20.30.40 legacy-db.internal" ] \
   || fail "pod must carry priorityClassName (priority 1000), enableServiceLinks, dnsConfig and hostAliases, got '$runtime'"
+fs="$(kubectl exec -n "$ns" "$pod" -- /agnhost mounttest --fs_type=/tmp/cache 2>&1 || true)"
+case "$fs" in *tmpfs*) ;; *) fail "the medium: Memory emptyDir at /tmp/cache must be tmpfs, got '$fs'" ;; esac
+fs="$(kubectl exec -n "$ns" "$pod" -- /agnhost mounttest --fs_type=/tmp 2>&1 || true)"
+case "$fs" in *tmpfs*) fail "/tmp (the chart's emptyDir on the node's disk) must not be tmpfs, or the check above proves nothing, got '$fs'" ;; esac
+token="$(kubectl exec -n "$ns" "$pod" -- cat /config/secrets/token 2>&1 || true)"
+[ "$token" = files-token ] || fail "the Secret e2e-files must be readable at /config/secrets/token, a directory beneath the config-files mount, got '$token'"
+# Any other failure (no sh in the image, exec refused) must not pass for a read-only mount: require the kernel's message.
+if write="$(kubectl exec -n "$ns" "$pod" -- sh -c 'echo x > /config/secrets/written' 2>&1)"; then
+  fail "the Secret mount at /config/secrets must be read-only: a write succeeded"
+fi
+case "$write" in *"Read-only file system"*) ;; *) fail "the write to the Secret mount at /config/secrets must fail with 'Read-only file system', got '$write'" ;; esac
+rules="$(kubectl exec -n "$ns" "$pod" -- cat /etc/rules/alerts.yaml 2>&1 || true)"
+[ "$rules" = "groups: []" ] || fail "the ConfigMap key mounted with items and subPath at /etc/rules/alerts.yaml must hold what the script wrote, got '$rules'"
+pass "full: a tmpfs emptyDir beneath /tmp, a read-only Secret directory beneath the config-files mount, one ConfigMap key as one file"
 sm="$(kubectl get servicemonitor -n "$ns" full-chart-base -o jsonpath='{.metadata.labels.release} {.spec.endpoints[0].port} {.spec.endpoints[0].interval}' || true)"
 [ "$sm" = "e2e http 30s" ] || fail "full must have a ServiceMonitor labelled release=e2e whose endpoint targets the Service port 'http' with a 30s interval, got '$sm'"
 kubectl get podmonitor -n "$ns" full-chart-base > /dev/null 2>&1 && fail "full has a Service: it must not have a PodMonitor"
@@ -203,8 +298,6 @@ probe_ip="$(kubectl get pod -n monitoring probe -o jsonpath='{.status.podIP}')"
 [ -n "$probe_ip" ] || fail "the monitoring probe pod has no IP"
 
 # A throwaway umbrella, like alias-contract.sh: the chart copied next to it, a relative file:// path.
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/chart-base" "$work/shop/templates"
 cp -r "$chart_dir"/Chart.yaml "$chart_dir"/values.yaml "$chart_dir"/values.schema.json "$chart_dir"/templates "$work/chart-base/"
 cat > "$work/shop/Chart.yaml" <<'EOF'

@@ -65,6 +65,40 @@ configFiles:
   # rendered as written, with everything inside it, and a map left empty stays `{}`.
   files: {}
 
+# -- Extra volumes, each mounted in the main container: a map keyed by the volume name, rendered in key order after the
+# chart's own `tmp` and `config-files`. Every entry has a `type` (`emptyDir`; `configMap` and `secret`, mounted
+# read-only; `persistentVolumeClaim`, an EXISTING claim; `ephemeral`, a claim created and deleted with each pod) and an
+# absolute `mountPath`, and may have `subPath` and `readOnly`. The fields of each type: `emptyDir`: `medium` (`Memory`),
+# `sizeLimit`; `configMap`: `name`, `items`, `defaultMode`, `optional`; `secret`: `secretName`, `items`, `defaultMode`,
+# `optional`; `persistentVolumeClaim`: `claimName`, `claimAccessMode` (default `ReadWriteOnce`); `ephemeral`: `size`, `accessMode` (default `ReadWriteOnce`),
+# `storageClassName` (default: the cluster's default class). An `ephemeral` claim lives as long as its pod (source
+# reading): a CronJob keeps those of the finished runs its history limits keep, a Job keeps its own for
+# `job.ttlSecondsAfterFinished`, and each retry gets one of its own. In `volumes`, a `null` entry or field is absent, and
+# `volumes: null` is no volume: an overlay changes the type of a volume that the umbrella defines by setting the
+# previous type's fields to `null` (`cache: {type: ephemeral, size: 10Gi, sizeLimit: null}`), or removes it with
+# `cache: null` and adds one under another name. Write `defaultMode` and `items[].mode` in octal with a leading zero,
+# unquoted (`0440`): `440` is decimal and means `0670`, and `--set` cannot pass an octal literal (use the decimal
+# value, `288`). Omit `items`, or set it to `null`, for every key. Quote a key that YAML 1.1 reads as a boolean (`on`,
+# `yes`, `no`, `y`): two such keys collide silently. A name is a lowercase DNS-1123 label (`app-data`, not `appData`);
+# `tmp`, `config-files`, `external-secret` and the prefixes `kube-api-access-` and `chart-base-` are reserved. A field
+# of another type fails the render, and so does a `null` in a type's required field (`name`, `secretName`,
+# `claimName`, `size`). A `mountPath` is compared normalized (`//tmp` is `/tmp`) with every other mount of the main
+# container (the chart's `/tmp`, `configFiles.mountPath` while a file is rendered, the other entries) and must not be
+# `/` or the ServiceAccount token directory; a directory may lie beneath another mount (`/tmp/cache`), but a `configMap`
+# or `secret` file (`subPath`) must not lie beneath a ConfigMap or Secret mount. `subPath` and `items[].path` are
+# relative, without `..`, and the `items[].path` of one entry are unique. `readOnly: false` fails on a `configMap` or
+# `secret` mount, and `readOnly: true` on an `emptyDir` or `ephemeral` one (nothing could write it). `sizeLimit` and
+# `size` are strings (`size: 10` would mean 10 bytes) and not zero; `medium: Memory` requires `sizeLimit`: the files
+# count against the container's memory limit. A volume must not name the component's own `<fullname>-env`,
+# `<fullname>-files` or `<fullname>-secrets`, and two `persistentVolumeClaim` entries must not name one claim. A
+# `persistentVolumeClaim` entry DECLARES the claim's access mode in `claimAccessMode`: `ReadWriteOnce` (the default),
+# `ReadWriteOncePod`, `ReadWriteMany` or `ReadOnlyMany`. chart-base cannot read the claim, so a false declaration goes
+# unnoticed. Two rules read it: `ReadOnlyMany` renders the volume and its mount read-only, and on a Deployment a
+# `ReadWriteOnce` or `ReadWriteOncePod` claim requires `replicas` 0 or 1, `autoscaling.enabled: false` and a strategy
+# that adds no pod (`{type: Recreate}`, or `{type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}` for
+# a Deployment that already exists; see `strategy`).
+volumes: {}
+
 externalSecret:
   # -- Render an ExternalSecret (external-secrets.io/v1) whose Secret `<fullname>-secrets` is injected with `envFrom`.
   enabled: false
@@ -80,8 +114,13 @@ externalSecret:
   data: {}
 
 # -- Restart Deployments (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is
-# updated: the ExternalSecret's Secret and every Secret/ConfigMap referenced in `env`/`envFrom`.
-# The chart's own ConfigMaps roll pods through checksum annotations instead.
+# updated: the ExternalSecret's Secret and every Secret/ConfigMap referenced in `env`/`envFrom` or mounted by a
+# `configMap` or `secret` entry of `volumes`. The chart's own ConfigMaps roll pods through checksum annotations instead.
+# The cost: a mounted certificate or trust bundle that the application reloads in place still restarts the Deployment
+# on every rotation (and every component that mounts it), and `false` is the only switch: it also stops the restarts
+# for `env`/`envFrom` Secrets. Mounted files are updated in place without a restart, except `subPath` mounts, which are
+# never updated: with `false` such a file stays stale until the pod restarts (a deploy restarts it only when the pod
+# template changes).
 reloadOnChange: true
 
 # -- Deployment replicas. Ignored when `autoscaling.enabled`.
@@ -92,6 +131,12 @@ progressDeadlineSeconds: 240
 
 # -- (object) Deployment update strategy (`spec.strategy`): `{type: RollingUpdate, rollingUpdate: {maxSurge, maxUnavailable}}`
 # or `{type: Recreate}`. `null` = Kubernetes default (`RollingUpdate`, 25% surge, 25% unavailable). Deployments only.
+# `rollingUpdate: null` means absent and is never rendered: an override file over values that set `rollingUpdate`
+# switches to Recreate with `{type: Recreate, rollingUpdate: null}` (a `rollingUpdate` next to `Recreate`, even `{}`,
+# fails the render). A `persistentVolumeClaim` volume declared `ReadWriteOnce` or `ReadWriteOncePod` requires a
+# strategy that adds no pod (see `volumes`). With Helm 4, a Deployment created without `strategy` (in a release that
+# Helm 4 installed) cannot switch to Recreate in one upgrade (the API rejects the `rollingUpdate` the server defaulted):
+# use `maxSurge: 0` with `maxUnavailable: 1`, then Recreate in a later upgrade if needed.
 strategy: null
 
 # -- (int) Seconds a new pod must be Ready, without any container crashing, before it counts as available

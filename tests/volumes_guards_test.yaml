@@ -1,0 +1,993 @@
+suite: volumes (schema rules and guards)
+templates:
+  - templates/validate.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+values:
+  - values/base.yaml
+tests:
+  - it: accepts every type with every field of its own, and a null entry
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /cache, subPath: a, readOnly: false, medium: Memory, sizeLimit: 1Gi}
+        rules: {type: configMap, mountPath: /rules, name: r, items: [{key: k, path: p, mode: 0400}], defaultMode: 0440, optional: false}
+        certs: {type: secret, mountPath: /certs, readOnly: true, secretName: s, items: [{key: k, path: p}], defaultMode: 0, optional: true}
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: d, claimAccessMode: ReadWriteMany}
+        scratch: {type: ephemeral, mountPath: /scratch, size: 1Gi, accessMode: ReadWriteOncePod, storageClassName: fast.ssd}
+        gone: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts volumes null
+    set:
+      volumes: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a null for every optional field of an entry, whatever its type
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /cache, subPath: null, readOnly: null, medium: null, sizeLimit: null, name: null, secretName: null, items: null, defaultMode: null, optional: null, claimName: null, claimAccessMode: null, size: null, accessMode: null, storageClassName: null}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a volume type that chart-base does not offer
+    set:
+      volumes:
+        host: {type: hostPath, mountPath: /host}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/host/type': value must be one of 'emptyDir', 'configMap', 'secret', 'persistentVolumeClaim', 'ephemeral'"
+
+  - it: rejects an entry without a type, naming only the type
+    set:
+      volumes:
+        cache: {mountPath: /cache}
+    asserts:
+      - failedTemplate:
+          errorPattern: "chart-base:\\n- at '/volumes/cache': missing property 'type'\\s*$"
+
+  - it: rejects a null type
+    set:
+      volumes:
+        cache: {type: null, mountPath: /cache}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/cache/type': value must be one of"
+
+  - it: rejects an entry without a mountPath
+    set:
+      volumes:
+        cache: {type: emptyDir}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/cache': missing property 'mountPath'"
+
+  - it: rejects a null mountPath (a mount path is never null, so chart-base.cleanPath is never given a nil)
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/cache/mountPath': got null, want string"
+
+  - it: rejects a relative mountPath (tmp)
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: tmp}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/cache/mountPath': 'tmp' does not match pattern '\\^/'"
+
+  - it: rejects a relative mountPath (./tmp)
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: ./tmp}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/cache/mountPath': './tmp' does not match pattern '\\^/'"
+
+  - it: rejects a relative mountPath (the token path without its leading slash)
+    set:
+      volumes:
+        token: {type: emptyDir, mountPath: var/run/secrets/kubernetes.io/serviceaccount}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/token/mountPath': 'var/run/secrets/kubernetes.io/serviceaccount' does not match pattern '\\^/'"
+
+  - it: rejects a misspelt field (a closed list of fields, whether the value is null or not)
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs, secretName: s, secretname: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/certs': additional properties 'secretname' not allowed"
+
+  - it: rejects a secret entry without its secretName
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/certs': missing property 'secretName'"
+
+  - it: rejects a configMap entry without its name, a claim without its claimName, an ephemeral volume without its size
+    set:
+      volumes:
+        rules: {type: configMap, mountPath: /rules}
+        data: {type: persistentVolumeClaim, mountPath: /data}
+        scratch: {type: ephemeral, mountPath: /scratch}
+    asserts:
+      - failedTemplate:
+          errorPattern: "missing property 'name'"
+      - failedTemplate:
+          errorPattern: "missing property 'claimName'"
+      - failedTemplate:
+          errorPattern: "missing property 'size'"
+
+  - it: rejects an empty name, secretName and subPath
+    set:
+      volumes:
+        rules: {type: configMap, mountPath: /rules, name: ""}
+        certs: {type: secret, mountPath: /certs, secretName: "", subPath: ""}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/rules/name': minLength: got 0, want 1"
+      - failedTemplate:
+          errorPattern: "/volumes/certs/secretName': minLength: got 0, want 1"
+      - failedTemplate:
+          errorPattern: "/volumes/certs/subPath': minLength: got 0, want 1"
+
+  - it: rejects items [] (the API reads an empty list as every key)
+    set:
+      volumes:
+        rules: {type: configMap, mountPath: /rules, name: r, items: []}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/rules/items': minItems: got 0, want 1"
+
+  - it: rejects a null item, a null mode and an item without a path (a list is taken as written)
+    set:
+      volumes:
+        a: {type: configMap, mountPath: /a, name: r, items: [null]}
+        b: {type: configMap, mountPath: /b, name: r, items: [{key: k, path: p, mode: null}]}
+        c: {type: secret, mountPath: /c, secretName: s, items: [{key: k}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/a/items/0': got null, want object"
+      - failedTemplate:
+          errorPattern: "/volumes/b/items/0/mode': got null, want integer"
+      - failedTemplate:
+          errorPattern: "/volumes/c/items/0': missing property 'path'"
+
+  - it: rejects a mode above 0777 and a mode given as a string (--set cannot pass an octal literal)
+    set:
+      volumes:
+        a: {type: configMap, mountPath: /a, name: r, defaultMode: 512}
+        b: {type: secret, mountPath: /b, secretName: s, defaultMode: "0440"}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/a/defaultMode': maximum: got 512, want 511"
+      - failedTemplate:
+          errorPattern: "/volumes/b/defaultMode': got string, want null or integer"
+
+  - it: rejects a medium other than Memory
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /cache, medium: HugePages}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/cache/medium': value must be one of 'Memory'"
+
+  - it: rejects a size with a sign or no quantity, and a YAML number
+    set:
+      volumes:
+        a: {type: emptyDir, mountPath: /a, sizeLimit: -1Gi}
+        b: {type: emptyDir, mountPath: /b, sizeLimit: +1Gi}
+        c: {type: ephemeral, mountPath: /c, size: lots}
+        d: {type: ephemeral, mountPath: /d, size: 10}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/a/sizeLimit': '-1Gi' does not match pattern"
+      - failedTemplate:
+          errorPattern: "/volumes/b/sizeLimit': '\\+1Gi' does not match pattern"
+      - failedTemplate:
+          errorPattern: "/volumes/c/size': 'lots' does not match pattern"
+      - failedTemplate:
+          errorPattern: "/volumes/d/size': got number, want null or string"
+
+  - it: rejects ReadOnlyMany as the accessMode of an ephemeral volume, and an unknown claimAccessMode
+    set:
+      volumes:
+        scratch: {type: ephemeral, mountPath: /scratch, size: 1Gi, accessMode: ReadOnlyMany}
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: d, claimAccessMode: RWO}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/scratch/accessMode': value must be one of 'ReadWriteOnce', 'ReadWriteOncePod', 'ReadWriteMany'"
+      - failedTemplate:
+          errorPattern: "/volumes/data/claimAccessMode': value must be one of 'ReadWriteOnce', 'ReadWriteOncePod', 'ReadWriteMany', 'ReadOnlyMany'"
+
+  - it: rejects an empty storageClassName (it turns off dynamic provisioning) and one that is not a DNS-1123 subdomain
+    set:
+      volumes:
+        a: {type: ephemeral, mountPath: /a, size: 1Gi, storageClassName: ""}
+        b: {type: ephemeral, mountPath: /b, size: 1Gi, storageClassName: Fast_SSD}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/a/storageClassName': '' does not match pattern"
+      - failedTemplate:
+          errorPattern: "/volumes/b/storageClassName': 'Fast_SSD' does not match pattern"
+
+  - it: rejects a claimName that is not a DNS-1123 subdomain
+    set:
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: Sales_Data}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/data/claimName': 'Sales_Data' does not match pattern"
+
+  - it: rejects a volume name in camelCase (appData), with the DNS-1123 message
+    set:
+      volumes:
+        appData: {type: emptyDir, mountPath: /data}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.appData: a volume name is a lowercase DNS-1123 label \(a-z, 0-9, "-", at most 63 characters\), e.g. app-data'
+
+  - it: rejects a volume name with an underscore (a_b)
+    set:
+      volumes:
+        a_b: {type: emptyDir, mountPath: /data}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.a_b: a volume name is a lowercase DNS-1123 label \(a-z, 0-9, "-", at most 63 characters\), e.g. app-data'
+
+  - it: rejects a volume name that starts with a dash (-a)
+    set:
+      volumes:
+        -a: {type: emptyDir, mountPath: /data}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.-a: a volume name is a lowercase DNS-1123 label \(a-z, 0-9, "-", at most 63 characters\), e.g. app-data'
+
+  - it: rejects a volume name of 64 characters
+    set:
+      volumes:
+        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: {type: emptyDir, mountPath: /data}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: a volume name is a lowercase DNS-1123 label \(a-z, 0-9, "-", at most 63 characters\), e.g. app-data'
+
+  - it: accepts a volume name of 63 characters
+    set:
+      volumes:
+        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: {type: emptyDir, mountPath: /data}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects the volume name tmp (chart-base's own)
+    set:
+      volumes:
+        tmp: {type: emptyDir, mountPath: /scratch}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.tmp: tmp, config-files and external-secret are the names of volumes chart-base mounts itself \(external-secret from 0.9.0\): choose another name'
+
+  - it: rejects the volume name config-files (chart-base's own)
+    set:
+      volumes:
+        config-files: {type: emptyDir, mountPath: /scratch}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.config-files: tmp, config-files and external-secret are the names of volumes chart-base mounts itself \(external-secret from 0.9.0\): choose another name'
+
+  - it: rejects the volume name external-secret (reserved for 0.9.0)
+    set:
+      volumes:
+        external-secret: {type: emptyDir, mountPath: /scratch}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.external-secret: tmp, config-files and external-secret are the names of volumes chart-base mounts itself \(external-secret from 0.9.0\): choose another name'
+
+  - it: rejects a volume name with the prefix kube-api-access-
+    set:
+      volumes:
+        kube-api-access-x: {type: emptyDir, mountPath: /scratch}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.kube-api-access-x: a name that starts with kube-api-access- \(Kubernetes takes such a volume for the ServiceAccount token volume\) or chart-base- \(reserved for volumes chart-base adds\) is not allowed: choose another name'
+
+  - it: rejects a volume name with the prefix chart-base-
+    set:
+      volumes:
+        chart-base-x: {type: emptyDir, mountPath: /scratch}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.chart-base-x: a name that starts with kube-api-access- \(Kubernetes takes such a volume for the ServiceAccount token volume\) or chart-base- \(reserved for volumes chart-base adds\) is not allowed: choose another name'
+
+  - it: accepts a null entry under any name, even one that fails the name checks (skipped before every check)
+    set:
+      volumes:
+        appData: null
+        tmp: null
+        external-secret: null
+        kube-api-access-x: null
+        chart-base-x: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a secret entry whose secretName is null, naming the remedies
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs, secretName: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.certs.secretName is null, and a secret entry needs it: set it, or remove the entry with volumes.certs: null'
+
+  - it: rejects a configMap entry whose name is null
+    set:
+      volumes:
+        rules: {type: configMap, mountPath: /rules, name: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.rules.name is null, and a configMap entry needs it: set it, or remove the entry with volumes.rules: null'
+
+  - it: rejects a persistentVolumeClaim entry whose claimName is null
+    set:
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data.claimName is null, and a persistentVolumeClaim entry needs it: set it, or remove the entry with volumes.data: null'
+
+  - it: rejects an ephemeral entry whose size is null
+    set:
+      volumes:
+        scratch: {type: ephemeral, mountPath: /scratch, size: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.scratch.size is null, and an ephemeral entry needs it: set it, or remove the entry with volumes.scratch: null'
+
+  - it: accepts a type change written as an overlay writes it (emptyDir to ephemeral, the emptyDir fields set to null)
+    set:
+      volumes:
+        cache: {type: ephemeral, mountPath: /cache, size: 10Gi, medium: null, sizeLimit: null}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects medium on an ephemeral entry (a field of type emptyDir)
+    set:
+      volumes:
+        x: {type: ephemeral, mountPath: /x, size: 1Gi, medium: Memory}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.medium is a field of type emptyDir and the entry is ephemeral: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects sizeLimit on an ephemeral entry (a field of type emptyDir)
+    set:
+      volumes:
+        x: {type: ephemeral, mountPath: /x, size: 10Gi, sizeLimit: 1Gi}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.sizeLimit is a field of type emptyDir and the entry is ephemeral: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects name on a secret entry (a field of type configMap)
+    set:
+      volumes:
+        x: {type: secret, mountPath: /x, secretName: s, name: n}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.name is a field of type configMap and the entry is secret: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects secretName on a configMap entry (a field of type secret)
+    set:
+      volumes:
+        x: {type: configMap, mountPath: /x, name: n, secretName: s}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.secretName is a field of type secret and the entry is configMap: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects items on an emptyDir entry (a field of type configMap or secret)
+    set:
+      volumes:
+        x: {type: emptyDir, mountPath: /x, items: [{key: k, path: p}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.items is a field of type configMap or secret and the entry is emptyDir: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects defaultMode on a persistentVolumeClaim entry (a field of type configMap or secret)
+    set:
+      volumes:
+        x: {type: persistentVolumeClaim, mountPath: /x, claimName: c, defaultMode: 0440}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.defaultMode is a field of type configMap or secret and the entry is persistentVolumeClaim: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects optional on an ephemeral entry (a field of type configMap or secret)
+    set:
+      volumes:
+        x: {type: ephemeral, mountPath: /x, size: 1Gi, optional: true}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.optional is a field of type configMap or secret and the entry is ephemeral: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects claimName on an ephemeral entry (a field of type persistentVolumeClaim)
+    set:
+      volumes:
+        x: {type: ephemeral, mountPath: /x, size: 1Gi, claimName: c}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.claimName is a field of type persistentVolumeClaim and the entry is ephemeral: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects claimAccessMode on an ephemeral entry (a field of type persistentVolumeClaim)
+    set:
+      volumes:
+        x: {type: ephemeral, mountPath: /x, size: 1Gi, claimAccessMode: ReadWriteMany}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.claimAccessMode is a field of type persistentVolumeClaim and the entry is ephemeral: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects size on an emptyDir entry (a field of type ephemeral)
+    set:
+      volumes:
+        x: {type: emptyDir, mountPath: /x, size: 1Gi}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.size is a field of type ephemeral and the entry is emptyDir: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects accessMode on a persistentVolumeClaim entry (a field of type ephemeral)
+    set:
+      volumes:
+        x: {type: persistentVolumeClaim, mountPath: /x, claimName: c, accessMode: ReadWriteMany}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.accessMode is a field of type ephemeral and the entry is persistentVolumeClaim: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects storageClassName on a persistentVolumeClaim entry (a field of type ephemeral)
+    set:
+      volumes:
+        x: {type: persistentVolumeClaim, mountPath: /x, claimName: c, storageClassName: fast}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.x.storageClassName is a field of type ephemeral and the entry is persistentVolumeClaim: remove it \(from an overlay, set it to null\)'
+
+  - it: rejects a mount path that is the chart's /tmp once normalized (//tmp)
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: //tmp}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.cache.mountPath "//tmp" and the chart''s own tmp mount "/tmp" are the same path once normalized \(/tmp\): each mount of the main container needs a path of its own; choose another directory \(one beneath it, such as /tmp/cache, is allowed\)'
+
+  - it: rejects a mount path that is the chart's /tmp once normalized (/tmp/.)
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /tmp/.}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.cache.mountPath "/tmp/." and the chart''s own tmp mount "/tmp" are the same path once normalized \(/tmp\): each mount of the main container needs a path of its own; choose another directory \(one beneath it, such as /tmp/cache, is allowed\)'
+
+  - it: rejects a mount path that is the chart's /tmp once normalized (/./tmp)
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /./tmp}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.cache.mountPath "/./tmp" and the chart''s own tmp mount "/tmp" are the same path once normalized \(/tmp\): each mount of the main container needs a path of its own; choose another directory \(one beneath it, such as /tmp/cache, is allowed\)'
+
+  - it: rejects a mount path that is configFiles.mountPath once normalized (/config/) while a config file is rendered
+    set:
+      configFiles.files:
+        app.yaml: {a: 1}
+      volumes:
+        extra: {type: emptyDir, mountPath: /config/}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.extra.mountPath "/config/" and configFiles.mountPath "/config" are the same path once normalized \(/config\): each mount of the main container needs a path of its own; choose another directory \(one beneath it, such as /config/cache, is allowed\)'
+
+  - it: accepts the mount path /config/ when no config file is rendered (the config-files mount is not)
+    set:
+      volumes:
+        extra: {type: emptyDir, mountPath: /config/}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects two entries with the same mount path once normalized (/a and /a/.)
+    set:
+      volumes:
+        a: {type: emptyDir, mountPath: /a}
+        b: {type: emptyDir, mountPath: /a/.}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.b.mountPath "/a/." and volumes.a.mountPath "/a" are the same path once normalized \(/a\): each mount of the main container needs a path of its own; choose another directory \(one beneath it, such as /a/cache, is allowed\)'
+
+  - it: rejects the mount path / (automountToken false)
+    set:
+      volumes:
+        root: {type: emptyDir, mountPath: /}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.root.mountPath "/" is / once normalized: a volume cannot be mounted at the container''s root; choose a directory'
+
+  - it: rejects the mount path // (automountToken true)
+    set:
+      serviceAccount.automountToken: true
+      volumes:
+        root: {type: emptyDir, mountPath: //}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.root.mountPath "//" is / once normalized: a volume cannot be mounted at the container''s root; choose a directory'
+
+  - it: rejects the ServiceAccount token directory as a mount path with automountToken false (reserved unconditionally)
+    set:
+      volumes:
+        token: {type: emptyDir, mountPath: /var/run/secrets/kubernetes.io/serviceaccount}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.token.mountPath "/var/run/secrets/kubernetes.io/serviceaccount" is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized: a volume there replaces the token, whether or not serviceAccount.automountToken is true now; choose another directory'
+
+  - it: rejects the ServiceAccount token directory as a mount path with automountToken true
+    set:
+      serviceAccount.automountToken: true
+      volumes:
+        token: {type: emptyDir, mountPath: /var/run/secrets/kubernetes.io/serviceaccount}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.token.mountPath "/var/run/secrets/kubernetes.io/serviceaccount" is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized: a volume there replaces the token, whether or not serviceAccount.automountToken is true now; choose another directory'
+
+  - it: rejects the ServiceAccount token directory with a trailing slash (automountToken false)
+    set:
+      volumes:
+        token: {type: secret, mountPath: /var/run/secrets/kubernetes.io/serviceaccount/, secretName: s}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.token.mountPath "/var/run/secrets/kubernetes.io/serviceaccount/" is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized: a volume there replaces the token, whether or not serviceAccount.automountToken is true now; choose another directory'
+
+  - it: rejects an absolute subPath
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs/tls.crt, secretName: s, subPath: /tls.crt}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.certs.subPath "/tls.crt" must be a relative path without a .. element: a path inside the volume, such as tls.crt'
+
+  - it: rejects a subPath with a .. element
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs/tls.crt, secretName: s, subPath: a/../tls.crt}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.certs.subPath "a/../tls.crt" must be a relative path without a .. element: a path inside the volume, such as tls.crt'
+
+  - it: accepts a subPath whose name only starts with two dots (..data is not a .. element)
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs/tls.crt, secretName: s, subPath: ..data/tls.crt}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects an absolute items[].path
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs, secretName: s, items: [{key: tls.crt, path: /tls.crt}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.certs.items\[0\].path "/tls.crt" must be a relative path without a .. element: a file inside the volume, such as tls.crt'
+
+  - it: rejects an items[].path with a .. element
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs, secretName: s, items: [{key: a, path: ok.txt}, {key: tls.crt, path: ../tls.crt}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.certs.items\[1\].path "../tls.crt" must be a relative path without a .. element: a file inside the volume, such as tls.crt'
+
+  - it: rejects two items of one entry that name the same file once normalized (certs/tls.crt and ./certs//tls.crt)
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs, secretName: s, items: [{key: crt, path: certs/tls.crt}, {key: pem, path: ./certs//tls.crt}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.certs.items\[1\].path "./certs//tls.crt" names the same file as items\[0\].path "certs/tls.crt" \(/certs/tls.crt within the volume, once normalized\): the kubelet keeps only one of them; give each item a path of its own'
+
+  - it: accepts the same items[].path in two different entries
+    set:
+      volumes:
+        a: {type: secret, mountPath: /a, secretName: s, items: [{key: crt, path: tls.crt}]}
+        b: {type: secret, mountPath: /b, secretName: t, items: [{key: crt, path: tls.crt}]}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a null items[].path (no path the guards normalize is ever null)
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs, secretName: s, items: [{key: crt, path: null}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/certs/items/0/path': got null, want string"
+
+  - it: accepts the nested directories /tmp/cache, /config/secrets beneath the rendered config-files mount, and /data with /data/logs
+    set:
+      configFiles.files:
+        app.yaml: {a: 1}
+      volumes:
+        cache: {type: emptyDir, mountPath: /tmp/cache}
+        creds: {type: secret, mountPath: /config/secrets, secretName: s}
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: d, claimAccessMode: ReadWriteMany}
+        logs: {type: emptyDir, mountPath: /data/logs}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a subPath file at /config/creds.json when no config file is rendered
+    set:
+      volumes:
+        creds: {type: secret, mountPath: /config/creds.json, subPath: creds.json, secretName: s}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a subPath file at /configx/a.json next to the rendered /config (not beneath it)
+    set:
+      configFiles.files:
+        app.yaml: {a: 1}
+      volumes:
+        creds: {type: secret, mountPath: /configx/a.json, subPath: a.json, secretName: s}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a secret file (subPath) at /config/credentials.json beneath the rendered config-files mount, naming the remedies
+    set:
+      configFiles.files:
+        app.yaml: {a: 1}
+      volumes:
+        creds: {type: secret, mountPath: /config/credentials.json, subPath: credentials.json, secretName: s}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.creds mounts one file \(subPath\) at "/config/credentials.json", beneath configFiles.mountPath "/config", a ConfigMap or Secret mount: the kubelet creates that mount point as a directory inside the parent volume, and a file cannot be mounted on a directory. Mount the volume as a directory beneath it \(without subPath, for example /config/secrets\), or the file beside it'
+
+  - it: rejects a configMap file (subPath) beneath another configMap entry
+    set:
+      volumes:
+        rules: {type: configMap, mountPath: /etc/rules, name: r}
+        extra: {type: configMap, mountPath: /etc/rules/extra.yaml, subPath: extra.yaml, name: e}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.extra mounts one file \(subPath\) at "/etc/rules/extra.yaml", beneath volumes.rules.mountPath "/etc/rules", a ConfigMap or Secret mount: the kubelet creates that mount point as a directory inside the parent volume, and a file cannot be mounted on a directory. Mount the volume as a directory beneath it \(without subPath, for example /etc/rules/secrets\), or the file beside it'
+
+  - it: rejects a configMap file (subPath) beneath a secret entry
+    set:
+      volumes:
+        base: {type: secret, mountPath: /etc/base, secretName: s}
+        app: {type: configMap, mountPath: /etc/base/app.yaml, subPath: app.yaml, name: c}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.app mounts one file \(subPath\) at "/etc/base/app.yaml", beneath volumes.base.mountPath "/etc/base", a ConfigMap or Secret mount: the kubelet creates that mount point as a directory inside the parent volume, and a file cannot be mounted on a directory. Mount the volume as a directory beneath it \(without subPath, for example /etc/base/secrets\), or the file beside it'
+
+  - it: accepts a secret file (subPath) beneath an emptyDir entry and beneath the chart's /tmp (only ConfigMap and Secret parents count)
+    set:
+      volumes:
+        work: {type: emptyDir, mountPath: /work}
+        tls: {type: secret, mountPath: /work/tls.crt, subPath: tls.crt, secretName: s}
+        ca: {type: secret, mountPath: /tmp/ca.crt, subPath: ca.crt, secretName: t}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts /var/run/secrets as a volume mountPath with the token (a parent of the token directory is not checked, a known gap)
+    set:
+      serviceAccount.automountToken: true
+      volumes:
+        secrets: {type: emptyDir, mountPath: /var/run/secrets}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects readOnly false on a configMap mount (always read-only)
+    set:
+      volumes:
+        rules: {type: configMap, mountPath: /rules, name: r, readOnly: false}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.rules.readOnly is false, and a configMap mount is always read-only \(the kubelet forces it\): remove readOnly'
+
+  - it: rejects readOnly false on a secret mount (always read-only)
+    set:
+      volumes:
+        certs: {type: secret, mountPath: /certs, secretName: s, readOnly: false}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.certs.readOnly is false, and a secret mount is always read-only \(the kubelet forces it\): remove readOnly'
+
+  - it: accepts readOnly true on a configMap mount (what is rendered anyway)
+    set:
+      volumes:
+        rules: {type: configMap, mountPath: /rules, name: r, readOnly: true}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects readOnly false on a claim declared ReadOnlyMany
+    set:
+      volumes:
+        shared: {type: persistentVolumeClaim, mountPath: /shared, claimName: c, claimAccessMode: ReadOnlyMany, readOnly: false}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.shared.readOnly is false, and the claim is declared ReadOnlyMany \(claimAccessMode\), so its mount is read-only: remove readOnly, or declare the claim''s real access mode'
+
+  - it: accepts readOnly false and true on a claim declared ReadWriteMany (rendered on the mount only)
+    set:
+      volumes:
+        a: {type: persistentVolumeClaim, mountPath: /a, claimName: a, claimAccessMode: ReadWriteMany, readOnly: false}
+        b: {type: persistentVolumeClaim, mountPath: /b, claimName: b, claimAccessMode: ReadWriteMany, readOnly: true}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects readOnly true on an emptyDir volume (nothing could write it)
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /cache, readOnly: true}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.cache.readOnly is true on an emptyDir volume: the main container is the only one that mounts it, so nothing could ever write it; remove readOnly'
+
+  - it: rejects readOnly true on an ephemeral volume (nothing could write it)
+    set:
+      volumes:
+        scratch: {type: ephemeral, mountPath: /scratch, size: 1Gi, readOnly: true}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.scratch.readOnly is true on an ephemeral volume: the main container is the only one that mounts it, so nothing could ever write it; remove readOnly'
+
+  - it: rejects a sizeLimit of zero ("0")
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /cache, sizeLimit: "0"}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.cache.sizeLimit is "0", a size of zero: it limits nothing; write a positive quantity, e.g. 1Gi'
+
+  - it: rejects a sizeLimit of zero with a suffix ("0.0Gi")
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /cache, sizeLimit: "0.0Gi"}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.cache.sizeLimit is "0.0Gi", a size of zero: it limits nothing; write a positive quantity, e.g. 1Gi'
+
+  - it: rejects a size of zero with an exponent ("0e5")
+    set:
+      volumes:
+        scratch: {type: ephemeral, mountPath: /scratch, size: "0e5"}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.scratch.size is "0e5", a size of zero: the claim would request no storage; write a positive quantity, e.g. 1Gi'
+
+  - it: accepts the sizes .5Gi, 100m, 1e3, 1E, 0.5Gi, 500M and 10 (a non-zero digit before the suffix)
+    set:
+      volumes:
+        a: {type: emptyDir, mountPath: /a, sizeLimit: .5Gi}
+        b: {type: emptyDir, mountPath: /b, sizeLimit: 100m}
+        c: {type: ephemeral, mountPath: /c, size: "1e3"}
+        d: {type: ephemeral, mountPath: /d, size: 1E}
+        e: {type: emptyDir, mountPath: /e, sizeLimit: 0.5Gi}
+        f: {type: ephemeral, mountPath: /f, size: 500M}
+        g: {type: ephemeral, mountPath: /g, size: "10"}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects medium Memory without sizeLimit, naming the memory limit
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /cache, medium: Memory}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.cache.medium is Memory and sizeLimit is not set: the files count against the container''s memory limit, and the volume is capped at the smaller of the pod''s memory limit and sizeLimit \(without a memory limit, at sizeLimit\); without both it could grow to the node''s allocatable memory. Set sizeLimit, e.g. 256Mi'
+
+  - it: rejects a configMap entry that names the component's -env ConfigMap (even when config renders none)
+    set:
+      volumes:
+        env: {type: configMap, mountPath: /env, name: vending-chart-base-env}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.env.name "vending-chart-base-env" is a ConfigMap of this component, which chart-base renders and rolls the pods on \(or deletes when nothing fills it\): mount the component''s files with configFiles \(at configFiles.mountPath\) instead'
+
+  - it: rejects a configMap entry that names the component's -files ConfigMap
+    set:
+      configFiles.files:
+        app.yaml: {a: 1}
+      volumes:
+        files: {type: configMap, mountPath: /files, name: vending-chart-base-files}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.files.name "vending-chart-base-files" is a ConfigMap of this component, which chart-base renders and rolls the pods on \(or deletes when nothing fills it\): mount the component''s files with configFiles \(at configFiles.mountPath\) instead'
+
+  - it: rejects a secret entry that names the component's -secrets Secret (even when no ExternalSecret is rendered)
+    set:
+      volumes:
+        creds: {type: secret, mountPath: /creds, secretName: vending-chart-base-secrets}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.creds.secretName "vending-chart-base-secrets" is the Secret of this component''s ExternalSecret: its keys already reach the container as environment variables, env can reference one under another name with secretKeyRef, and mounting it as files comes with externalSecret.mountPath \(0.9.0\)'
+
+  - it: accepts a configMap entry named like the component's Secret (no chart object of that kind has that name)
+    set:
+      volumes:
+        odd: {type: configMap, mountPath: /odd, name: vending-chart-base-secrets}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects two persistentVolumeClaim entries that name one claim
+    set:
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data, claimAccessMode: ReadWriteMany}
+        logs: {type: persistentVolumeClaim, mountPath: /logs, claimName: sales-data, claimAccessMode: ReadWriteMany}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data and volumes.logs both mount the claim "sales-data": one claim is one volume \(before Kubernetes 1.35 a pod with two volumes of one claim stays in ContainerCreating\), and mounting it at a second path is not supported yet'
+
+  - it: rejects a ReadWriteOnce claim (the default declaration) on a Deployment with the default strategy, naming every remedy
+    set:
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOnce \(claimAccessMode, the default\): a node attaches such a claim for one pod at a time, and this Deployment can run a second pod \(strategy is not set, and the Kubernetes default \(RollingUpdate, maxSurge 25%\) adds a pod\); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: replicas 0 or 1, autoscaling.enabled: false, and a strategy that adds no pod: strategy: \{type: Recreate\} for a new component; strategy: \{type: RollingUpdate, rollingUpdate: \{maxSurge: 0, maxUnavailable: 1\}\} for a Deployment that already exists \(with Helm 4 the API refuses a switch to Recreate in that upgrade\); strategy: \{type: Recreate, rollingUpdate: null\} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.data.claimAccessMode'
+
+  - it: rejects a claim whose claimAccessMode is null (the default, ReadWriteOnce) on a Deployment with the default strategy
+    set:
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data, claimAccessMode: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOnce \(claimAccessMode, the default\): a node attaches such a claim for one pod at a time, and this Deployment can run a second pod \(strategy is not set, and the Kubernetes default \(RollingUpdate, maxSurge 25%\) adds a pod\); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: replicas 0 or 1, autoscaling.enabled: false, and a strategy that adds no pod: strategy: \{type: Recreate\} for a new component; strategy: \{type: RollingUpdate, rollingUpdate: \{maxSurge: 0, maxUnavailable: 1\}\} for a Deployment that already exists \(with Helm 4 the API refuses a switch to Recreate in that upgrade\); strategy: \{type: Recreate, rollingUpdate: null\} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.data.claimAccessMode'
+
+  - it: rejects a ReadWriteOnce claim with strategy type RollingUpdate and no maxSurge (the default 25% adds a pod)
+    set:
+      strategy: {type: RollingUpdate}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data, claimAccessMode: ReadWriteOnce}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOnce \(claimAccessMode\): a node attaches such a claim for one pod at a time, and this Deployment can run a second pod \(strategy.rollingUpdate.maxSurge is not set, and the Kubernetes default \(25%\) adds a pod\); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: replicas 0 or 1, autoscaling.enabled: false, and a strategy that adds no pod: strategy: \{type: Recreate\} for a new component; strategy: \{type: RollingUpdate, rollingUpdate: \{maxSurge: 0, maxUnavailable: 1\}\} for a Deployment that already exists \(with Helm 4 the API refuses a switch to Recreate in that upgrade\); strategy: \{type: Recreate, rollingUpdate: null\} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.data.claimAccessMode'
+
+  - it: rejects a ReadWriteOncePod claim with maxSurge 1
+    set:
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 1, maxUnavailable: 0}}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data, claimAccessMode: ReadWriteOncePod}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOncePod \(claimAccessMode\): a node attaches such a claim for one pod at a time, and this Deployment can run a second pod \(strategy.rollingUpdate.maxSurge is 1, which adds a pod\); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: replicas 0 or 1, autoscaling.enabled: false, and a strategy that adds no pod: strategy: \{type: Recreate\} for a new component; strategy: \{type: RollingUpdate, rollingUpdate: \{maxSurge: 0, maxUnavailable: 1\}\} for a Deployment that already exists \(with Helm 4 the API refuses a switch to Recreate in that upgrade\); strategy: \{type: Recreate, rollingUpdate: null\} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.data.claimAccessMode'
+
+  - it: rejects a ReadWriteOnce claim with maxSurge 25%
+    set:
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 25%, maxUnavailable: 25%}}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOnce \(claimAccessMode, the default\): a node attaches such a claim for one pod at a time, and this Deployment can run a second pod \(strategy.rollingUpdate.maxSurge is 25%, which adds a pod\); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: replicas 0 or 1, autoscaling.enabled: false, and a strategy that adds no pod: strategy: \{type: Recreate\} for a new component; strategy: \{type: RollingUpdate, rollingUpdate: \{maxSurge: 0, maxUnavailable: 1\}\} for a Deployment that already exists \(with Helm 4 the API refuses a switch to Recreate in that upgrade\); strategy: \{type: Recreate, rollingUpdate: null\} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.data.claimAccessMode'
+
+  - it: rejects a ReadWriteOnce claim on a Deployment with Recreate and 2 replicas
+    set:
+      replicas: 2
+      strategy: {type: Recreate}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOnce \(claimAccessMode, the default\): a node attaches such a claim for one pod at a time, and this Deployment can run a second pod \(replicas is 2\); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: replicas 0 or 1, autoscaling.enabled: false, and a strategy that adds no pod: strategy: \{type: Recreate\} for a new component; strategy: \{type: RollingUpdate, rollingUpdate: \{maxSurge: 0, maxUnavailable: 1\}\} for a Deployment that already exists \(with Helm 4 the API refuses a switch to Recreate in that upgrade\); strategy: \{type: Recreate, rollingUpdate: null\} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.data.claimAccessMode'
+
+  - it: rejects a ReadWriteOnce claim on a Deployment with Recreate and autoscaling
+    set:
+      strategy: {type: Recreate}
+      autoscaling.enabled: true
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOnce \(claimAccessMode, the default\): a node attaches such a claim for one pod at a time, and this Deployment can run a second pod \(autoscaling.enabled is true\); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: replicas 0 or 1, autoscaling.enabled: false, and a strategy that adds no pod: strategy: \{type: Recreate\} for a new component; strategy: \{type: RollingUpdate, rollingUpdate: \{maxSurge: 0, maxUnavailable: 1\}\} for a Deployment that already exists \(with Helm 4 the API refuses a switch to Recreate in that upgrade\); strategy: \{type: Recreate, rollingUpdate: null\} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.data.claimAccessMode'
+
+  - it: rejects a ReadWriteOnce claim mounted readOnly (readOnly does not lift the attach restriction)
+    set:
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data, readOnly: true}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOnce \(claimAccessMode, the default\): a node attaches such a claim for one pod at a time, and this Deployment can run a second pod \(strategy is not set, and the Kubernetes default \(RollingUpdate, maxSurge 25%\) adds a pod\); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: replicas 0 or 1, autoscaling.enabled: false, and a strategy that adds no pod: strategy: \{type: Recreate\} for a new component; strategy: \{type: RollingUpdate, rollingUpdate: \{maxSurge: 0, maxUnavailable: 1\}\} for a Deployment that already exists \(with Helm 4 the API refuses a switch to Recreate in that upgrade\); strategy: \{type: Recreate, rollingUpdate: null\} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.data.claimAccessMode'
+
+  - it: accepts a ReadWriteOnce claim on a Deployment with strategy Recreate
+    set:
+      strategy: {type: Recreate}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a ReadWriteOnce claim on a Deployment with maxSurge 0 alone
+    set:
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0}}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a ReadWriteOnce claim on a Deployment with maxSurge 0% (read as 0)
+    set:
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0%, maxUnavailable: 1}}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a ReadWriteOncePod claim on a Deployment with maxSurge 0 and maxUnavailable 1 (the remedy for a Deployment that exists)
+    set:
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}
+      replicas: 0
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data, claimAccessMode: ReadWriteOncePod}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts claims declared ReadWriteMany and ReadOnlyMany with 3 replicas and the default strategy
+    set:
+      replicas: 3
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data, claimAccessMode: ReadWriteMany}
+        assets: {type: persistentVolumeClaim, mountPath: /assets, claimName: assets, claimAccessMode: ReadOnlyMany}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a ReadWriteOnce claim on a cronjob (no guard on it)
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      replicas: 2
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a ReadWriteOnce claim on a job
+    set:
+      workload.type: job
+      replicas: 2
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts an ephemeral volume (ReadWriteOnce, one claim per pod) on a Deployment with RollingUpdate and 3 replicas
+    set:
+      replicas: 3
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 1, maxUnavailable: 0}}
+      volumes:
+        scratch: {type: ephemeral, mountPath: /scratch, size: 10Gi}
+    asserts:
+      - hasDocuments:
+          count: 0

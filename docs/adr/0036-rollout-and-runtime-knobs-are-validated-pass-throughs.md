@@ -1,6 +1,6 @@
 # ADR-0036: Rollout and pod runtime knobs are validated pass-throughs
 
-- **Status:** Accepted — amended by [ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md) (0.6.0)
+- **Status:** Accepted — amended by [ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md) (0.6.0) and [ADR-0050](0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md) (0.7.0)
 - **Date:** 2026-09-29
 - **Since:** 0.3.0
 - **Related:** [ADR-0011](0011-strict-draft-07-schema.md), [ADR-0017](0017-progress-deadline-240s.md),

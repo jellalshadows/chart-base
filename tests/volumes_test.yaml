@@ -1,0 +1,422 @@
+suite: volumes (rendering, every workload type)
+templates:
+  - templates/deployment.yaml
+  - templates/cronjob.yaml
+  - templates/job.yaml
+  - templates/configmap-env.yaml
+  - templates/configmap-files.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+values:
+  - values/base.yaml
+tests:
+  - it: renders an emptyDir volume and its mount in the main container, after the chart's own tmp
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /cache}
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - name: tmp
+              emptyDir: {}
+            - name: cache
+              emptyDir: {}
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /cache
+
+  - it: renders the medium and sizeLimit of an emptyDir, the size quoted
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /cache, medium: Memory, sizeLimit: "1e3"}
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[1]
+          value:
+            name: cache
+            emptyDir:
+              medium: Memory
+              sizeLimit: "1e3"
+
+  - it: renders a configMap volume with every field (items with and without a mode, defaultMode, optional), its mount read-only
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        rules:
+          type: configMap
+          mountPath: /etc/rules
+          name: shared-rules
+          items:
+            - {key: alerts, path: alerts.yaml, mode: 0444}
+            - {key: limits, path: conf/limits.yaml}
+          defaultMode: 0440
+          optional: true
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[1]
+          value:
+            name: rules
+            configMap:
+              name: shared-rules
+              items:
+                - {key: alerts, path: alerts.yaml, mode: 292}
+                - {key: limits, path: conf/limits.yaml}
+              defaultMode: 288
+              optional: true
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[1]
+          value:
+            name: rules
+            mountPath: /etc/rules
+            readOnly: true
+
+  - it: renders optional false, defaultMode 0 and an item mode 0 (values, not absences)
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        rules:
+          type: configMap
+          mountPath: /etc/rules
+          name: shared-rules
+          items:
+            - {key: alerts, path: alerts.yaml, mode: 0}
+          defaultMode: 0
+          optional: false
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[1].configMap
+          value:
+            name: shared-rules
+            items:
+              - {key: alerts, path: alerts.yaml, mode: 0}
+            defaultMode: 0
+            optional: false
+
+  - it: renders a secret volume on a cronjob, its mount read-only and with its subPath
+    template: templates/cronjob.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      volumes:
+        certs: {type: secret, mountPath: /certs/tls.crt, subPath: tls.crt, secretName: api-tls}
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.volumes[1]
+          value:
+            name: certs
+            secret:
+              secretName: api-tls
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].volumeMounts[1]
+          value:
+            name: certs
+            mountPath: /certs/tls.crt
+            subPath: tls.crt
+            readOnly: true
+
+  - it: renders a persistentVolumeClaim volume on a job (nothing new is a hook), readOnly on the mount only for a ReadWriteOnce claim
+    template: templates/job.yaml
+    set:
+      workload.type: job
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data, readOnly: true}
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.template.spec.volumes[1]
+          value:
+            name: data
+            persistentVolumeClaim:
+              claimName: sales-data
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[1]
+          value:
+            name: data
+            mountPath: /data
+            readOnly: true
+
+  - it: renders readOnly true on the volume source and on the mount for a claim declared ReadOnlyMany
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        shared: {type: persistentVolumeClaim, mountPath: /shared, claimName: shared-assets, claimAccessMode: ReadOnlyMany}
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[1]
+          value:
+            name: shared
+            persistentVolumeClaim:
+              claimName: shared-assets
+              readOnly: true
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[1]
+          value:
+            name: shared
+            mountPath: /shared
+            readOnly: true
+
+  - it: renders an ephemeral volume whose claim template carries exactly the two selector labels (no helm.sh/chart in the pod template), ReadWriteOnce by default, no class
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        scratch: {type: ephemeral, mountPath: /scratch, size: 10Gi}
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[1]
+          value:
+            name: scratch
+            ephemeral:
+              volumeClaimTemplate:
+                metadata:
+                  labels:
+                    app.kubernetes.io/name: chart-base
+                    app.kubernetes.io/instance: vending
+                spec:
+                  accessModes: [ReadWriteOnce]
+                  resources:
+                    requests:
+                      storage: 10Gi
+      - notExists:
+          path: spec.template.metadata.labels["helm.sh/chart"]
+
+  - it: renders the accessMode and storageClassName of an ephemeral volume
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        scratch: {type: ephemeral, mountPath: /scratch, size: 10Gi, accessMode: ReadWriteMany, storageClassName: fast-rwx}
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[1].ephemeral.volumeClaimTemplate.spec
+          value:
+            accessModes: [ReadWriteMany]
+            storageClassName: fast-rwx
+            resources:
+              requests:
+                storage: 10Gi
+
+  - it: renders the volumes and mounts in key order, after tmp and config-files
+    template: templates/deployment.yaml
+    set:
+      configFiles.files:
+        app.yaml: {a: 1}
+      volumes:
+        zz-cache: {type: emptyDir, mountPath: /zz}
+        aa-cache: {type: emptyDir, mountPath: /aa, sizeLimit: 1Gi}
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - name: tmp
+              emptyDir: {}
+            - name: config-files
+              configMap:
+                name: vending-chart-base-files
+            - name: aa-cache
+              emptyDir: {sizeLimit: 1Gi}
+            - name: zz-cache
+              emptyDir: {}
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - name: tmp
+              mountPath: /tmp
+            - name: config-files
+              mountPath: /config
+              readOnly: true
+            - name: aa-cache
+              mountPath: /aa
+            - name: zz-cache
+              mountPath: /zz
+
+  - it: quotes every string from values (names and paths that YAML reads as booleans or numbers, a hash in a path)
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        "true": {type: configMap, mountPath: "/rules #1", subPath: "true", name: "true", items: [{key: "true", path: "1e3"}]}
+        certs: {type: secret, mountPath: /certs, secretName: "false"}
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: "1e3"}
+        scratch: {type: ephemeral, mountPath: /scratch, size: "1e3", storageClassName: "true"}
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[1].secret.secretName
+          value: "false"
+      - equal:
+          path: spec.template.spec.volumes[2].persistentVolumeClaim.claimName
+          value: "1e3"
+      - equal:
+          path: spec.template.spec.volumes[3].ephemeral.volumeClaimTemplate.spec
+          value:
+            accessModes: [ReadWriteOnce]
+            storageClassName: "true"
+            resources:
+              requests:
+                storage: "1e3"
+      - equal:
+          path: spec.template.spec.volumes[4]
+          value:
+            name: "true"
+            configMap:
+              name: "true"
+              items:
+                - {key: "true", path: "1e3"}
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[2]
+          value:
+            name: data
+            mountPath: /data
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[4]
+          value:
+            name: "true"
+            mountPath: "/rules #1"
+            subPath: "true"
+            readOnly: true
+
+  - it: renders readOnly false on an emptyDir mount (a value, accepted where it is allowed)
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /cache, readOnly: false}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[1]
+          value:
+            name: cache
+            mountPath: /cache
+            readOnly: false
+
+  - it: renders a null field as absent (sizeLimit null, optional null, items null, subPath null)
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /cache, sizeLimit: null, subPath: null}
+        rules: {type: configMap, mountPath: /rules, name: shared-rules, optional: null, items: null}
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - name: tmp
+              emptyDir: {}
+            - name: cache
+              emptyDir: {}
+            - name: rules
+              configMap:
+                name: shared-rules
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[1]
+          value:
+            name: cache
+            mountPath: /cache
+
+  - it: renders only the chart's own volume and mount for a map of null entries
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        cache: null
+        certs: null
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - name: tmp
+              emptyDir: {}
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - name: tmp
+              mountPath: /tmp
+
+  - it: renders only the chart's own volume for volumes null (an override file clears every volume)
+    template: templates/deployment.yaml
+    set:
+      volumes: null
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - name: tmp
+              emptyDir: {}
+
+  - it: renders only the chart's own volume when volumes is not set (the default {})
+    template: templates/job.yaml
+    set:
+      workload.type: job
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - name: tmp
+              emptyDir: {}
+
+  - it: feeds the Reloader with the configMap and secret entries, deduplicated with env and envFrom, sorted, regex-quoted
+    template: templates/deployment.yaml
+    set:
+      env:
+        SHARED_TOKEN:
+          valueFrom:
+            secretKeyRef: {name: e2e-shared, key: TOKEN}
+      envFrom:
+        - configMapRef: {name: shared-config}
+      volumes:
+        tls: {type: secret, mountPath: /tls, secretName: api.tls}
+        shared: {type: secret, mountPath: /shared, secretName: e2e-shared}
+        rules: {type: configMap, mountPath: /rules, name: rules}
+        flags: {type: configMap, mountPath: /flags, name: shared-config}
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: claimed, claimAccessMode: ReadWriteMany}
+        cache: {type: emptyDir, mountPath: /cache}
+    asserts:
+      - equal:
+          path: metadata.annotations["secret.reloader.stakater.com/reload"]
+          value: api\.tls,e2e-shared
+      - equal:
+          path: metadata.annotations["configmap.reloader.stakater.com/reload"]
+          value: rules,shared-config
+
+  - it: lists no null entry in the Reloader annotations
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        gone: null
+        certs: {type: secret, mountPath: /certs, secretName: api-tls}
+    asserts:
+      - equal:
+          path: metadata.annotations["secret.reloader.stakater.com/reload"]
+          value: api-tls
+      - notExists:
+          path: metadata.annotations["configmap.reloader.stakater.com/reload"]
+
+  - it: renders no Reloader annotation for volumes with reloadOnChange false
+    template: templates/deployment.yaml
+    set:
+      reloadOnChange: false
+      volumes:
+        certs: {type: secret, mountPath: /certs, secretName: api-tls}
+        rules: {type: configMap, mountPath: /rules, name: rules}
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  - it: renders no Reloader annotation on a cronjob or a job with volumes (Deployments only)
+    template: templates/cronjob.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      volumes:
+        certs: {type: secret, mountPath: /certs, secretName: api-tls}
+    asserts:
+      - notExists:
+          path: metadata.annotations

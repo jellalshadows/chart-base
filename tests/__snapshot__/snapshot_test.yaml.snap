@@ -54,7 +54,7 @@ cronjob scenario:
                 - command:
                     - sh
                     - -c
-                    - test "$APP_MODE" = cleanup && test -n "$POD_NAME" && test "$MEMORY_MB" = 64 && test "$SHARED_TOKEN" = abc && test -n "$KUBERNETES_SERVICE_HOST" && test -z "$DEPLOYMENT_CHART_BASE_SERVICE_HOST" && echo ok
+                    - test "$APP_MODE" = cleanup && test -n "$POD_NAME" && test "$MEMORY_MB" = 64 && test "$SHARED_TOKEN" = abc && test -n "$KUBERNETES_SERVICE_HOST" && test -z "$DEPLOYMENT_CHART_BASE_SERVICE_HOST" && echo ok && echo "$POD_NAME" > /work/pod && test ! -e /scratch/marker && touch /scratch/marker && echo "$POD_NAME" >> /runs/pods.log && cat /runs/pods.log
                   env:
                     - name: MEMORY_MB
                       valueFrom:
@@ -90,6 +90,12 @@ cronjob scenario:
                   volumeMounts:
                     - mountPath: /tmp
                       name: tmp
+                    - mountPath: /runs
+                      name: runs
+                    - mountPath: /scratch
+                      name: scratch
+                    - mountPath: /work
+                      name: work
               enableServiceLinks: false
               restartPolicy: Never
               securityContext:
@@ -105,6 +111,24 @@ cronjob scenario:
               volumes:
                 - emptyDir: {}
                   name: tmp
+                - name: runs
+                  persistentVolumeClaim:
+                    claimName: e2e-runs
+                - ephemeral:
+                    volumeClaimTemplate:
+                      metadata:
+                        labels:
+                          app.kubernetes.io/instance: vending
+                          app.kubernetes.io/name: chart-base
+                      spec:
+                        accessModes:
+                          - ReadWriteOnce
+                        resources:
+                          requests:
+                            storage: 64Mi
+                  name: scratch
+                - emptyDir: {}
+                  name: work
       schedule: '*/30 * * * *'
       successfulJobsHistoryLimit: 3
       suspend: false
@@ -350,7 +374,8 @@ full scenario:
     kind: Deployment
     metadata:
       annotations:
-        secret.reloader.stakater.com/reload: e2e-shared,vending-chart-base-secrets
+        configmap.reloader.stakater.com/reload: e2e-rules
+        secret.reloader.stakater.com/reload: e2e-files,e2e-shared,vending-chart-base-secrets
       labels:
         app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
@@ -447,6 +472,15 @@ full scenario:
                 - mountPath: /config
                   name: config-files
                   readOnly: true
+                - mountPath: /tmp/cache
+                  name: cache
+                - mountPath: /config/secrets
+                  name: files
+                  readOnly: true
+                - mountPath: /etc/rules/alerts.yaml
+                  name: rules
+                  readOnly: true
+                  subPath: alerts.yaml
           dnsConfig:
             options:
               - name: ndots
@@ -492,6 +526,22 @@ full scenario:
             - configMap:
                 name: vending-chart-base-files
               name: config-files
+            - emptyDir:
+                medium: Memory
+                sizeLimit: 16Mi
+              name: cache
+            - name: files
+              secret:
+                secretName: e2e-files
+            - configMap:
+                defaultMode: 288
+                items:
+                  - key: alerts
+                    mode: 292
+                    path: alerts.yaml
+                name: e2e-rules
+                optional: false
+              name: rules
   4: |
     apiVersion: external-secrets.io/v1
     kind: ExternalSecret
