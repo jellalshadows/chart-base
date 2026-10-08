@@ -211,13 +211,26 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list $ (printf "volumes.%s.%s is a field of type %s and the entry is %s: remove it (from an overlay, set it to null)" $name $field (join " or " $owners) $v.type)) -}}
 {{- end -}}
 {{- end -}}
+{{- /* A volume without mountPath is not mounted in the main container: a non-null mount of a non-null init container or sidecar must mount it, and subPath and readOnly (the main container's mount) are not set. */ -}}
+{{- if not (hasKey $v "mountPath") -}}
+{{- $mounted := false -}}
+{{- range $c := $containers.ordered }}{{ if hasKey ($c.entry.volumeMounts | default dict) $name }}{{ $mounted = true }}{{ end }}{{ end -}}
+{{- if not $mounted -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s has no mountPath and no container mounts it: set volumes.%s.mountPath (the main container's mount), mount it in a sidecar or init container (volumeMounts.%s), or remove it with volumes.%s: null" $name $name $name $name)) -}}
+{{- end -}}
+{{- range $field := list "subPath" "readOnly" -}}
+{{- if hasKey $v $field -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.%s describes the main container's mount, and volumes.%s has no mountPath: set mountPath, or remove %s (from an overlay, set it to null)" $name $field $name $field)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 
 {{- /* volumes: paths. A mount path is compared normalized (chart-base.cleanPath), with every mount the main container renders (chart-base.mainMounts); a relative path is checked as written. */ -}}
 {{- $mounts := dict -}}
 {{- include "chart-base.mainMounts" (dict "ctx" . "volumes" $volumes "out" $mounts) -}}
 {{- range $name, $v := $volumes -}}
-{{- $clean := include "chart-base.cleanPath" $v.mountPath -}}
+{{- $clean := "" }}{{ if hasKey $v "mountPath" }}{{ $clean = include "chart-base.cleanPath" $v.mountPath }}{{ end -}}
 {{- if eq $clean "/" -}}
 {{- include "chart-base.fail" (list $ (printf "volumes.%s.mountPath %q is / once normalized: a volume cannot be mounted at the container's root; choose a directory" $name $v.mountPath)) -}}
 {{- end -}}
@@ -262,8 +275,14 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if and (eq $v.type "persistentVolumeClaim") (eq ($v.claimAccessMode | default "ReadWriteOnce") "ReadOnlyMany") (hasKey $v "readOnly") (not $v.readOnly) -}}
 {{- include "chart-base.fail" (list $ (printf "volumes.%s.readOnly is false, and the claim is declared ReadOnlyMany (claimAccessMode), so its mount is read-only: remove readOnly, or declare the claim's real access mode" $name)) -}}
 {{- end -}}
-{{- if and (has $v.type (list "emptyDir" "ephemeral")) (hasKey $v "readOnly") $v.readOnly -}}
-{{- include "chart-base.fail" (list $ (printf "volumes.%s.readOnly is true on an %s volume: the main container is the only one that mounts it, so nothing could ever write it; remove readOnly" $name $v.type)) -}}
+{{- /* An emptyDir or ephemeral volume that every container mounts read-only can never be written (an init container that fills a volume the main container reads mounts it writable). */ -}}
+{{- if has $v.type (list "emptyDir" "ephemeral") -}}
+{{- $readOnly := list -}}
+{{- if hasKey $v "mountPath" }}{{ $readOnly = append $readOnly (and (hasKey $v "readOnly") $v.readOnly) }}{{ end -}}
+{{- range $c := $containers.ordered }}{{ with get ($c.entry.volumeMounts | default dict) $name }}{{ $readOnly = append $readOnly (and (hasKey . "readOnly") .readOnly) }}{{ end }}{{ end -}}
+{{- if and $readOnly (not (has false $readOnly)) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s (%s) is mounted read-only by every container that mounts it, so nothing can write it: mount it writable in one container" $name $v.type)) -}}
+{{- end -}}
 {{- end -}}
 {{- range $field := list "sizeLimit" "size" -}}
 {{- if and (hasKey $v $field) (not (regexMatch "^[0-9.]*[1-9]" (index $v $field))) -}}
@@ -382,5 +401,58 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- $elsewhere := dict -}}
 {{- range $r := $portRows }}{{ if eq $r.container $c.name }}{{ $own = append $own $r.name }}{{ else }}{{ $_ := set $elsewhere $r.name (ternary "ports" (printf "sidecars.%s.ports" $r.container) (eq $r.container "")) }}{{ end }}{{ end -}}
 {{- include "chart-base.validateProbePorts" (dict "ctx" $ "path" (printf "sidecars.%s.probes" $c.name) "probes" ($c.entry.probes | default dict) "portNames" $own "portsPath" (printf "sidecars.%s.ports" $c.name) "declared" $elsewhere) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* The mounts of init containers and sidecars (volumeMounts, keyed by the volume name): a volume of the pod, read-only where the kubelet forces it (chart-base.readOnlyMount), and per container the rules of the main container's mounts: normalized paths unique, not /, not the token directory, no ConfigMap or Secret file beneath a ConfigMap or Secret mount, a relative subPath, and with items a subPath that names one of them. */ -}}
+{{- $hasConfigFiles := include "chart-base.hasConfigFiles" . -}}
+{{- range $c := $containers.ordered -}}
+{{- $path := printf "%s.%s" $c.kind $c.name -}}
+{{- $rows := list -}}
+{{- range $vol, $m := $c.entry.volumeMounts | default dict -}}
+{{- $at := printf "%s.volumeMounts.%s" $path $vol -}}
+{{- $v := index $volumes $vol | default dict -}}
+{{- $source := "" -}}
+{{- if eq $vol "tmp" }}{{ $source = "emptyDir" }}{{ else if and (eq $vol "config-files") $hasConfigFiles }}{{ $source = "configMap" }}{{ else if hasKey $volumes $vol }}{{ $source = $v.type }}{{ end -}}
+{{- if not $source -}}
+{{- include "chart-base.fail" (list $ (printf "%s names no volume of the component: mount tmp, config-files (while configFiles.files has a file) or a non-null entry of volumes" $at)) -}}
+{{- end -}}
+{{- if and (include "chart-base.readOnlyMount" (dict "volumes" $volumes "name" $vol)) (hasKey $m "readOnly") (not $m.readOnly) -}}
+{{- $why := ternary "config-files is a ConfigMap mount, always read-only (the kubelet forces it)" (printf "a %s mount is always read-only (the kubelet forces it)" $source) (eq $vol "config-files") -}}
+{{- if eq $source "persistentVolumeClaim" }}{{ $why = printf "the claim is declared ReadOnlyMany (volumes.%s.claimAccessMode), so its mount is read-only" $vol }}{{ end -}}
+{{- include "chart-base.fail" (list $ (printf "%s.readOnly is false, and %s: remove readOnly" $at $why)) -}}
+{{- end -}}
+{{- if and (hasKey $m "subPath") (or (hasPrefix "/" $m.subPath) (has ".." (splitList "/" $m.subPath))) -}}
+{{- include "chart-base.fail" (list $ (printf "%s.subPath %q must be a relative path without a .. element: a path inside the volume, such as tls.crt" $at $m.subPath)) -}}
+{{- end -}}
+{{- if and (hasKey $m "subPath") (has $source (list "configMap" "secret")) (hasKey $v "items") -}}
+{{- $sub := include "chart-base.cleanPath" $m.subPath -}}
+{{- /* The volume's root (a subPath of . or ./) holds every item. */ -}}
+{{- $named := eq $sub "/" -}}
+{{- $paths := list -}}
+{{- range $item := $v.items }}{{ $p := include "chart-base.cleanPath" $item.path }}{{ $paths = append $paths $item.path }}{{ if or (eq $p $sub) (hasPrefix (printf "%s/" $sub) $p) }}{{ $named = true }}{{ end }}{{ end -}}
+{{- if not $named -}}
+{{- include "chart-base.fail" (list $ (printf "%s.subPath %q names no file of volumes.%s.items (%s): with items, the volume holds only those paths, and the kubelet would mount an empty directory there; name one of them, or a directory that holds one" $at $m.subPath $vol (join ", " $paths))) -}}
+{{- end -}}
+{{- end -}}
+{{- $rows = append $rows (dict "name" $vol "path" $m.mountPath "clean" (include "chart-base.cleanPath" $m.mountPath) "source" $source "file" (hasKey $m "subPath") "owner" (printf "%s.mountPath" $at) "mount" $at) -}}
+{{- end -}}
+{{- range $r := $rows -}}
+{{- if eq $r.clean "/" -}}
+{{- include "chart-base.fail" (list $ (printf "%s %q is / once normalized: a volume cannot be mounted at the container's root; choose a directory" $r.owner $r.path)) -}}
+{{- end -}}
+{{- if eq $r.clean "/var/run/secrets/kubernetes.io/serviceaccount" -}}
+{{- include "chart-base.fail" (list $ (printf "%s %q is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized: a volume there replaces the token, whether or not serviceAccount.automountToken is true now; choose another directory" $r.owner $r.path)) -}}
+{{- end -}}
+{{- end -}}
+{{- range $i, $x := $rows -}}
+{{- range $j, $y := $rows -}}
+{{- if and (lt $j $i) (eq $x.clean $y.clean) -}}
+{{- include "chart-base.fail" (list $ (printf "%s %q and %s %q are the same path once normalized (%s): each mount of %s needs a path of its own; choose another directory (one beneath it, such as %s/cache, is allowed)" $x.owner $x.path $y.owner $y.path $x.clean $path $x.clean)) -}}
+{{- end -}}
+{{- if and $x.file (has $x.source (list "configMap" "secret")) (has $y.source (list "configMap" "secret")) (ne $x.name $y.name) (hasPrefix (printf "%s/" $y.clean) $x.clean) -}}
+{{- include "chart-base.fail" (list $ (printf "%s mounts one file (subPath) at %q, beneath %s %q, a ConfigMap or Secret mount: the kubelet creates that mount point as a directory inside the parent volume, and a file cannot be mounted on a directory. Mount the volume as a directory beneath it (without subPath, for example %s/secrets), or the file beside it" $x.mount $x.path $y.owner $y.path $y.clean)) -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}

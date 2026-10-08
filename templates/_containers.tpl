@@ -66,11 +66,12 @@ capabilities:
 chart-base.entryContainer: one item of chart-base.containers' ordered list, rendered as an item of a pod's
 initContainers: each field by name from the pruned entry, every string from values quoted, no empty list. A sidecar
 gets restartPolicy: Always, which the chart writes (it is not a value).
-Usage: include "chart-base.entryContainer" (dict "ctx" $ "container" <an item of ordered>) | nindent 2
+Usage: include "chart-base.entryContainer" (dict "ctx" $ "container" <an item of ordered> "volumes" <the dict of chart-base.volumes>) | nindent 2
 */}}
 {{- define "chart-base.entryContainer" -}}
 {{- $ := .ctx -}}
 {{- $e := .container.entry -}}
+{{- $volumes := .volumes | default dict -}}
 {{- $pullPolicy := "IfNotPresent" -}}
 {{- if hasKey $e.image "pullPolicy" }}{{ $pullPolicy = $e.image.pullPolicy }}{{ end -}}
 - name: {{ .container.name | quote }}
@@ -135,6 +136,21 @@ Usage: include "chart-base.entryContainer" (dict "ctx" $ "container" <an item of
     {{- toYaml $e.resources | nindent 4 }}
   securityContext:
     {{- toYaml .container.securityContext | nindent 4 }}
+  {{- with $e.volumeMounts }}
+  volumeMounts:
+    {{- range $vol, $m := . }}
+    - name: {{ $vol | quote }}
+      mountPath: {{ $m.mountPath | quote }}
+      {{- if hasKey $m "subPath" }}
+      subPath: {{ $m.subPath | quote }}
+      {{- end }}
+      {{- if include "chart-base.readOnlyMount" (dict "volumes" $volumes "name" $vol) }}
+      readOnly: true
+      {{- else if hasKey $m "readOnly" }}
+      readOnly: {{ $m.readOnly }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
 {{- end -}}
 
 {{/*

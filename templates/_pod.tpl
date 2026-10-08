@@ -85,7 +85,7 @@ terminationGracePeriodSeconds: {{ $.Values.terminationGracePeriodSeconds }}
 {{- if $containers.ordered }}
 initContainers:
   {{- range $c := $containers.ordered }}
-  {{- include "chart-base.entryContainer" (dict "ctx" $ "container" $c) | nindent 2 }}
+  {{- include "chart-base.entryContainer" (dict "ctx" $ "container" $c "volumes" $volumes) | nindent 2 }}
   {{- end }}
 {{- end }}
 containers:
@@ -162,6 +162,8 @@ containers:
         readOnly: true
       {{- end }}
       {{- range $name, $v := $volumes }}
+      {{- /* A volume without mountPath has no mount in the main container: an init container or a sidecar mounts it. */}}
+      {{- if hasKey $v "mountPath" }}
       - name: {{ $name | quote }}
         mountPath: {{ $v.mountPath | quote }}
         {{- if hasKey $v "subPath" }}
@@ -173,6 +175,7 @@ containers:
         {{- else if hasKey $v "readOnly" }}
         readOnly: {{ $v.readOnly }}
         {{- end }}
+      {{- end }}
       {{- end }}
 volumes:
   - name: tmp

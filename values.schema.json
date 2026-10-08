@@ -309,12 +309,12 @@
       }
     },
     "volume": {
-      "description": "An entry of volumes: one pod volume and its mount in the main container. null = no entry; every optional field also accepts null (absent). One closed list of the fields of every type: a field of another type is rejected by templates/validate.yaml, so that an overlay can change the type by setting the previous type's fields to null.",
-      "type": ["object", "null"], "additionalProperties": false, "required": ["type", "mountPath"],
+      "description": "An entry of volumes: one pod volume and, with mountPath, its mount in the main container. null = no entry; every optional field also accepts null (absent). One closed list of the fields of every type: a field of another type is rejected by templates/validate.yaml, so that an overlay can change the type by setting the previous type's fields to null.",
+      "type": ["object", "null"], "additionalProperties": false, "required": ["type"],
       "properties": {
         "type": { "enum": ["emptyDir", "configMap", "secret", "persistentVolumeClaim", "ephemeral"] },
-        "mountPath": { "type": "string", "pattern": "^/", "description": "Absolute: the kubelet would resolve a relative path against /." },
-        "subPath": { "type": ["string", "null"], "minLength": 1 },
+        "mountPath": { "type": ["string", "null"], "pattern": "^/", "description": "The main container's mount, absolute (the kubelet would resolve a relative path against /). null or absent: no mount in the main container (templates/validate.yaml then requires a mount in an init container or a sidecar)." },
+        "subPath": { "$ref": "#/definitions/subPath" },
         "readOnly": { "type": ["boolean", "null"] },
         "medium": { "enum": ["Memory", null] },
         "sizeLimit": { "$ref": "#/definitions/positiveQuantity" },
@@ -404,6 +404,28 @@
       "propertyNames": { "$ref": "#/definitions/envName" },
       "additionalProperties": { "type": ["object", "string", "number", "boolean", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/envVar" } }
     },
+    "mountPath": {
+      "description": "An absolute mount path (the kubelet would resolve a relative path against /), never null.",
+      "type": "string", "pattern": "^/"
+    },
+    "subPath": {
+      "description": "A path inside the volume (templates/validate.yaml: relative, without a .. element); null = absent.",
+      "type": ["string", "null"], "minLength": 1
+    },
+    "volumeMount": {
+      "description": "A mount of an init container or a sidecar, keyed by the volume name: mountPath (required), subPath, readOnly. Closed; a null subPath or readOnly is absent.",
+      "type": "object", "additionalProperties": false, "required": ["mountPath"],
+      "properties": {
+        "mountPath": { "$ref": "#/definitions/mountPath" },
+        "subPath": { "$ref": "#/definitions/subPath" },
+        "readOnly": { "type": ["boolean", "null"] }
+      }
+    },
+    "containerMounts": {
+      "description": "The mounts of an init container or a sidecar, keyed by the VOLUME name (tmp, config-files or an entry of volumes: templates/validate.yaml checks it). null = none; a null mount is absent.",
+      "type": ["object", "null"],
+      "additionalProperties": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/volumeMount" } }
+    },
     "probe": {
       "description": "A probe of a sidecar: exactly one handler (each oneOf branch types it as an object, so that a handler set to null is no handler), closed at every level; no host (Pod Security baseline rejects one from policy v1.34), no httpGet.protocol or grpc.mode (alpha in Kubernetes 1.37). A null field or handler is absent; inside httpGet and exec, shared with lifecycle, a null stays an error.",
       "additionalProperties": false, "type": "object",
@@ -479,6 +501,7 @@
         "restartPolicy": { "description": "Written by the chart, never a value: templates/validate.yaml rejects the key with a remedy (null is absent)." },
         "env": { "$ref": "#/definitions/containerEnv" },
         "inheritEnv": { "type": ["boolean", "null"], "description": "true: exactly the main container's envFrom and env (default false)." },
+        "volumeMounts": { "$ref": "#/definitions/containerMounts" },
         "order": { "description": "An init container's default is 0.", "$ref": "#/definitions/containerOrder" }
       }
     },
@@ -496,6 +519,7 @@
         "inheritEnv": { "type": ["boolean", "null"], "description": "true: exactly the main container's envFrom and env (default false)." },
         "ports": { "type": ["array", "null"], "items": { "$ref": "#/definitions/sidecarPort" } },
         "probes": { "$ref": "#/definitions/sidecarProbes" },
+        "volumeMounts": { "$ref": "#/definitions/containerMounts" },
         "order": { "description": "A sidecar's default is 1000.", "$ref": "#/definitions/containerOrder" }
       }
     }
@@ -570,7 +594,7 @@
       }
     },
     "volumes": {
-      "description": "Extra volumes mounted in the main container, keyed by the volume name (templates/validate.yaml checks the name). null = none; a null entry or field is absent.",
+      "description": "Extra volumes of the pod, keyed by the volume name (templates/validate.yaml checks the name), each mounted in the main container (mountPath) and in the init containers and sidecars that list it in volumeMounts. null = none; a null entry or field is absent.",
       "type": "object",
       "additionalProperties": { "$ref": "#/definitions/volume" }
     },

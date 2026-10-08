@@ -67,10 +67,13 @@ configFiles:
   # rendered as written, with everything inside it, and a map left empty stays `{}`.
   files: {}
 
-# -- Extra volumes, each mounted in the main container: a map keyed by the volume name, rendered in key order after the
-# chart's own `tmp` and `config-files`. Every entry has a `type` (`emptyDir`; `configMap` and `secret`, mounted
-# read-only; `persistentVolumeClaim`, an EXISTING claim; `ephemeral`, a claim created and deleted with each pod) and an
-# absolute `mountPath`, and may have `subPath` and `readOnly`. The fields of each type: `emptyDir`: `medium` (`Memory`),
+# -- Extra volumes of the pod: a map keyed by the volume name, rendered in key order after the chart's own `tmp` and
+# `config-files`. Every entry has a `type` (`emptyDir`; `configMap` and `secret`, mounted read-only;
+# `persistentVolumeClaim`, an EXISTING claim; `ephemeral`, a claim created and deleted with each pod) and an absolute
+# `mountPath`, the main container's mount, with its `subPath` and `readOnly`. `mountPath` is optional when an init
+# container or a sidecar mounts the volume (`initContainers.<name>.volumeMounts`): without it the main container does
+# not mount it, and `subPath` and `readOnly` fail; a volume that no container mounts fails. The fields of each type:
+# `emptyDir`: `medium` (`Memory`),
 # `sizeLimit`; `configMap`: `name`, `items`, `defaultMode`, `optional`; `secret`: `secretName`, `items`, `defaultMode`,
 # `optional`; `persistentVolumeClaim`: `claimName`, `claimAccessMode` (default `ReadWriteOnce`); `ephemeral`: `size`, `accessMode` (default `ReadWriteOnce`),
 # `storageClassName` (default: the cluster's default class). An `ephemeral` claim lives as long as its pod (source
@@ -89,7 +92,10 @@ configFiles:
 # `/` or the ServiceAccount token directory; a directory may lie beneath another mount (`/tmp/cache`), but a `configMap`
 # or `secret` file (`subPath`) must not lie beneath a ConfigMap or Secret mount. `subPath` and `items[].path` are
 # relative, without `..`, and the `items[].path` of one entry are unique. `readOnly: false` fails on a `configMap` or
-# `secret` mount, and `readOnly: true` on an `emptyDir` or `ephemeral` one (nothing could write it). `sizeLimit` and
+# `secret` mount, and an `emptyDir` or `ephemeral` volume that every container mounts read-only fails (nothing could
+# write it; an init container that fills a volume the main container reads mounts it writable). The main container's
+# `subPath` is not checked against `items` (a `subPath` that names no item mounts an empty directory; the mounts of
+# init containers and sidecars are checked). `sizeLimit` and
 # `size` are strings (`size: 10` would mean 10 bytes) and not zero; `medium: Memory` requires `sizeLimit`: the files
 # count against the container's memory limit. A volume must not name the component's own `<fullname>-env`,
 # `<fullname>-files` or `<fullname>-secrets`, and two `persistentVolumeClaim` entries must not name one claim. A
@@ -124,7 +130,18 @@ volumes: {}
 # container already receives then fails the render. Inside one variable's `valueFrom` a `null` stays an error (the
 # definition is shared with the main container): remove or replace the variable whole (`env.NAME: null`); a `null` in
 # an entry's `env` never removes an inherited variable. An inherited `resourceFieldRef` without `containerName` reads
-# this container's own resources.
+# this container's own resources. `volumeMounts` is a map keyed by the VOLUME name, each mount with `mountPath`
+# (required, absolute), `subPath` and `readOnly`: the chart's `tmp` (shared with the main container: mount it if the
+# container writes to `/tmp`, every container having a read-only root filesystem by default), `config-files` (while a
+# file is rendered) or a non-null entry of `volumes`; nothing is mounted automatically. A `config-files`, `configMap`
+# or `secret` mount, and one of a claim declared `ReadOnlyMany`, is read-only (`readOnly: false` fails: the kubelet
+# forces it). Each container's mount paths are compared normalized among its own mounts (two equal paths, `/`, the
+# ServiceAccount token directory, and a ConfigMap or Secret file beneath a ConfigMap or Secret mount fail), `subPath`
+# is relative without `..`, and with `items` a `subPath` must name one of them or a directory that holds one. What the
+# pod grants reaches every container, whatever an entry declares: the ServiceAccount token (with
+# `serviceAccount.automountToken`) and with it the `rbac` grants and the cloud identity, the NetworkPolicy allowances
+# (an init container that calls out needs its destination in `networkPolicy.egress`), `podSecurityContext` (one UID
+# and GID: a shared volume isolates nothing), `imagePullSecrets` and the network namespace.
 initContainers: {}
 
 # -- Sidecars: containers that keep running next to the main container (native sidecars: init containers with
@@ -454,7 +471,8 @@ rbac:
   # `watch` reveal them like `get`), creating or changing workloads (a pod may run as any ServiceAccount of the
   # namespace and mount its Secrets), `pods/exec`, `pods/attach` and `pods/ephemeralcontainers` (commands in other
   # pods), `create` on `serviceaccounts/token`, `escalate`, `bind` and `impersonate`. Whoever runs the deploy must hold
-  # every permission granted here. Requires a ServiceAccount of the component (the chart's, or `serviceAccount.name`),
+  # every permission granted here, and every container of the pod, init containers and sidecars included, gets the
+# token and with it these grants. Requires a ServiceAccount of the component (the chart's, or `serviceAccount.name`),
   # never `default`, and `serviceAccount.automountToken: true` unless `use` is the only verb of every rule (an
   # admission plugin checks such a grant on the ServiceAccount itself: an OpenShift SecurityContextConstraints, for
   # example). With `resourceNames`, `deletecollection` fails the render (Kubernetes never matches it by name), and so

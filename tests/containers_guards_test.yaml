@@ -604,3 +604,263 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: rejects a mount of a volume the component does not have, naming the mountable volumes
+    set:
+      sidecars:
+        shipper: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {logz: {mountPath: /logs}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.shipper.volumeMounts.logz names no volume of the component: mount tmp, config-files \(while configFiles.files has a file\) or a non-null entry of volumes'
+
+  - it: rejects a mount of config-files when no config file is rendered
+    set:
+      sidecars:
+        shipper: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {config-files: {mountPath: /etc/app}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.shipper.volumeMounts.config-files names no volume of the component: mount tmp, config-files \(while configFiles.files has a file\) or a non-null entry of volumes'
+
+  - it: rejects a mount of a volume whose entry is null
+    set:
+      volumes:
+        gone: null
+      initContainers:
+        setup: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {gone: {mountPath: /gone}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: initContainers.setup.volumeMounts.gone names no volume of the component: mount tmp, config-files \(while configFiles.files has a file\) or a non-null entry of volumes'
+
+  - it: accepts a mount of config-files while a config file is rendered
+    set:
+      configFiles.files:
+        app.yaml: {a: b}
+      sidecars:
+        shipper: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {config-files: {mountPath: /etc/app, readOnly: true}}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects readOnly false on a mount of config-files
+    set:
+      configFiles.files:
+        app.yaml: {a: b}
+      sidecars:
+        shipper: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {config-files: {mountPath: /etc/app, readOnly: false}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.shipper.volumeMounts.config-files.readOnly is false, and config-files is a ConfigMap mount, always read-only \(the kubelet forces it\): remove readOnly'
+
+  - it: rejects readOnly false on a mount of a secret volume
+    set:
+      volumes:
+        certs: {type: secret, secretName: certs}
+      initContainers:
+        check: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {certs: {mountPath: /certs, readOnly: false}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: initContainers.check.volumeMounts.certs.readOnly is false, and a secret mount is always read-only \(the kubelet forces it\): remove readOnly'
+
+  - it: rejects readOnly false on a mount of a claim declared ReadOnlyMany
+    set:
+      volumes:
+        shared: {type: persistentVolumeClaim, claimName: shared, claimAccessMode: ReadOnlyMany}
+      sidecars:
+        reader: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {shared: {mountPath: /shared, readOnly: false}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.reader.volumeMounts.shared.readOnly is false, and the claim is declared ReadOnlyMany \(volumes.shared.claimAccessMode\), so its mount is read-only: remove readOnly'
+
+  - it: rejects two mounts of one container at the same path once normalized (/a and /a/.)
+    set:
+      volumes:
+        a: {type: emptyDir}
+      sidecars:
+        shipper: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {tmp: {mountPath: /a}, a: {mountPath: /a/.}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.shipper.volumeMounts.tmp.mountPath "/a" and sidecars.shipper.volumeMounts.a.mountPath "/a/." are the same path once normalized \(/a\): each mount of sidecars.shipper needs a path of its own; choose another directory \(one beneath it, such as /a/cache, is allowed\)'
+
+  - it: rejects a mount at / (normalized)
+    set:
+      initContainers:
+        setup: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {tmp: {mountPath: //}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: initContainers.setup.volumeMounts.tmp.mountPath "//" is / once normalized: a volume cannot be mounted at the container''s root; choose a directory'
+
+  - it: rejects a mount at the ServiceAccount token directory with automountToken false (reserved unconditionally)
+    set:
+      initContainers:
+        setup: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {tmp: {mountPath: /var/run/secrets/kubernetes.io/serviceaccount/}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: initContainers.setup.volumeMounts.tmp.mountPath "/var/run/secrets/kubernetes.io/serviceaccount/" is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized: a volume there replaces the token, whether or not serviceAccount.automountToken is true now; choose another directory'
+
+  - it: rejects a mount at the ServiceAccount token directory with automountToken true
+    set:
+      serviceAccount.automountToken: true
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {tmp: {mountPath: /var/run/secrets/kubernetes.io/serviceaccount}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.proxy.volumeMounts.tmp.mountPath "/var/run/secrets/kubernetes.io/serviceaccount" is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized: a volume there replaces the token, whether or not serviceAccount.automountToken is true now; choose another directory'
+
+  - it: accepts one volume at the same path in two containers and in the main container
+    set:
+      volumes:
+        work: {type: emptyDir, mountPath: /work}
+      initContainers:
+        setup: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {work: {mountPath: /work}}}
+      sidecars:
+        shipper: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {work: {mountPath: /work, readOnly: true}, tmp: {mountPath: /tmp}}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a secret file (subPath) beneath the container's own config-files mount
+    set:
+      configFiles.files:
+        app.yaml: {a: b}
+      volumes:
+        creds: {type: secret, secretName: creds}
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {config-files: {mountPath: /config}, creds: {mountPath: /config/creds.json, subPath: creds.json}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.proxy.volumeMounts.creds mounts one file \(subPath\) at "/config/creds.json", beneath sidecars.proxy.volumeMounts.config-files.mountPath "/config", a ConfigMap or Secret mount: the kubelet creates that mount point as a directory inside the parent volume, and a file cannot be mounted on a directory. Mount the volume as a directory beneath it \(without subPath, for example /config/secrets\), or the file beside it'
+
+  - it: accepts a secret file (subPath) beneath the main container's config-files mount when the entry does not mount it
+    set:
+      configFiles.files:
+        app.yaml: {a: b}
+      volumes:
+        creds: {type: secret, secretName: creds}
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {creds: {mountPath: /config/creds.json, subPath: creds.json}}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects an absolute subPath and a subPath with a .. element in a mount
+    set:
+      volumes:
+        work: {type: emptyDir}
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {work: {mountPath: /work, subPath: a/../../b}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.proxy.volumeMounts.work.subPath "a/../../b" must be a relative path without a .. element: a path inside the volume, such as tls.crt'
+
+  - it: rejects a subPath that names no item of a volume with items (the kubelet would mount an empty directory)
+    set:
+      volumes:
+        rules: {type: configMap, name: rules, items: [{key: alerts, path: alerts.yaml}, {key: rec, path: rules/rec.yaml}]}
+      sidecars:
+        reloader: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {rules: {mountPath: /etc/alerts.yaml, subPath: alert.yaml}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.reloader.volumeMounts.rules.subPath "alert.yaml" names no file of volumes.rules.items \(alerts.yaml, rules/rec.yaml\): with items, the volume holds only those paths, and the kubelet would mount an empty directory there; name one of them, or a directory that holds one'
+
+  - it: accepts a subPath that names an item, a directory that holds one or the volume's root (.), and any subPath of a volume without items
+    set:
+      volumes:
+        rules: {type: configMap, name: rules, items: [{key: alerts, path: alerts.yaml}, {key: rec, path: rules/rec.yaml}]}
+        all: {type: secret, secretName: all}
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {rules: {mountPath: /etc/alerts.yaml, subPath: ./alerts.yaml}, all: {mountPath: /etc/x, subPath: x}}}
+        b: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {rules: {mountPath: /etc/rules, subPath: rules}}}
+        c: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {rules: {mountPath: /etc/all-rules, subPath: .}}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a volume without mountPath that an init container mounts
+    set:
+      volumes:
+        work: {type: emptyDir}
+      initContainers:
+        setup: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {work: {mountPath: /work}}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a volume without mountPath that only a null entry or a null mount would mount
+    set:
+      volumes:
+        work: {type: emptyDir}
+      initContainers:
+        setup: null
+      sidecars:
+        shipper: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {work: null}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.work has no mountPath and no container mounts it: set volumes.work.mountPath \(the main container''s mount\), mount it in a sidecar or init container \(volumeMounts.work\), or remove it with volumes.work: null'
+
+  - it: rejects subPath on a volume without mountPath (it describes the main container's mount)
+    set:
+      volumes:
+        work: {type: emptyDir, subPath: x}
+      initContainers:
+        setup: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {work: {mountPath: /work}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.work.subPath describes the main container''s mount, and volumes.work has no mountPath: set mountPath, or remove subPath \(from an overlay, set it to null\)'
+
+  - it: rejects readOnly on a volume without mountPath (it describes the main container's mount)
+    set:
+      volumes:
+        work: {type: emptyDir, readOnly: true}
+      initContainers:
+        setup: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {work: {mountPath: /work}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.work.readOnly describes the main container''s mount, and volumes.work has no mountPath: set mountPath, or remove readOnly \(from an overlay, set it to null\)'
+
+  - it: accepts an emptyDir read-only in the main container and writable in an init container
+    set:
+      volumes:
+        work: {type: emptyDir, mountPath: /work, readOnly: true}
+      initContainers:
+        setup: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {work: {mountPath: /work}}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects an emptyDir read-only in every container that mounts it
+    set:
+      volumes:
+        work: {type: emptyDir, mountPath: /work, readOnly: true}
+      sidecars:
+        shipper: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {work: {mountPath: /work, readOnly: true}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.work \(emptyDir\) is mounted read-only by every container that mounts it, so nothing can write it: mount it writable in one container'
+
+  - it: rejects an ephemeral volume that only init containers and sidecars mount, all read-only
+    set:
+      volumes:
+        scratch: {type: ephemeral, size: 1Gi}
+      initContainers:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {scratch: {mountPath: /s, readOnly: true}}}
+      sidecars:
+        b: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {scratch: {mountPath: /s, readOnly: true}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.scratch \(ephemeral\) is mounted read-only by every container that mounts it, so nothing can write it: mount it writable in one container'
+
+  - it: rejects a null mountPath in a mount (a mount's path is required, never null)
+    set:
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {tmp: {mountPath: null}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/sidecars/a/volumeMounts/tmp/mountPath': got null, want string"
+
+  - it: rejects a misspelt field of a mount (a closed mount)
+    set:
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {tmp: {mountPath: /tmp, readonly: true}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/sidecars/a/volumeMounts/tmp': additional properties 'readonly' not allowed"

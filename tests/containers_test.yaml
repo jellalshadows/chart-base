@@ -764,3 +764,126 @@ tests:
           path: spec.template.spec.initContainers[0].readinessProbe
       - notExists:
           path: spec.template.spec.initContainers[0].ports
+
+  - it: renders an entry's mounts in key order, read-only where the kubelet forces it
+    template: templates/deployment.yaml
+    set:
+      configFiles.files:
+        app.yaml: {a: b}
+      volumes:
+        rules: {type: configMap, name: rules}
+        certs: {type: secret, secretName: certs}
+        logs: {type: emptyDir, mountPath: /var/log/app}
+        shared: {type: persistentVolumeClaim, claimName: shared, claimAccessMode: ReadOnlyMany}
+        data: {type: persistentVolumeClaim, claimName: data, claimAccessMode: ReadWriteMany}
+      sidecars:
+        shipper:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          volumeMounts:
+            tmp: {mountPath: /tmp}
+            config-files: {mountPath: /etc/app}
+            rules: {mountPath: /etc/rules/alerts.yaml, subPath: alerts.yaml}
+            certs: {mountPath: /etc/certs, readOnly: true}
+            logs: {mountPath: /var/log/app, readOnly: true}
+            shared: {mountPath: /shared}
+            data: {mountPath: /data, readOnly: false}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          value:
+            - {name: certs, mountPath: /etc/certs, readOnly: true}
+            - {name: config-files, mountPath: /etc/app, readOnly: true}
+            - {name: data, mountPath: /data, readOnly: false}
+            - {name: logs, mountPath: /var/log/app, readOnly: true}
+            - {name: rules, mountPath: /etc/rules/alerts.yaml, subPath: alerts.yaml, readOnly: true}
+            - {name: shared, mountPath: /shared, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+
+  - it: renders a volume without mountPath with no mount in the main container, mounted by an init container
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        work: {type: emptyDir}
+      initContainers:
+        setup: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {work: {mountPath: /work}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - {name: tmp, mountPath: /tmp}
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - {name: tmp, emptyDir: {}}
+            - {name: work, emptyDir: {}}
+      - equal:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          value:
+            - {name: work, mountPath: /work}
+
+  - it: renders an emptyDir read-only in the main container and writable in an init container (the init container fills it)
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        work: {type: emptyDir, mountPath: /work, readOnly: true}
+      initContainers:
+        setup: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {work: {mountPath: /work}}}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: work, mountPath: /work, readOnly: true}
+      - equal:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          value:
+            - {name: work, mountPath: /work}
+
+  - it: renders a ReadWriteOnce claim mounted writable by a sidecar and read-only by the main container, the claim's source without readOnly
+    template: templates/deployment.yaml
+    set:
+      strategy: {type: Recreate}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: data, readOnly: true}
+      sidecars:
+        backup: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {data: {mountPath: /data}}}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: data, mountPath: /data, readOnly: true}
+      - equal:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          value:
+            - {name: data, mountPath: /data}
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: data, persistentVolumeClaim: {claimName: data}}
+
+  - it: renders no volumeMounts for volumeMounts {} and null, and no null mount
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {}}
+        b: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: null}
+        c: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {tmp: {mountPath: /tmp}, gone: null}}
+    asserts:
+      - notExists:
+          path: spec.template.spec.initContainers[0].volumeMounts
+      - notExists:
+          path: spec.template.spec.initContainers[1].volumeMounts
+      - equal:
+          path: spec.template.spec.initContainers[2].volumeMounts
+          value:
+            - {name: tmp, mountPath: /tmp}
+
+  - it: quotes a mount path and a subPath from values (a hash after a space would start a comment)
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        work: {type: emptyDir}
+      initContainers:
+        setup: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {work: {mountPath: "/srv/a #1", subPath: "b #2"}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          value:
+            - {name: work, mountPath: "/srv/a #1", subPath: "b #2"}
