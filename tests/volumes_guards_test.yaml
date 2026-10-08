@@ -778,13 +778,16 @@ tests:
       - failedTemplate:
           errorPattern: 'chart-base\[chart-base\]: volumes.scratch.size is "0e5", a size of zero: the claim would request no storage; write a positive quantity, e.g. 1Gi'
 
-  - it: accepts the sizes .5Gi, 100m, 1e3 and 1E (a non-zero digit before the suffix)
+  - it: accepts the sizes .5Gi, 100m, 1e3, 1E, 0.5Gi, 500M and 10 (a non-zero digit before the suffix)
     set:
       volumes:
         a: {type: emptyDir, mountPath: /a, sizeLimit: .5Gi}
         b: {type: emptyDir, mountPath: /b, sizeLimit: 100m}
         c: {type: ephemeral, mountPath: /c, size: "1e3"}
         d: {type: ephemeral, mountPath: /d, size: 1E}
+        e: {type: emptyDir, mountPath: /e, sizeLimit: 0.5Gi}
+        f: {type: ephemeral, mountPath: /f, size: 500M}
+        g: {type: ephemeral, mountPath: /g, size: "10"}
     asserts:
       - hasDocuments:
           count: 0
@@ -958,7 +961,7 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: accepts a ReadWriteOnce claim on a cronjob and on a job (no guard on them)
+  - it: accepts a ReadWriteOnce claim on a cronjob (no guard on it)
     set:
       workload.type: cronjob
       cronjob.schedule: "0 * * * *"
