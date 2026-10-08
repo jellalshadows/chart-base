@@ -116,7 +116,13 @@ volumes: {}
 # `y`): two such keys collide silently. The chart writes `restartPolicy` (an entry takes none), a list
 # (`initContainers: [...]`) fails with the map form, and a container that would run as UID 0 with
 # `runAsNonRoot: true` (its `securityContext.runAsUser`, else `podSecurityContext.runAsUser`) fails the render: the
-# kubelet would never start it.
+# kubelet would never start it. `env` takes references only, `NAME: {valueFrom: ...}` as for the main container (a
+# literal fails: pass it in `args`), and `inheritEnv` (default `false`) set to `true` gives the container exactly the
+# main container's `envFrom` and `env`, rendered as the main container renders them; an `env` name that the main
+# container already receives then fails the render. Inside one variable's `valueFrom` a `null` stays an error (the
+# definition is shared with the main container): remove or replace the variable whole (`env.NAME: null`); a `null` in
+# an entry's `env` never removes an inherited variable. An inherited `resourceFieldRef` without `containerName` reads
+# this container's own resources.
 initContainers: {}
 
 # -- Sidecars: containers that keep running next to the main container (native sidecars: init containers with

@@ -7,6 +7,42 @@
 {{- end -}}
 {{- end -}}
 
+{{/*
+chart-base.env: the items of a container's env from a map NAME -> {valueFrom: ...}, in key order: the one renderer of
+the env of every container (the main container's, an init container's, a sidecar's), so that a later source of the
+shared definition is rendered once for all. A literal (not a map) is never rendered: templates/validate.yaml rejects it.
+Usage: {{- with include "chart-base.env" <map> | trim }} env: {{- . | nindent <n> }} {{- end }}
+*/}}
+{{- define "chart-base.env" -}}
+{{- range $name, $ref := . }}
+{{- if kindIs "map" $ref }}
+- name: {{ $name | quote }}
+  valueFrom:
+    {{- toYaml $ref.valueFrom | nindent 4 }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+chart-base.envFrom: the items of the main container's envFrom: the imported sources (envFrom) first, then <fullname>-env
+(config) and <fullname>-secrets (externalSecret), so that the component's own keys win on a duplicate. An init container
+or a sidecar with inheritEnv: true gets exactly these.
+Usage: {{- with include "chart-base.envFrom" $ | trim }} envFrom: {{- . | nindent <n> }} {{- end }}
+*/}}
+{{- define "chart-base.envFrom" -}}
+{{- with .Values.envFrom }}
+{{ toYaml . }}
+{{- end }}
+{{- if .Values.config }}
+- configMapRef:
+    name: {{ include "chart-base.fullname" . }}-env
+{{- end }}
+{{- if .Values.externalSecret.enabled }}
+- secretRef:
+    name: {{ include "chart-base.fullname" . }}-secrets
+{{- end }}
+{{- end -}}
+
 {{/* The pods' ServiceAccount: the chart's (<fullname>), an existing one (serviceAccount.name), or the namespace's default. */}}
 {{- define "chart-base.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create -}}
@@ -72,31 +108,13 @@ containers:
         protocol: TCP
       {{- end }}
     {{- end }}
-    {{- with $.Values.env }}
+    {{- with include "chart-base.env" ($.Values.env | default dict) | trim }}
     env:
-      {{- range $name, $ref := . }}
-      {{- /* Literal values (not maps) are rejected by templates/validate.yaml; never render them here. */}}
-      {{- if kindIs "map" $ref }}
-      - name: {{ $name | quote }}
-        valueFrom:
-          {{- toYaml $ref.valueFrom | nindent 10 }}
-      {{- end }}
-      {{- end }}
+      {{- . | nindent 6 }}
     {{- end }}
-    {{- if or $.Values.envFrom $.Values.config $.Values.externalSecret.enabled }}
+    {{- with include "chart-base.envFrom" $ | trim }}
     envFrom:
-      {{- /* External sources first: the component's explicit config/secrets win on duplicate keys. */}}
-      {{- with $.Values.envFrom }}
-      {{- toYaml . | nindent 6 }}
-      {{- end }}
-      {{- if $.Values.config }}
-      - configMapRef:
-          name: {{ $fullname }}-env
-      {{- end }}
-      {{- if $.Values.externalSecret.enabled }}
-      - secretRef:
-          name: {{ $fullname }}-secrets
-      {{- end }}
+      {{- . | nindent 6 }}
     {{- end }}
     {{- with $.Values.probes.startup }}
     startupProbe:

@@ -349,6 +349,57 @@
         "limits": { "type": ["object", "null"] }
       }
     },
+    "envName": {
+      "description": "The name of an environment variable, in the env of every container.",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "envVar": {
+      "description": "One variable of env, NAME: {valueFrom: {<one source>}}: the one definition of the env of every container (the main container's, an init container's, a sidecar's). A literal (a string, number or boolean) passes the schema and fails in templates/validate.yaml with a remedy. Inside it a null stays an error: it is shared with the main container, whose env does not take null.",
+      "type": ["object", "string", "number", "boolean"],
+      "additionalProperties": false,
+      "required": ["valueFrom"],
+      "properties": {
+        "valueFrom": {
+          "type": "object",
+          "additionalProperties": false,
+          "oneOf": [
+            { "required": ["fieldRef"] },
+            { "required": ["resourceFieldRef"] },
+            { "required": ["secretKeyRef"] },
+            { "required": ["configMapKeyRef"] }
+          ],
+          "properties": {
+            "fieldRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["fieldPath"],
+              "properties": {
+                "fieldPath": { "type": "string", "minLength": 1 },
+                "apiVersion": { "type": "string" }
+              }
+            },
+            "resourceFieldRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["resource"],
+              "properties": {
+                "resource": { "type": "string", "minLength": 1 },
+                "containerName": { "type": "string" },
+                "divisor": { "type": ["string", "number"] }
+              }
+            },
+            "secretKeyRef": { "$ref": "#/definitions/keyRef" },
+            "configMapKeyRef": { "$ref": "#/definitions/keyRef" }
+          }
+        }
+      }
+    },
+    "containerEnv": {
+      "description": "The env of an init container or a sidecar: NAME: {valueFrom: ...} (definitions.envVar, shared with the main container). null = none, and NAME: null is absent. A list or a literal passes the schema and fails in templates/validate.yaml with a remedy.",
+      "type": ["object", "array", "null"],
+      "propertyNames": { "$ref": "#/definitions/envName" },
+      "additionalProperties": { "type": ["object", "string", "number", "boolean", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/envVar" } }
+    },
     "containerImage": {
       "description": "The image of an init container or a sidecar: repository, and a tag or a digest (the digest wins); pullPolicy, default IfNotPresent (an entry has no chart default). Each anyOf branch types its field, so that a null tag is no tag.",
       "type": "object", "additionalProperties": false, "required": ["repository"],
@@ -383,6 +434,8 @@
         "args": { "$ref": "#/definitions/containerArgs" },
         "securityContext": { "type": ["object", "null"], "description": "Merged over the chart's hardened default, field by field; null restores the default of a field." },
         "restartPolicy": { "description": "Written by the chart, never a value: templates/validate.yaml rejects the key with a remedy (null is absent)." },
+        "env": { "$ref": "#/definitions/containerEnv" },
+        "inheritEnv": { "type": ["boolean", "null"], "description": "true: exactly the main container's envFrom and env (default false)." },
         "order": { "description": "An init container's default is 0.", "$ref": "#/definitions/containerOrder" }
       }
     },
@@ -396,6 +449,8 @@
         "args": { "$ref": "#/definitions/containerArgs" },
         "securityContext": { "type": ["object", "null"], "description": "Merged over the chart's hardened default, field by field; null restores the default of a field." },
         "restartPolicy": { "description": "Written by the chart, never a value: templates/validate.yaml rejects the key with a remedy (null is absent)." },
+        "env": { "$ref": "#/definitions/containerEnv" },
+        "inheritEnv": { "type": ["boolean", "null"], "description": "true: exactly the main container's envFrom and env (default false)." },
         "order": { "description": "A sidecar's default is 1000.", "$ref": "#/definitions/containerOrder" }
       }
     }
@@ -518,47 +573,8 @@
     "env": {
       "type": ["object", "array"],
       "description": "References only: literal values belong in `config`.",
-      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
-      "additionalProperties": {
-        "type": ["object", "string", "number", "boolean"],
-        "additionalProperties": false,
-        "required": ["valueFrom"],
-        "properties": {
-          "valueFrom": {
-            "type": "object",
-            "additionalProperties": false,
-            "oneOf": [
-              { "required": ["fieldRef"] },
-              { "required": ["resourceFieldRef"] },
-              { "required": ["secretKeyRef"] },
-              { "required": ["configMapKeyRef"] }
-            ],
-            "properties": {
-              "fieldRef": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["fieldPath"],
-                "properties": {
-                  "fieldPath": { "type": "string", "minLength": 1 },
-                  "apiVersion": { "type": "string" }
-                }
-              },
-              "resourceFieldRef": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["resource"],
-                "properties": {
-                  "resource": { "type": "string", "minLength": 1 },
-                  "containerName": { "type": "string" },
-                  "divisor": { "type": ["string", "number"] }
-                }
-              },
-              "secretKeyRef": { "$ref": "#/definitions/keyRef" },
-              "configMapKeyRef": { "$ref": "#/definitions/keyRef" }
-            }
-          }
-        }
-      }
+      "propertyNames": { "$ref": "#/definitions/envName" },
+      "additionalProperties": { "$ref": "#/definitions/envVar" }
     },
     "envFrom": {
       "type": "array",

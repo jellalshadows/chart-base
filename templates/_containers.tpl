@@ -69,6 +69,7 @@ gets restartPolicy: Always, which the chart writes (it is not a value).
 Usage: include "chart-base.entryContainer" (dict "ctx" $ "container" <an item of ordered>) | nindent 2
 */}}
 {{- define "chart-base.entryContainer" -}}
+{{- $ := .ctx -}}
 {{- $e := .container.entry -}}
 {{- $pullPolicy := "IfNotPresent" -}}
 {{- if hasKey $e.image "pullPolicy" }}{{ $pullPolicy = $e.image.pullPolicy }}{{ end -}}
@@ -89,6 +90,24 @@ Usage: include "chart-base.entryContainer" (dict "ctx" $ "container" <an item of
     {{- range $arg := . }}
     - {{ $arg | quote }}
     {{- end }}
+  {{- end }}
+  {{- /* One env map: with inheritEnv the main container's env, then the entry's own (a name in both fails in templates/validate.yaml). */}}
+  {{- $env := dict }}
+  {{- if and $e.inheritEnv (kindIs "map" $.Values.env) }}
+  {{- range $name, $ref := $.Values.env }}{{ $_ := set $env $name $ref }}{{ end }}
+  {{- end }}
+  {{- if kindIs "map" $e.env }}
+  {{- range $name, $ref := $e.env }}{{ $_ := set $env $name $ref }}{{ end }}
+  {{- end }}
+  {{- with include "chart-base.env" $env | trim }}
+  env:
+    {{- . | nindent 4 }}
+  {{- end }}
+  {{- if $e.inheritEnv }}
+  {{- with include "chart-base.envFrom" $ | trim }}
+  envFrom:
+    {{- . | nindent 4 }}
+  {{- end }}
   {{- end }}
   resources:
     {{- toYaml $e.resources | nindent 4 }}

@@ -324,3 +324,83 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: rejects a literal in an entry's env, naming args and inheritEnv
+    set:
+      sidecars:
+        shipper: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, env: {MODE: debug}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.shipper.env.MODE is a literal value: env takes valueFrom references only; pass literals in args, or put them in the component''s config and set inheritEnv: true'
+
+  - it: rejects an entry's env written as a Kubernetes list
+    set:
+      initContainers:
+        migrate:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          env:
+            - name: MODE
+              value: debug
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: initContainers.migrate.env is a map of NAME: \{valueFrom: ...\}, not a Kubernetes env list: references go in env as a map, literal values in args \(or in the component''s config, with inheritEnv: true\)'
+
+  - it: rejects an entry env name that is a variable of the component's env, with inheritEnv true
+    set:
+      env:
+        POD_NAME: {valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, inheritEnv: true, env: {POD_NAME: {valueFrom: {fieldRef: {fieldPath: metadata.uid}}}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: initContainers.migrate.env.POD_NAME is also a variable of the main container, which inheritEnv: true already gives this container: rename it, or drop inheritEnv and reference what the container needs'
+
+  - it: rejects an entry env name that is a key of the component's config, with inheritEnv true
+    set:
+      config.APP_MODE: api
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, inheritEnv: true, env: {APP_MODE: {valueFrom: {fieldRef: {fieldPath: metadata.name}}}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.proxy.env.APP_MODE is also a variable of the main container, which inheritEnv: true already gives this container: rename it, or drop inheritEnv and reference what the container needs'
+
+  - it: rejects an entry env name that is a key of externalSecret.data, with inheritEnv true
+    set:
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: gcp-sm
+      externalSecret.data.API_KEY.key: sales-api-key
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, inheritEnv: true, env: {API_KEY: {valueFrom: {secretKeyRef: {name: other, key: k}}}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.proxy.env.API_KEY is also a variable of the main container, which inheritEnv: true already gives this container: rename it, or drop inheritEnv and reference what the container needs'
+
+  - it: accepts the main container's names in an entry's env without inheritEnv and with inheritEnv false (the entry's names are its own)
+    set:
+      config.APP_MODE: api
+      env:
+        POD_NAME: {valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, env: {APP_MODE: {valueFrom: {fieldRef: {fieldPath: metadata.name}}}, POD_NAME: {valueFrom: {fieldRef: {fieldPath: metadata.uid}}}}}
+        quiet: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, inheritEnv: false, env: {POD_NAME: {valueFrom: {fieldRef: {fieldPath: metadata.uid}}}}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a null inside one variable's valueFrom in an entry's env (the definition is shared with the main container)
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, env: {TOKEN: {valueFrom: {secretKeyRef: {name: t, key: k, optional: null}}}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/sidecars/proxy/env/TOKEN/valueFrom/secretKeyRef/optional': got null, want boolean"
+
+  - it: accepts env null, a variable null and inheritEnv null in an entry
+    set:
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, env: null, inheritEnv: null}
+        b: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, env: {GONE: null}}
+    asserts:
+      - hasDocuments:
+          count: 0

@@ -169,11 +169,14 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if kindIs "slice" .Values.env -}}
 {{- include "chart-base.fail" (list . "env is a map of NAME: {valueFrom: ...}, not a Kubernetes env list: literal values belong in config, references in env as a map") -}}
 {{- end -}}
+{{- /* The variables the main container receives from the chart (chart-base.chartEnvNames): also read by the inheritEnv guard of init containers and sidecars. */ -}}
+{{- $chartEnv := dict -}}
+{{- include "chart-base.chartEnvNames" (dict "ctx" . "out" $chartEnv) -}}
 {{- range $name, $ref := .Values.env -}}
 {{- if not (kindIs "map" $ref) -}}
 {{- include "chart-base.fail" (list $ (printf "env.%s is a literal value: literal values belong in config; env only takes valueFrom references" $name)) -}}
 {{- end -}}
-{{- if or (hasKey (default dict $.Values.config) $name) (hasKey (default dict $.Values.externalSecret.data) $name) -}}
+{{- if has $name $chartEnv.names -}}
 {{- include "chart-base.fail" (list $ (printf "env.%s duplicates a key of config or externalSecret.data: literal values belong in config, secrets in externalSecret, references in env" $name)) -}}
 {{- end -}}
 {{- end -}}
@@ -336,4 +339,22 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- end -}}
 {{- if and (has .Values.workload.type (list "job" "cronjob")) (include "chart-base.hasSidecars" .) (kindIs "invalid" .Values.job.activeDeadlineSeconds) -}}
 {{- include "chart-base.fail" (list . (printf "sidecars on a %s need job.activeDeadlineSeconds (e.g. 600; for a job, below Helm's --timeout): a sidecar that exits before it has started is restarted with back-off and never counts as a failure, so the pod stays Pending and the run never fails; with cronjob.concurrencyPolicy: Forbid every later run is then skipped" .Values.workload.type)) -}}
+{{- end -}}
+
+{{- /* The env of init containers and sidecars: a map of references (a literal and the list form fail with a remedy), and with inheritEnv: true no name that the main container already receives (its env, and chart-base.chartEnvNames, the list of its own duplicate guard). */ -}}
+{{- range $c := $containers.ordered -}}
+{{- $path := printf "%s.%s" $c.kind $c.name -}}
+{{- if kindIs "slice" $c.entry.env -}}
+{{- include "chart-base.fail" (list $ (printf "%s.env is a map of NAME: {valueFrom: ...}, not a Kubernetes env list: references go in env as a map, literal values in args (or in the component's config, with inheritEnv: true)" $path)) -}}
+{{- end -}}
+{{- if kindIs "map" $c.entry.env -}}
+{{- range $name, $ref := $c.entry.env -}}
+{{- if not (kindIs "map" $ref) -}}
+{{- include "chart-base.fail" (list $ (printf "%s.env.%s is a literal value: env takes valueFrom references only; pass literals in args, or put them in the component's config and set inheritEnv: true" $path $name)) -}}
+{{- end -}}
+{{- if and $c.entry.inheritEnv (or (hasKey ($.Values.env | default dict) $name) (has $name $chartEnv.names)) -}}
+{{- include "chart-base.fail" (list $ (printf "%s.env.%s is also a variable of the main container, which inheritEnv: true already gives this container: rename it, or drop inheritEnv and reference what the container needs" $path $name)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}

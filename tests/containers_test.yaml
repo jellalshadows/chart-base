@@ -489,3 +489,192 @@ tests:
       - equal:
           path: spec.template.spec.initContainers[1].name
           value: from-file
+
+  - it: renders an entry's own env references in key order, and no envFrom without inheritEnv
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        shipper:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          env:
+            TOKEN: {valueFrom: {secretKeyRef: {name: shipper-token, key: token}}}
+            NODE: {valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].env
+          value:
+            - name: NODE
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: shipper-token
+                  key: token
+      - notExists:
+          path: spec.template.spec.initContainers[0].envFrom
+
+  - it: gives an entry with inheritEnv true exactly the main container's envFrom and env, in the same order
+    template: templates/deployment.yaml
+    values:
+      - values/base.yaml
+      - values/env-refs.yaml
+    set:
+      config.APP_MODE: api
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: gcp-sm
+      externalSecret.data.API_KEY.key: sales-api-key
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, inheritEnv: true}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: vending.db-app
+                  key: password
+            - name: FLAG_X
+              valueFrom:
+                configMapKeyRef:
+                  name: shared-flags
+                  key: x
+            - name: MEMORY_MB
+              valueFrom:
+                resourceFieldRef:
+                  resource: limits.memory
+                  divisor: 1Mi
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+      - equal:
+          path: spec.template.spec.initContainers[0].env
+          value:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: vending.db-app
+                  key: password
+            - name: FLAG_X
+              valueFrom:
+                configMapKeyRef:
+                  name: shared-flags
+                  key: x
+            - name: MEMORY_MB
+              valueFrom:
+                resourceFieldRef:
+                  resource: limits.memory
+                  divisor: 1Mi
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+      - equal:
+          path: spec.template.spec.containers[0].envFrom
+          value:
+            - secretRef:
+                name: sales-kafka-user
+            - configMapRef:
+                name: shared-flags
+                optional: true
+              prefix: SHARED_
+            - configMapRef:
+                name: vending-chart-base-env
+            - secretRef:
+                name: vending-chart-base-secrets
+      - equal:
+          path: spec.template.spec.initContainers[0].envFrom
+          value:
+            - secretRef:
+                name: sales-kafka-user
+            - configMapRef:
+                name: shared-flags
+                optional: true
+              prefix: SHARED_
+            - configMapRef:
+                name: vending-chart-base-env
+            - secretRef:
+                name: vending-chart-base-secrets
+
+  - it: merges an entry's own env with the inherited one into one list in key order
+    template: templates/deployment.yaml
+    set:
+      env:
+        POD_NAME: {valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+      initContainers:
+        migrate:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          inheritEnv: true
+          env:
+            CPU: {valueFrom: {resourceFieldRef: {resource: requests.cpu}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].env
+          value:
+            - name: CPU
+              valueFrom:
+                resourceFieldRef:
+                  resource: requests.cpu
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+
+  - it: renders no env and no envFrom for inheritEnv false, and for env null
+    template: templates/deployment.yaml
+    set:
+      config.APP_MODE: api
+      env:
+        POD_NAME: {valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, inheritEnv: false}
+        b: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, inheritEnv: null, env: null}
+    asserts:
+      - notExists:
+          path: spec.template.spec.initContainers[0].env
+      - notExists:
+          path: spec.template.spec.initContainers[0].envFrom
+      - notExists:
+          path: spec.template.spec.initContainers[1].env
+      - notExists:
+          path: spec.template.spec.initContainers[1].envFrom
+
+  - it: renders an entry's env without a variable set to null
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        shipper:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          env:
+            NODE: {valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
+            GONE: null
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].env
+          value:
+            - name: NODE
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+  - it: renders an inherited variable once next to the entry's env NAME null (a null never removes an inherited variable)
+    template: templates/deployment.yaml
+    set:
+      env:
+        POD_NAME: {valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, inheritEnv: true, env: {POD_NAME: null}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].env
+          value:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name

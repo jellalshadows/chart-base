@@ -37,6 +37,20 @@ Usage: {{- if include "chart-base.hasConfigFiles" . }}
 {{- end -}}
 
 {{/*
+chart-base.chartEnvNames: sets out.names to the names of the variables the main container receives from the chart:
+the keys of config (in <fullname>-env) and of externalSecret.data (in <fullname>-secrets). The one list of the main
+container's duplicate guard (its env against it) and of the inheritEnv guard of an init container or a sidecar (its
+env against it and the component's env), so that a change of what the main container receives reaches both.
+Usage: {{- $e := dict }}{{- include "chart-base.chartEnvNames" (dict "ctx" $ "out" $e) }}, then $e.names
+*/}}
+{{- define "chart-base.chartEnvNames" -}}
+{{- $names := list -}}
+{{- range $name, $_ := .ctx.Values.config | default dict }}{{ $names = append $names $name }}{{ end -}}
+{{- range $name, $_ := .ctx.Values.externalSecret.data | default dict }}{{ $names = append $names $name }}{{ end -}}
+{{- $_ := set .out "names" ($names | uniq) -}}
+{{- end -}}
+
+{{/*
 chart-base.cleanPath: a path normalized as the kubelet normalizes a mount path (filepath.Clean("/" + path)), to COMPARE
 paths only: never render it; the caller renders the original value with quote. Whitespace and # are kept.
 Usage: include "chart-base.cleanPath" <path>
