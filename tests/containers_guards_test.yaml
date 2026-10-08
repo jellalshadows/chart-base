@@ -109,3 +109,218 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "at '/initContainers/migrate/command/1': got null, want string"
+
+  - it: rejects a container name in camelCase (cloudSqlProxy), with the DNS-1123 message
+    set:
+      sidecars:
+        cloudSqlProxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.cloudSqlProxy: a container name is a lowercase DNS-1123 label \(a-z, 0-9, "-", at most 63 characters\), e.g. cloud-sql-proxy'
+
+  - it: rejects a container name with an underscore (a_b)
+    set:
+      initContainers:
+        a_b: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: initContainers.a_b: a container name is a lowercase DNS-1123 label \(a-z, 0-9, "-", at most 63 characters\), e.g. cloud-sql-proxy'
+
+  - it: rejects a container name that starts with a dash (-a)
+    set:
+      sidecars:
+        "-a": {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.-a: a container name is a lowercase DNS-1123 label \(a-z, 0-9, "-", at most 63 characters\), e.g. cloud-sql-proxy'
+
+  - it: rejects a container name of 64 characters
+    set:
+      initContainers:
+        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: initContainers.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: a container name is a lowercase DNS-1123 label \(a-z, 0-9, "-", at most 63 characters\), e.g. cloud-sql-proxy'
+
+  - it: accepts a container name of 63 characters
+    set:
+      initContainers:
+        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a sidecar named like the main container (the component's name)
+    set:
+      sidecars:
+        chart-base: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.chart-base: the name chart-base is already the name of the main container \(the component''s alias\): container names are unique in a pod, rename it'
+
+  - it: rejects an init container named like the main container (the component's name)
+    set:
+      initContainers:
+        chart-base: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: initContainers.chart-base: the name chart-base is already the name of the main container \(the component''s alias\): container names are unique in a pod, rename it'
+
+  - it: rejects a name present in both maps
+    set:
+      initContainers:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.proxy: the name proxy is already the name of initContainers.proxy: container names are unique in a pod, rename it'
+
+  - it: accepts a null entry under any name, even one that fails the name checks or names a live entry of the other map (skipped before every check)
+    set:
+      initContainers:
+        Bad_Name: null
+        chart-base: null
+        proxy: null
+      sidecars:
+        chart-base: null
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects sidecars written as a Kubernetes list, naming the map form
+    set:
+      sidecars:
+        - name: proxy
+          image: ghcr.io/acme/proxy:1.0
+          restartPolicy: Always
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars is a map keyed by the container name, not a Kubernetes list: sidecars: \{<name>: \{image: \{repository, tag\}, resources: \{requests: \{cpu, memory\}\}\}\}'
+
+  - it: rejects initContainers written as a Kubernetes list, naming the map form
+    set:
+      initContainers:
+        - name: migrate
+          image: ghcr.io/acme/sales:1.0
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: initContainers is a map keyed by the container name, not a Kubernetes list: initContainers: \{<name>: \{image: \{repository, tag\}, resources: \{requests: \{cpu, memory\}\}\}\}'
+
+  - it: rejects restartPolicy on an init container, naming sidecars
+    set:
+      initContainers:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, restartPolicy: Always}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: initContainers.proxy.restartPolicy is set by the chart: a container that keeps running \(restartPolicy: Always\) goes under sidecars; an init container takes none'
+
+  - it: rejects restartPolicy on a sidecar (the chart writes it)
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, restartPolicy: Always}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.proxy.restartPolicy is set by the chart: every sidecar gets restartPolicy: Always'
+
+  - it: accepts restartPolicy null (absent)
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, restartPolicy: null}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a sidecar without a securityContext when podSecurityContext.runAsUser is 0 (runAsNonRoot true from the hardened default)
+    set:
+      podSecurityContext.runAsUser: 0
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.proxy would run as UID 0 with runAsNonRoot: true and the kubelet would never start it: set its securityContext.runAsUser to a non-zero UID, or securityContext.runAsNonRoot: false \(Pod Security restricted then rejects the pod\)'
+
+  - it: rejects an init container whose securityContext sets runAsUser 0 alone
+    set:
+      initContainers:
+        chown: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, securityContext: {runAsUser: 0}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: initContainers.chown would run as UID 0 with runAsNonRoot: true and the kubelet would never start it: set its securityContext.runAsUser to a non-zero UID, or securityContext.runAsNonRoot: false \(Pod Security restricted then rejects the pod\)'
+
+  - it: accepts runAsUser 0 with runAsNonRoot false in the entry's securityContext
+    set:
+      initContainers:
+        chown: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, securityContext: {runAsUser: 0, runAsNonRoot: false}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a sidecar when runAsUser is set nowhere (the image decides)
+    set:
+      podSecurityContext.runAsUser: null
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a sidecar on a job without job.activeDeadlineSeconds
+    set:
+      workload.type: job
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars on a job need job.activeDeadlineSeconds \(e.g. 600; for a job, below Helm''s --timeout\): a sidecar that exits before it has started is restarted with back-off and never counts as a failure, so the pod stays Pending and the run never fails; with cronjob.concurrencyPolicy: Forbid every later run is then skipped'
+
+  - it: rejects a sidecar on a cronjob without job.activeDeadlineSeconds
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars on a cronjob need job.activeDeadlineSeconds \(e.g. 600; for a job, below Helm''s --timeout\): a sidecar that exits before it has started is restarted with back-off and never counts as a failure, so the pod stays Pending and the run never fails; with cronjob.concurrencyPolicy: Forbid every later run is then skipped'
+
+  - it: accepts a sidecar on a job with job.activeDeadlineSeconds
+    set:
+      workload.type: job
+      job.activeDeadlineSeconds: 600
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a sidecar on a cronjob with job.activeDeadlineSeconds
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      job.activeDeadlineSeconds: 600
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a job with a map of null sidecars, and with init containers only, without job.activeDeadlineSeconds
+    set:
+      workload.type: job
+      sidecars:
+        proxy: null
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a sidecar on a deployment without job.activeDeadlineSeconds
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - hasDocuments:
+          count: 0

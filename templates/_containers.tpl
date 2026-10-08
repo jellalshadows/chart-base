@@ -95,3 +95,15 @@ Usage: include "chart-base.entryContainer" (dict "ctx" $ "container" <an item of
   securityContext:
     {{- toYaml .container.securityContext | nindent 4 }}
 {{- end -}}
+
+{{/*
+chart-base.hasSidecars: "true" when the component has at least one non-null sidecar (the pruned map of
+chart-base.containers has a key; a map of null entries has none), nothing otherwise. The one predicate of the
+job.activeDeadlineSeconds guard (templates/validate.yaml) and of the HPA's metrics (templates/hpa.yaml).
+Usage: {{- if include "chart-base.hasSidecars" . }}
+*/}}
+{{- define "chart-base.hasSidecars" -}}
+{{- $c := dict -}}
+{{- include "chart-base.containers" (dict "ctx" . "out" $c) -}}
+{{- if $c.sidecars }}true{{ end -}}
+{{- end -}}

@@ -382,6 +382,7 @@
         "command": { "$ref": "#/definitions/containerArgs" },
         "args": { "$ref": "#/definitions/containerArgs" },
         "securityContext": { "type": ["object", "null"], "description": "Merged over the chart's hardened default, field by field; null restores the default of a field." },
+        "restartPolicy": { "description": "Written by the chart, never a value: templates/validate.yaml rejects the key with a remedy (null is absent)." },
         "order": { "description": "An init container's default is 0.", "$ref": "#/definitions/containerOrder" }
       }
     },
@@ -394,6 +395,7 @@
         "command": { "$ref": "#/definitions/containerArgs" },
         "args": { "$ref": "#/definitions/containerArgs" },
         "securityContext": { "type": ["object", "null"], "description": "Merged over the chart's hardened default, field by field; null restores the default of a field." },
+        "restartPolicy": { "description": "Written by the chart, never a value: templates/validate.yaml rejects the key with a remedy (null is absent)." },
         "order": { "description": "A sidecar's default is 1000.", "$ref": "#/definitions/containerOrder" }
       }
     }
@@ -473,13 +475,13 @@
       "additionalProperties": { "$ref": "#/definitions/volume" }
     },
     "initContainers": {
-      "description": "Init containers, keyed by the container name (templates/validate.yaml checks the name). null = none; a null entry or field is absent.",
-      "type": "object",
+      "description": "Init containers, keyed by the container name (templates/validate.yaml checks the name, and rejects a list with the map form). null = none; a null entry or field is absent.",
+      "type": ["object", "array"],
       "additionalProperties": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/initContainer" } }
     },
     "sidecars": {
-      "description": "Sidecars, keyed by the container name (templates/validate.yaml checks the name). null = none; a null entry or field is absent.",
-      "type": "object",
+      "description": "Sidecars, keyed by the container name (templates/validate.yaml checks the name, and rejects a list with the map form). null = none; a null entry or field is absent.",
+      "type": ["object", "array"],
       "additionalProperties": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/sidecar" } }
     },
     "externalSecret": {
