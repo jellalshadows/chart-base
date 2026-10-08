@@ -952,3 +952,47 @@ tests:
     asserts:
       - notExists:
           path: metadata.annotations
+
+  - it: quotes an entry's env reference whose key is the string "true" and keeps optional false a boolean
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        shipper:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          env:
+            FLAG: {valueFrom: {configMapKeyRef: {name: c, key: "true", optional: false}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].env[0].valueFrom.configMapKeyRef.key
+          value: "true"
+      - equal:
+          path: spec.template.spec.initContainers[0].env[0].valueFrom.configMapKeyRef.optional
+          value: false
+
+  - it: starts a sidecar with an explicit order 0 before an init container at order 1 (0 is a value, not an absent order)
+    template: templates/deployment.yaml
+    set:
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: 1}
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: 0}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: proxy
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: migrate
+
+  - it: lists the Secret of a volume without mountPath that only a sidecar mounts for Reloader (the pod-level feed of 0.7.0)
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        vol-s: {type: secret, secretName: vol-s}
+      sidecars:
+        side: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {vol-s: {mountPath: /etc/vol}}}
+    asserts:
+      - equal:
+          path: metadata.annotations["secret.reloader.stakater.com/reload"]
+          value: vol-s

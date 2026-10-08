@@ -380,14 +380,14 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- end -}}
 {{- end -}}
 
-{{- /* Ports: a port name and a port number are declared once in the pod, across the main container's ports and every sidecar's (the API only warns, and a Service and the probes would pick one silently). Two ports of the main container are not compared here (the API rejects two names in one container). */ -}}
+{{- /* Ports: a port name and a port number are declared once in the pod, across the main container's ports and every sidecar's (the API only warns, and a name declared twice is ambiguous). Two ports of the main container are not compared here (the API rejects two names in one container). */ -}}
 {{- $portRows := list -}}
 {{- range $i, $p := .Values.ports | default list }}{{ $portRows = append $portRows (dict "path" (printf "ports[%d]" $i) "name" $p.name "number" (int64 $p.containerPort) "container" "") }}{{ end -}}
 {{- range $c := $containers.ordered }}{{ range $i, $p := $c.entry.ports | default list }}{{ $portRows = append $portRows (dict "path" (printf "sidecars.%s.ports[%d]" $c.name $i) "name" $p.name "number" (int64 $p.containerPort) "container" $c.name) }}{{ end }}{{ end -}}
 {{- range $i, $a := $portRows -}}
 {{- range $j, $b := $portRows -}}
 {{- if and (ne $a.container "") (lt $j $i) (eq $a.name $b.name) -}}
-{{- include "chart-base.fail" (list $ (printf "%s.name %q is already declared in %s: a Service and the probes would pick one of the two without telling, rename it" $a.path $a.name $b.path)) -}}
+{{- include "chart-base.fail" (list $ (printf "%s.name %q is already declared in %s: a port name must be unique in the pod (a named probe, metrics.port or a Service targetPort resolves a name to one container's port, and two containers declaring it is ambiguous): rename it, or remove it here (a port the pod exposes is declared in ports)" $a.path $a.name $b.path)) -}}
 {{- end -}}
 {{- if and (ne $a.container "") (lt $j $i) (eq $a.number $b.number) -}}
 {{- include "chart-base.fail" (list $ (printf "%s.containerPort %d is already declared in %s: the containers of a pod share one network namespace, so a port is declared once: remove it here, and probe it by number from the container that serves it" $a.path $a.number $b.path)) -}}
