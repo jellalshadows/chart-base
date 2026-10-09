@@ -51,8 +51,8 @@ A single required check, `ci-ok`, depends on all the jobs. chart-testing (`ct`) 
   component), `rbac` (the Role and RoleBindings, hooks on a job component), `externalsecret`, `exposure`, `scaling`,
   `service`, `serviceaccount`, `hooks`, `validate`, `schema`, `snapshot`, `volumes` (the five types on every workload
   type, the accessor, the Reloader feed), `volumes_guards` (the schema rules and guards of `volumes`, and the strategy
-  guards), `containers` (init containers and sidecars: the start order, the security context, `env`, ports, probes and
-  mounts, on every workload type, and the Reloader feed), `containers_guards` (the schema rules and guards of
+  guards), `containers` (init containers and sidecars: the start order and the security context on every workload type; `env`,
+  ports, probes and mounts on a Deployment; and the Reloader feed), `containers_guards` (the schema rules and guards of
   `initContainers` and `sidecars`)). Each suite names the templates it renders.
 - Shared values in `tests/values/`: `base.yaml` (the minimum valid values every suite starts from),
   `env-refs.yaml` (one reference of every kind plus `envFrom` sources, for the `env` suite),
@@ -280,8 +280,8 @@ of `null`.
 What the e2e does not show about init containers and sidecars (covered by the unit tests, by the prototype's
 API-server measurements recorded in [ADR-0051](../adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md) and [ADR-0052](../adr/0052-hpa-targets-measure-the-main-container-with-sidecars.md), or only by the
 docs): a sidecar that never starts; HPA arithmetic and scaling (no metrics-server: the e2e checks the stored metrics
-only); the termination order and its 2-second floor; ResourceQuota and LimitRange effects; the kubelet resolving a
-probe's port name among its own container's ports, and refusing UID 0 with `runAsNonRoot: true`; CNIs other than
+only); the termination order and its 2-second floor; ResourceQuota and LimitRange effects; that a probe's port name
+declared on another container never resolves, and the kubelet refusing UID 0 with `runAsNonRoot: true`; CNIs other than
 kindnet; the Helm 3.22 path.
 
 After the scenarios, the **NetworkPolicy checks**. The script creates a namespace `netpol` (Pod Security

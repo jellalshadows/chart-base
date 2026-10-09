@@ -125,15 +125,15 @@ pinned by one check of the alias contract, on both Helm versions
 | a whole map that the chart's `values.yaml` does not define (`resources.requests`) | schema error `got null, want object` | Helm drops it, and the required `requests` is then missing (`missing property 'requests'`) |
 | one entry of a typed map (`config.<KEY>`, `env.<NAME>`, `externalSecret.data.<KEY>`, labels, annotations, `nodeSelector.<key>`), or an optional member of a closed object (`lifecycle.postStart`, `strategy.rollingUpdate.maxSurge`, `dnsConfig.options`); a field inside an init container's or a sidecar's env `valueFrom` or probe `httpGet` or `exec` (definitions shared with the main container) | schema error `got null, want …` | Helm drops the entry (an ExternalSecret left without a `data` entry then fails the source guard) |
 | a key inside a pass-through object (`affinity.<key>`, a key of a main-container probe) | rendered as `null` in the manifest | dropped |
-| a file of `configFiles.files` or a key of a map-form file (maps reached through maps); an entry of `resources.limits`, an entry of `resources.requests` other than `cpu` and `memory`, or `resources.limits` itself; an entry of `volumes` or a field of an entry; `strategy.rollingUpdate`; an entry of `initContainers` or `sidecars`, or a field of an entry at any depth (`env.<NAME>`, a mount, a probe, a `securityContext` field: the hardened default comes back) | removed by chart-base ([ADR-0045](../adr/0045-null-in-configfiles-and-resources-is-absent.md), [ADR-0049](../adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md), [ADR-0050](../adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md), [ADR-0051](../adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)) | removed |
+| a file of `configFiles.files` or a key of a map-form file (maps reached through maps); an entry of `resources.limits`, an entry of `resources.requests` other than `cpu` and `memory`, or `resources.limits` itself; an entry of `volumes` or a field of an entry; `strategy.rollingUpdate`; an entry of `initContainers` or `sidecars`, or an optional field of an entry at any depth, not inside a list (`env.<NAME>`, a mount, a probe, a `securityContext` field: the hardened default comes back) | removed by chart-base ([ADR-0045](../adr/0045-null-in-configfiles-and-resources-is-absent.md), [ADR-0049](../adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md), [ADR-0050](../adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md), [ADR-0051](../adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)) | removed |
 
 `externalSecret.data: null` with `externalSecret.enabled: true` is cleared and then fails the source guard
 ([ADR-0047](../adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md)). In `configFiles.files`, a `null` file is no file, and in a map-form
 file a key whose value is `null` or empty (`key:`) is removed; a list inside it is rendered as written. In `volumes`, a
 `null` entry or field is absent: an entry can also be removed with `null` and re-added under another name, and an
 overlay changes a volume's type by setting the previous type's fields to `null`
-([ADR-0049](../adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)). In `initContainers` and `sidecars`, a `null` entry or field is absent at any
-depth, except inside an env variable's `valueFrom` and a probe's `httpGet` or `exec`, which the main container shares:
+([ADR-0049](../adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)). In `initContainers` and `sidecars`, a `null` entry or optional field is absent at any
+depth (a list is kept as written, and a required field such as a mount's `mountPath` or a probe's `port` stays a schema error), except inside an env variable's `valueFrom` and a probe's `httpGet` or `exec`, which the main container shares:
 replace or remove such an object whole ([ADR-0051](../adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)). So a sidecar's `env.<NAME>: null` removes the
 variable, while the main container's `env.<NAME>: null` stays a schema error (row 6) until a chart-wide rule ships.
 These are rules of these maps, not of every map. An environment that removes an entry with `null` must not pass a
@@ -337,13 +337,13 @@ A component's `initContainers` and `sidecars` ([ADR-0051](../adr/0051-init-conta
   `serviceAccount.automountToken` is true (the admission plugin mounts it into every container: measured when 0.8.0
   was designed), and with it the component's `rbac` grants and its cloud identity; the NetworkPolicy allowances (an
   init container that calls out needs its destination under `networkPolicy.egress`, or the pod does not leave init);
-  `podSecurityContext` (one UID and GID for the pod: a shared volume isolates nothing); `imagePullSecrets`; the network
+  `podSecurityContext` (its `runAsUser` and `runAsGroup` unless an entry sets its own, and one `fsGroup` for every volume: a shared volume isolates nothing); `imagePullSecrets`; the network
   namespace (a sidecar's port is reachable on the pod IP, and a probe by number reaches whatever listens on it). The
   token directory is reserved in every container's mounts.
 - **Resources.** The scheduler reserves the larger of the main container plus the sidecars and, for each init
   container, that init container plus the sidecars started before it, so the order changes what a pod reserves; a pod
   is `Guaranteed` only if every container has limits equal to its requests; LimitRange defaults reach every container;
-  in a namespace whose ResourceQuota tracks cpu or memory, every container must request it (measured on
+  in a namespace whose ResourceQuota tracks cpu or memory, every container must set what the quota tracks (a quota on `limits.cpu` needs a cpu limit on every init container and sidecar too; measured on
   kube-apiserver 1.33.0 and 1.37.0 when 0.8.0 was designed: the reservation through ResourceQuota usage, the QoS class
   and the LimitRange defaults in the stored pod). The HPA's built-in targets measure the main container once there is a
   sidecar ([ADR-0052](../adr/0052-hpa-targets-measure-the-main-container-with-sidecars.md)).
@@ -404,9 +404,9 @@ release name and `--namespace`, not on `helm lint`
   is not a DNS-1123 label or that another container of the pod has; `restartPolicy` in an entry; a container that
   would run as UID 0 with `runAsNonRoot: true`; a sidecar on a `job` or `cronjob` without `job.activeDeadlineSeconds`;
   a literal or a list in an entry's `env`, and with `inheritEnv: true` an `env` name that the main container already
-  receives; a mount of a volume the component does not have, `readOnly: false` on a mount the kubelet makes read-only,
-  the mount-path rules of the main container per container, and a `subPath` that names no item of a volume with
-  `items`; a port name or number declared twice in the pod; a sidecar probe port name that is not one of its own
+  receives; a mount of a volume the component does not have, `readOnly: false` on a mount that is always read-only,
+  the mount-path rules of the main container per container, a `subPath` that names no item of a volume with
+  `items`, and a `config-files` `subPath` that is not one of the files rendered (or `.`); a port name or number declared twice in the pod; a sidecar probe port name that is not one of its own
   ports, and a main-container probe port name that only a sidecar declares.
 
 What fails **at install or upgrade**, when Helm talks to the cluster (rendering does not need the CRD,

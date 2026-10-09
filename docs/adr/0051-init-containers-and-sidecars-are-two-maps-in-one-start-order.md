@@ -20,8 +20,9 @@ application, or a check that waits for a dependency could not be declared. The f
   container, that init container plus the sidecars started before it, so the order changes the reservation (measured
   through ResourceQuota usage on kube-apiserver 1.33.0 and 1.37.0 when 0.8.0 was designed: 500m against 550m). A pod
   is `Guaranteed` only when every container has limits equal to its requests, LimitRange defaults reach every
-  container, and a namespace whose ResourceQuota tracks cpu or memory rejects a container without that request
-  (measured then too).
+  container, and a namespace whose ResourceQuota tracks cpu or memory rejects an init container or a sidecar that does
+  not set what the quota tracks (measured then too: a quota on `limits.cpu` needs a cpu limit on every one of them
+  as well; the schema already requires the requests).
 - **Pod Security `restricted`.** The four fields that `values.yaml` ships for `securityContext`, with the chart's
   `podSecurityContext`, are what every container needs: a pod with a plain init container and a sidecar that carry
   them is admitted on kube-apiserver 1.33.0 and 1.37.0 under `restricted:latest`, and the same pod with a sidecar
@@ -45,12 +46,17 @@ application, or a check that waits for a dependency could not be declared. The f
 - **UID 0 with `runAsNonRoot: true`.** The kubelet refuses to start such a container (`security_context_others.go`
   v1.33.12 L38-41 and v1.37.0 L41-44, source reading, not run): an entry is an init container, so the pod never
   initializes.
-- **Helm and `null`** behave as [ADR-0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md) records, and Helm 3.22 hands the chart a nil map for a deleted
+- **Helm and `null`.** Helm deletes a key on `null` only when the chart's own `values.yaml` defines it, so a `null`
+  below `initContainers.<name>` reaches the chart from `-f`/`--set` and from Helm 3.22's umbrella values, while Helm 4.3
+  drops a `null` of the umbrella's own values while nothing is passed for that alias (measured on Helm 4.3.0 and
+  3.22.0; the same facts as [ADR-0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)). Helm 3.22 hands the chart a nil map for a deleted
   default. A `--set` below an entry that an override file sets to `null` fails in Helm itself (`failed parsing --set
   data: unable to parse key: interface conversion: interface {} is nil, not map[string]interface {}`, measured on Helm
   4.3.0 and 3.22.0).
 - **Keys that YAML 1.1 reads as booleans**: two sidecars `on` and `yes`, unquoted, render ONE container named
-  `"true"` (measured on Helm 4.3.0 and 3.22.0).
+  `"true"` (measured on Helm 4.3.0 and 3.22.0), and a single key such as `off` or `n` is renamed to `"false"`. The same
+  holds for an `env` or `config` name such as `OFF`: unquoted it is renamed to `false` with no error (measured on both).
+  Quote such a key.
 
 ## Decision
 
@@ -70,7 +76,8 @@ on an init container (`restartPolicy` in an entry fails, and the message says wh
   `command`, `args`, `securityContext`, `order`, `env`, `inheritEnv` and `volumeMounts`; a sidecar also `ports` and
   `probes`. No `lifecycle`, no literal `env` value, no `envFrom` of its own, and no raw Kubernetes container (the
   strictness of [ADR-0011](0011-strict-draft-07-schema.md)).
-- **`null`.** In `initContainers` and `sidecars` a `null` entry or field is absent at any depth, from every values
+- **`null`.** In `initContainers` and `sidecars` a `null` entry or optional field is absent at any depth (in maps; a list is kept as written, and a required field
+   such as a mount's `mountPath` or a probe's `port` stays a schema error), from every values
   layer and on Helm 3.22 and 4.3 alike, except inside the definitions the main container shares: one variable's
   `valueFrom` and a probe's `httpGet` or `exec`, where a `null` stays a schema error (an overlay replaces or removes
   such an object whole). This is the rule of these maps, not of every map: the main container's `env.<NAME>: null` is
@@ -85,7 +92,8 @@ on an init container (`restartPolicy` in an entry fails, and the message says wh
   in `values.yaml`, kept equal by a test), never from the component's `securityContext`, and its own
   `securityContext` is merged over it with `mergeOverwrite` after its `null` fields are removed: a `null` restores the
   default of that field, a list replaces the default's. A relaxation of the main container does not reach another
-  container; the pod-level `podSecurityContext` (one UID and GID) reaches every container, and the container default
+  container; the pod-level `podSecurityContext` reaches every container (its `runAsUser` and `runAsGroup` unless an entry sets its own,
+   and one `fsGroup` for every volume), and the container default
   does not follow it. An entry that would run as UID 0 (its merged `runAsUser`, else `podSecurityContext.runAsUser`)
   with `runAsNonRoot: true` fails.
 - **Nothing is inherited from the main CONTAINER; what the POD grants is shared.** An entry declares its own `env`,
@@ -104,7 +112,8 @@ on an init container (`restartPolicy` in an entry fails, and the message says wh
   `ReadOnlyMany` is rendered read-only and `readOnly: false` on it fails. The rules of the main container's mounts
   hold per container: normalized paths unique among its own mounts, not `/`, not the token directory, no ConfigMap
   or Secret file beneath a ConfigMap or Secret mount, a relative `subPath`; and with `items` set, a `subPath` must name
-  one of the item paths or a directory that holds one (the kubelet would mount an empty directory otherwise).
+  one of the item paths, a directory that holds one or `.` (the whole volume; the kubelet would mount an empty directory
+   otherwise); and a `subPath` of `config-files` is one of the files rendered or `.`.
 - **This amends [ADR-0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)**: `volumes.<name>.mountPath` is optional and nullable for a volume that an init
   container or a sidecar mounts (the main container then does not mount it; `subPath` and `readOnly`, which describe
   the main container's mount, then fail, and so does a volume that no container mounts), and `readOnly: true` on an

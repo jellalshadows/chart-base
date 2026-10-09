@@ -30,7 +30,7 @@ args: []
 # -- Container ports. Each entry also becomes a Service port when a Service is rendered.
 # `servicePort` is optional and defaults to `containerPort`. A probe port given by name (`httpGet.port`,
 # `tcpSocket.port` in `probes`) must be one of these names: the render fails otherwise. A sidecar's port name is not
-# one (the kubelet resolves a name among the probed container's own ports), while a port NUMBER reaches whatever
+# one (the kubelet resolves a name among the probed container's own ports: source reading), while a port NUMBER reaches whatever
 # listens on it in the pod, a sidecar included (a `grpc` probe takes a number only, so it cannot be checked).
 ports:
   - name: http
@@ -40,12 +40,14 @@ ports:
 # `requests.cpu` and `requests.memory`, which stay required), and `limits: null`, mean absent: no such limit or request is rendered (the API server would store a null as `"0"`).
 resources: {}
 
-# -- Environment variables. Rendered into ConfigMap `<fullname>-env` and injected with `envFrom`.
+# -- Environment variables. Rendered into ConfigMap `<fullname>-env` and injected with `envFrom`. Quote a name that YAML 1.1
+# reads as a boolean (`ON`, `OFF`, `YES`, `NO`, `Y`, `N`): unquoted it becomes `true` or `false`.
 config: {}
 
 # -- Environment variables from REFERENCES only (literal values belong in `config`): a map of
 # `NAME: {valueFrom: {<source>: ...}}` where the source is one of `fieldRef`, `resourceFieldRef`, `secretKeyRef` or `configMapKeyRef`.
-# Rendered as container `env`, which wins over every `envFrom` source.
+# Rendered as container `env`, which wins over every `envFrom` source. Quote a name that YAML 1.1 reads as a boolean
+# (`ON`, `OFF`, `YES`, `NO`, `Y`, `N`): unquoted it becomes `true` or `false`.
 env: {}
 
 # -- Existing ConfigMaps/Secrets injected whole, e.g. `[{secretRef: {name: sales-kafka-user}}]` or
@@ -117,46 +119,46 @@ volumes: {}
 # chart's hardened default security context (`allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true`,
 # `runAsNonRoot: true`, `capabilities.drop: [ALL]`), never from the component's `securityContext`, and its own
 # `securityContext` is merged over it field by field: a list replaces the default's (`drop: []` drops nothing, and Pod
-# Security restricted then rejects the pod). In `initContainers` and `sidecars` a `null` entry or field is absent at
-# any depth (a `null` in `securityContext` restores the hardened default of that field), and `initContainers: null` is
+# Security restricted then rejects the pod). In `initContainers` and `sidecars` a `null` entry or optional field is absent at
+# any depth (in maps; a list is kept as written, and a required field such as a mount's `mountPath` stays a schema error; a `null` in `securityContext` restores the hardened default of that field), and `initContainers: null` is
 # none. A name is a lowercase DNS-1123 label (`db-proxy`, not `dbProxy`), unique across `initContainers`, `sidecars`
-# and the main container (named after the component); quote a key that YAML 1.1 reads as a boolean (`on`, `yes`, `no`,
-# `y`): two such keys collide silently. The chart writes `restartPolicy` (an entry takes none), a list
+# and the main container (named after the component); quote a key or an `env` name that YAML 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`,
+# `off`, in any case): unquoted it becomes `true` or `false`, and two such keys collide silently. The chart writes `restartPolicy` (an entry takes none), a list
 # (`initContainers: [...]`) fails with the map form, and a container that would run as UID 0 with
 # `runAsNonRoot: true` (its `securityContext.runAsUser`, else `podSecurityContext.runAsUser`) fails the render: the
-# kubelet would never start it. `env` takes references only, `NAME: {valueFrom: ...}` as for the main container (a
+# kubelet would never start it (kubelet source reading). `env` takes references only, `NAME: {valueFrom: ...}` as for the main container (a
 # literal fails: pass it in `args`), and `inheritEnv` (default `false`) set to `true` gives the container exactly the
 # main container's `envFrom` and `env`, rendered as the main container renders them; an `env` name that the main
 # container already receives then fails the render. Inside one variable's `valueFrom` a `null` stays an error (the
 # definition is shared with the main container): remove or replace the variable whole (`env.NAME: null`); a `null` in
 # an entry's `env` never removes an inherited variable. An inherited `resourceFieldRef` without `containerName` reads
-# this container's own resources. `volumeMounts` is a map keyed by the VOLUME name, each mount with `mountPath`
+# this container's own resources (kubelet source reading). `volumeMounts` is a map keyed by the VOLUME name, each mount with `mountPath`
 # (required, absolute), `subPath` and `readOnly`: the chart's `tmp` (shared with the main container: mount it if the
 # container writes to `/tmp`, every container having a read-only root filesystem by default), `config-files` (while a
 # file is rendered) or a non-null entry of `volumes`; nothing is mounted automatically. A `config-files`, `configMap`
 # or `secret` mount, and one of a claim declared `ReadOnlyMany`, is read-only (`readOnly: false` fails: the kubelet
-# forces it). Each container's mount paths are compared normalized among its own mounts (two equal paths, `/`, the
+# forces it, and the chart for the claim). Each container's mount paths are compared normalized among its own mounts (two equal paths, `/`, the
 # ServiceAccount token directory, and a ConfigMap or Secret file beneath a ConfigMap or Secret mount fail), `subPath`
 # is relative without `..`, and with `items` a `subPath` must name one of them, a directory that holds one or `.` (the
 # whole volume); a `subPath` of `config-files` is one of the files rendered or `.`. What the
 # pod grants reaches every container, whatever an entry declares: the ServiceAccount token (with
 # `serviceAccount.automountToken`) and with it the `rbac` grants and the cloud identity, the NetworkPolicy allowances
-# (an init container that calls out needs its destination in `networkPolicy.egress`), `podSecurityContext` (one UID
-# and GID: a shared volume isolates nothing), `imagePullSecrets` and the network namespace.
+# (an init container that calls out needs its destination in `networkPolicy.egress`), `podSecurityContext` (its `runAsUser`
+# and `runAsGroup` unless an entry sets its own, and one `fsGroup` for every volume: a shared volume isolates nothing), `imagePullSecrets` and the network namespace.
 initContainers: {}
 
 # -- Sidecars: containers that keep running next to the main container (native sidecars: init containers with
 # `restartPolicy: Always`, which the chart writes), a map keyed by the container name with the fields of
 # `initContainers` (see there for the start order, the security context and `null`). The next container starts once a
-# sidecar has started (it runs, and its `startupProbe` passed if it has one). A `job` or `cronjob` with a sidecar needs
+# sidecar has started (it runs, and its `startupProbe` passed if it has one: kubelet source reading). A `job` or `cronjob` with a sidecar needs
 # `job.activeDeadlineSeconds`: a sidecar that exits before it has started is restarted with back-off and never counts
-# as a failure, so without a deadline the run never fails. A sidecar also takes `ports` (`[{name, containerPort}]`,
+# as a failure (kubelet source reading), so without a deadline the run never fails. A sidecar also takes `ports` (`[{name, containerPort}]`,
 # TCP): pod-internal, the targets of its own probes only (not in the Service, the NetworkPolicy or metrics; a port that
 # must be reached from outside the pod is declared in the component's `ports`: see the fronting-proxy recipe of the
 # README); a port name and a port number are declared once in the pod. And `probes` (`startup`, `liveness`,
 # `readiness`): each a closed probe with exactly one of `exec`, `httpGet`, `tcpSocket` or `grpc` (no `host`: Pod
-# Security rejects it from policy v1.34) and its timing fields; a port given by name must be one of the sidecar's own
-# `ports` (the kubelet resolves a name among the probed container's ports only). The kubelet probes the pod IP, so a
+# Security rejects it from policy v1.34: measured on kube-apiserver 1.37.0) and its timing fields; a port given by name must be one of the sidecar's own
+# `ports` (the kubelet resolves a name among the probed container's ports only). The kubelet probes the pod IP (source reading), so a
 # health server that listens on `localhost` by default must listen on `0.0.0.0` (cloud-sql-proxy:
 # `--http-address=0.0.0.0`), or its probes never pass. Give a sidecar that another container needs a `startupProbe`:
 # the next container starts once the sidecar has started. Inside a probe's `httpGet` or `exec` a `null` stays an error
@@ -234,7 +236,8 @@ autoscaling:
   maxReplicas: 10
   # -- Target average CPU utilization, in percent of the main container's CPU request. With a sidecar the HPA measures
   # the main container alone (a `ContainerResource` metric for it); without one, the pod (`Resource`), which is the same
-  # while the main container is the pod's only long-running container (an init container never counts). Adding the
+  # while the main container is the pod's only long-running container (a plain init container has exited, and its
+  # requests never count: source reading). Adding the
   # first sidecar changes the metric's kind in that upgrade, and removing the last one changes it back.
   targetCPUUtilizationPercentage: 80
   # -- (int) Target average memory utilization, in percent of the main container's memory request, measured like the

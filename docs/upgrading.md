@@ -374,11 +374,11 @@ that as no init container and no sidecar (measured: the 0.8.0 chart with 0.7.0's
 for the same six scenarios).
 
 - **`initContainers` and `sidecars` are new and optional** ([ADR-0051](adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)). In these two maps a `null`
-  entry or field is absent at any depth, except inside an env variable's `valueFrom` and a probe's `httpGet` or `exec`.
+  entry or optional field is absent at any depth (a list is kept as written, and a required field such as a mount's `mountPath` stays a schema error), except inside an env variable's `valueFrom` and a probe's `httpGet` or `exec`.
 - **Adding a sidecar to a component with `autoscaling.enabled` changes its HPA's metrics from `Resource` to
   `ContainerResource` for the main container (`container: <alias>`), in the same upgrade; removing the last sidecar
   changes them back.** This is intended: the percentage keeps measuring the main container's usage against the main
-  container's requests, which is what it measured before the sidecar existed (a plain init container never counts).
+  container's requests, which is what it measured before the sidecar existed (a plain init container has exited, and its requests never count: source reading).
   With pod-wide `Resource` the sidecar's requests and usage would enter the sums and move the threshold, possibly
   beyond the main container's limit ([ADR-0052](adr/0052-hpa-targets-measure-the-main-container-with-sidecars.md)). kube-apiserver 1.33.0 and 1.37.0 accept the change in
   place, both ways, with Helm 4.3.0 (server-side apply) and Helm 3.22.0 (measured).

@@ -441,7 +441,7 @@ sales:
 The containers start in this order: `db-proxy` (order -10), `migrate` (0), `shipper` (1000, a sidecar's default),
 then the main container. To start a sidecar before an init container, lower the sidecar's `order`; raising an init
 container's `order` never moves it behind a sidecar whose `order` is not set. The next container starts once a sidecar
-has started, so give a sidecar that another container needs a `startupProbe`; the kubelet probes the pod IP, so the
+has started (kubelet source reading), so give a sidecar that another container needs a `startupProbe`; the kubelet probes the pod IP (source reading), so the
 proxy's health server listens on `0.0.0.0` (`--http-address=0.0.0.0`: it defaults to `localhost`). Each container
 starts from the chart's hardened security context, not from the component's; nothing else comes from the main
 container (`inheritEnv` and `volumeMounts` are explicit), while what the pod grants reaches every container: the
@@ -833,7 +833,8 @@ code, official docs) and local renders.
     init containers first on a tie. Each entry starts from the chart's hardened security context, declares its own
     `env` (references only; `inheritEnv: true` for exactly the main container's) and its `volumeMounts`; what the pod
     grants (the token, `rbac`, the NetworkPolicy, `podSecurityContext`) reaches every container. In these maps a
-    `null` entry or field is absent at any depth. A sidecar's ports are pod-internal, port names and numbers are
+    `null` entry or optional field is absent at any depth, but inside a list, an env variable's `valueFrom` and a probe's
+    `httpGet` or `exec`, and a required field stays a schema error. A sidecar's ports are pod-internal, port names and numbers are
     declared once in the pod, and a sidecar's probes are a closed object. It amends decision 49: `mountPath` is
     optional for a volume that an init container or a sidecar mounts. *Rejected:* a Kubernetes list (an overlay
     replaces it whole), one default order (init containers behind every sidecar), the component's security context as
