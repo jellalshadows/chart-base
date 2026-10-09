@@ -2,7 +2,7 @@ apiVersion: v2
 name: chart-base
 description: Generic Helm chart for any workload, consumed as an aliased dependency
 type: application
-version: 0.7.0
+version: 0.8.0
 kubeVersion: ">=1.33.0-0"
 home: https://github.com/jellalshadows/chart-base
 sources:

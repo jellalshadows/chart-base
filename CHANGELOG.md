@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/jellalshadows/chart-base/compare/v0.7.0...v0.8.0) (2026-10-09)
+
+
+### Features
+
+* native sidecars and init containers ([a8c4a7a](https://github.com/jellalshadows/chart-base/commit/a8c4a7afed7df07be2e6ddce8ae5dfd9443f8e7a))
+
 ## [0.7.0](https://github.com/jellalshadows/chart-base/compare/v0.6.0...v0.7.0) (2026-10-08)
 
 
