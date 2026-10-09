@@ -406,8 +406,9 @@ release name and `--namespace`, not on `helm lint`
   a literal or a list in an entry's `env`, and with `inheritEnv: true` an `env` name that the main container already
   receives; a mount of a volume the component does not have, `readOnly: false` on a mount that is always read-only,
   the mount-path rules of the main container per container, a `subPath` that names no item of a volume with
-  `items`, and a `config-files` `subPath` that is not one of the files rendered (or `.`); a port name or number declared twice in the pod; a sidecar probe port name that is not one of its own
-  ports, and a main-container probe port name that only a sidecar declares.
+  `items`, and a `config-files` `subPath` that is not one of the files rendered (or `.`); a port name or number
+  declared twice in the pod; a sidecar probe port name that is not one of its own ports, and a main-container probe
+  port name that only a sidecar declares.
 
 What fails **at install or upgrade**, when Helm talks to the cluster (rendering does not need the CRD,
 so `helm template` and `helm lint` do not catch it):

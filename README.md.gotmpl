@@ -830,15 +830,15 @@ code, official docs) and local renders.
 51. **Init containers and sidecars are two maps in one start order, and nothing is inherited from the main container.**
     `initContainers` and `sidecars` are keyed by the container name and rendered into the pod's `initContainers`, a
     sidecar with `restartPolicy: Always`; they start by `order` (default 0 for an init container, 1000 for a sidecar),
-    init containers first on a tie. Each entry starts from the chart's hardened security context, declares its own
-    `env` (references only; `inheritEnv: true` for exactly the main container's) and its `volumeMounts`; what the pod
-    grants (the token, `rbac`, the NetworkPolicy, `podSecurityContext`) reaches every container. In these maps a
-    `null` entry or optional field is absent at any depth, but inside a list, an env variable's `valueFrom` and a probe's
-    `httpGet` or `exec`, and a required field stays a schema error. A sidecar's ports are pod-internal, port names and numbers are
-    declared once in the pod, and a sidecar's probes are a closed object. It amends decision 49: `mountPath` is
-    optional for a volume that an init container or a sidecar mounts. *Rejected:* a Kubernetes list (an overlay
-    replaces it whole), one default order (init containers behind every sidecar), the component's security context as
-    the base (a relaxation would reach every sidecar), raw containers.
+    init containers first on a tie. Each entry starts from the chart's hardened security context, declares its own `env`
+    (references only; `inheritEnv: true` for exactly the main container's) and its `volumeMounts`; what the pod grants
+    (the token, `rbac`, the NetworkPolicy, `podSecurityContext`) reaches every container. In these maps a `null` entry
+    or optional field is absent at any depth (a list is kept as written); inside an env variable's `valueFrom` or a
+    probe's `httpGet` or `exec`, and in a required field, it stays a schema error. A sidecar's ports are pod-internal,
+    port names and numbers are declared once in the pod, and a sidecar's probes are a closed object. It amends decision
+    49: `mountPath` is optional for a volume that an init container or a sidecar mounts. *Rejected:* a Kubernetes list
+    (an overlay replaces it whole), one default order (init containers behind every sidecar), the component's security
+    context as the base (a relaxation would reach every sidecar), raw containers.
     [ADR-0051](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)
 52. **With a sidecar, the HPA's built-in targets measure the main container.** The CPU and memory targets render as
     `ContainerResource` metrics of the main container once the component has a non-null sidecar, and as today's
