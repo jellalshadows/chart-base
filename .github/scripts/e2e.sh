@@ -23,6 +23,8 @@ ns=vending
 fail() {
   echo "FAIL: $*" >&2
   kubectl get all,persistentvolumeclaims,externalsecrets,servicemonitors,podmonitors,prometheusrules,networkpolicies,serviceaccounts,roles,rolebindings -n "$ns" >&2 || true
+  # The namespace's events: a probe's HTTP status, a back-off, a failed mount (describe may print none).
+  kubectl get events -n "$ns" --sort-by=.lastTimestamp >&2 || true
   if [ "$ns" = vending ]; then
     # The volume checks: the claims and their events, and the logs of the manual CronJob runs (absent before them).
     kubectl describe persistentvolumeclaims -n "$ns" >&2 || true
@@ -383,8 +385,9 @@ front:
   # The fronting-proxy recipe of the README: the application listens on 8080 and is NOT in ports; the sidecar proxy
   # serves 8081, which the component's ports declare, so the Service and the NetworkPolicy reach it by name, and the
   # policy keeps the application's own port closed (probes by number, as the recipe says).
+  # netexec's /healthz answers 412 until its UDP server runs: the application keeps one on 8082, the proxy has none.
   image: {repository: registry.k8s.io/e2e-test-images/agnhost, tag: "2.66.1"}
-  args: ["netexec", "--http-port=8080", "--udp-port=-1"]
+  args: ["netexec", "--http-port=8080", "--udp-port=8082"]
   ports:
     - {name: http, containerPort: 8081}
   probes:
