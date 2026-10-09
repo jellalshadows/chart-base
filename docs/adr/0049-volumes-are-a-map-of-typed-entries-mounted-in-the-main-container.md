@@ -1,6 +1,6 @@
 # ADR-0049: Extra volumes are a map of typed entries, each mounted in the main container
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0051](0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md) (0.8.0)
 - **Date:** 2026-10-07
 - **Since:** 0.7.0
 - **Related:** [ADR-0005](0005-configfiles-string-or-map.md), [ADR-0011](0011-strict-draft-07-schema.md), [ADR-0033](0033-component-level-reload-on-change.md), [ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md), [ADR-0045](0045-null-in-configfiles-and-resources-is-absent.md), [ADR-0046](0046-configfiles-mountpath-compared-normalized-rendered-as-written.md), [ADR-0050](0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md)

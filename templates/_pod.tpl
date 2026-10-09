@@ -1,10 +1,46 @@
-{{/* repository@digest when a digest is set, repository:tag otherwise. */}}
+{{/* repository@digest when a digest is set, repository:tag otherwise, for an image map: the main container's (.Values.image), an init container's or a sidecar's. */}}
 {{- define "chart-base.image" -}}
-{{- if .Values.image.digest -}}
-{{- printf "%s@%s" .Values.image.repository .Values.image.digest -}}
+{{- if .digest -}}
+{{- printf "%s@%s" .repository .digest -}}
 {{- else -}}
-{{- printf "%s:%s" .Values.image.repository (toString .Values.image.tag) -}}
+{{- printf "%s:%s" .repository (toString .tag) -}}
 {{- end -}}
+{{- end -}}
+
+{{/*
+chart-base.env: the items of a container's env from a map NAME -> {valueFrom: ...}, in key order: the one renderer of
+the env of every container (the main container's, an init container's, a sidecar's), so that a later source of the
+shared definition is rendered once for all. A literal (not a map) is never rendered: templates/validate.yaml rejects it.
+Usage: {{- with include "chart-base.env" <map> | trim }} env: {{- . | nindent <n> }} {{- end }}
+*/}}
+{{- define "chart-base.env" -}}
+{{- range $name, $ref := . }}
+{{- if kindIs "map" $ref }}
+- name: {{ $name | quote }}
+  valueFrom:
+    {{- toYaml $ref.valueFrom | nindent 4 }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+chart-base.envFrom: the items of the main container's envFrom: the imported sources (envFrom) first, then <fullname>-env
+(config) and <fullname>-secrets (externalSecret), so that the component's own keys win on a duplicate. An init container
+or a sidecar with inheritEnv: true gets exactly these.
+Usage: {{- with include "chart-base.envFrom" $ | trim }} envFrom: {{- . | nindent <n> }} {{- end }}
+*/}}
+{{- define "chart-base.envFrom" -}}
+{{- with .Values.envFrom }}
+{{ toYaml . }}
+{{- end }}
+{{- if .Values.config }}
+- configMapRef:
+    name: {{ include "chart-base.fullname" . }}-env
+{{- end }}
+{{- if .Values.externalSecret.enabled }}
+- secretRef:
+    name: {{ include "chart-base.fullname" . }}-secrets
+{{- end }}
 {{- end -}}
 
 {{/* The pods' ServiceAccount: the chart's (<fullname>), an existing one (serviceAccount.name), or the namespace's default. */}}
@@ -27,6 +63,8 @@ Deployment-only parts (the built-in preStop sleep, topology spread) are rendered
 {{- $isDeployment := eq $.Values.workload.type "deployment" -}}
 {{- $volumes := dict -}}
 {{- include "chart-base.volumes" (dict "ctx" $ "out" $volumes) -}}
+{{- $containers := dict -}}
+{{- include "chart-base.containers" (dict "ctx" $ "out" $containers) -}}
 {{- /* An existing ServiceAccount's name comes from values: quoted, so that a name such as `on` stays a string. */ -}}
 {{- $serviceAccountName := include "chart-base.serviceAccountName" $ -}}
 {{- if and (not $.Values.serviceAccount.create) $.Values.serviceAccount.name }}{{ $serviceAccountName = quote $serviceAccountName }}{{ end -}}
@@ -43,9 +81,16 @@ imagePullSecrets:
 securityContext:
   {{- toYaml $.Values.podSecurityContext | nindent 2 }}
 terminationGracePeriodSeconds: {{ $.Values.terminationGracePeriodSeconds }}
+{{- /* Init containers and sidecars, in start order (chart-base.containers). */}}
+{{- if $containers.ordered }}
+initContainers:
+  {{- range $c := $containers.ordered }}
+  {{- include "chart-base.entryContainer" (dict "ctx" $ "container" $c "volumes" $volumes) | nindent 2 }}
+  {{- end }}
+{{- end }}
 containers:
   - name: {{ include "chart-base.component" $ }}
-    image: {{ include "chart-base.image" $ | quote }}
+    image: {{ include "chart-base.image" $.Values.image | quote }}
     imagePullPolicy: {{ $.Values.image.pullPolicy }}
     {{- with $.Values.command }}
     command:
@@ -63,31 +108,13 @@ containers:
         protocol: TCP
       {{- end }}
     {{- end }}
-    {{- with $.Values.env }}
+    {{- with include "chart-base.env" ($.Values.env | default dict) | trim }}
     env:
-      {{- range $name, $ref := . }}
-      {{- /* Literal values (not maps) are rejected by templates/validate.yaml; never render them here. */}}
-      {{- if kindIs "map" $ref }}
-      - name: {{ $name | quote }}
-        valueFrom:
-          {{- toYaml $ref.valueFrom | nindent 10 }}
-      {{- end }}
-      {{- end }}
+      {{- . | nindent 6 }}
     {{- end }}
-    {{- if or $.Values.envFrom $.Values.config $.Values.externalSecret.enabled }}
+    {{- with include "chart-base.envFrom" $ | trim }}
     envFrom:
-      {{- /* External sources first: the component's explicit config/secrets win on duplicate keys. */}}
-      {{- with $.Values.envFrom }}
-      {{- toYaml . | nindent 6 }}
-      {{- end }}
-      {{- if $.Values.config }}
-      - configMapRef:
-          name: {{ $fullname }}-env
-      {{- end }}
-      {{- if $.Values.externalSecret.enabled }}
-      - secretRef:
-          name: {{ $fullname }}-secrets
-      {{- end }}
+      {{- . | nindent 6 }}
     {{- end }}
     {{- with $.Values.probes.startup }}
     startupProbe:
@@ -135,6 +162,8 @@ containers:
         readOnly: true
       {{- end }}
       {{- range $name, $v := $volumes }}
+      {{- /* A volume without mountPath has no mount in the main container: an init container or a sidecar mounts it. */}}
+      {{- if hasKey $v "mountPath" }}
       - name: {{ $name | quote }}
         mountPath: {{ $v.mountPath | quote }}
         {{- if hasKey $v "subPath" }}
@@ -146,6 +175,7 @@ containers:
         {{- else if hasKey $v "readOnly" }}
         readOnly: {{ $v.readOnly }}
         {{- end }}
+      {{- end }}
       {{- end }}
 volumes:
   - name: tmp

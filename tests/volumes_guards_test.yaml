@@ -68,15 +68,15 @@ tests:
         cache: {type: emptyDir}
     asserts:
       - failedTemplate:
-          errorPattern: "/volumes/cache': missing property 'mountPath'"
+          errorPattern: 'chart-base\[chart-base\]: volumes.cache has no mountPath and no container mounts it: set volumes.cache.mountPath \(the main container''s mount\), mount it in a sidecar or init container \(volumeMounts.cache\), or remove it with volumes.cache: null'
 
-  - it: rejects a null mountPath (a mount path is never null, so chart-base.cleanPath is never given a nil)
+  - it: rejects a null mountPath that no container mounts (null is absent, so chart-base.cleanPath is never given a nil)
     set:
       volumes:
         cache: {type: emptyDir, mountPath: null}
     asserts:
       - failedTemplate:
-          errorPattern: "/volumes/cache/mountPath': got null, want string"
+          errorPattern: 'chart-base\[chart-base\]: volumes.cache has no mountPath and no container mounts it: set volumes.cache.mountPath \(the main container''s mount\), mount it in a sidecar or init container \(volumeMounts.cache\), or remove it with volumes.cache: null'
 
   - it: rejects a relative mountPath (tmp)
     set:
@@ -744,7 +744,7 @@ tests:
         cache: {type: emptyDir, mountPath: /cache, readOnly: true}
     asserts:
       - failedTemplate:
-          errorPattern: 'chart-base\[chart-base\]: volumes.cache.readOnly is true on an emptyDir volume: the main container is the only one that mounts it, so nothing could ever write it; remove readOnly'
+          errorPattern: 'chart-base\[chart-base\]: volumes.cache \(emptyDir\) is mounted read-only by every container that mounts it, so nothing can write it: mount it writable in one container'
 
   - it: rejects readOnly true on an ephemeral volume (nothing could write it)
     set:
@@ -752,7 +752,7 @@ tests:
         scratch: {type: ephemeral, mountPath: /scratch, size: 1Gi, readOnly: true}
     asserts:
       - failedTemplate:
-          errorPattern: 'chart-base\[chart-base\]: volumes.scratch.readOnly is true on an ephemeral volume: the main container is the only one that mounts it, so nothing could ever write it; remove readOnly'
+          errorPattern: 'chart-base\[chart-base\]: volumes.scratch \(ephemeral\) is mounted read-only by every container that mounts it, so nothing can write it: mount it writable in one container'
 
   - it: rejects a sizeLimit of zero ("0")
     set:

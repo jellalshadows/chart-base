@@ -12,19 +12,12 @@ spec:
     name: {{ include "chart-base.fullname" . }}
   minReplicas: {{ .Values.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  {{- /* With a sidecar the built-in targets measure the main container alone (ContainerResource); without one, the pod (Resource). */}}
+  {{- $container := "" }}
+  {{- if include "chart-base.hasSidecars" . }}{{ $container = include "chart-base.component" . }}{{ end }}
   metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
+    {{- include "chart-base.utilizationMetric" (dict "name" "cpu" "percent" .Values.autoscaling.targetCPUUtilizationPercentage "container" $container) | nindent 4 }}
     {{- with .Values.autoscaling.targetMemoryUtilizationPercentage }}
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: {{ . }}
+    {{- include "chart-base.utilizationMetric" (dict "name" "memory" "percent" . "container" $container) | nindent 4 }}
     {{- end }}
 {{- end }}

@@ -104,8 +104,9 @@ ephemeral: [size, accessMode, storageClassName]
 chart-base.mainMounts: sets out.rows to the mounts the main container renders, in rendering order, each a dict: name,
 path (as written), clean (chart-base.cleanPath of the path), source (emptyDir, configMap, secret, persistentVolumeClaim,
 ephemeral), file (true for a subPath mount) and owner (how a message names the path). The chart's own tmp; config-files
-only when chart-base.hasConfigFiles says it is rendered; then the entries of chart-base.volumes. The one list every
-mount-path guard reads (a later mount of the chart adds one row).
+only when chart-base.hasConfigFiles says it is rendered; then the entries of chart-base.volumes that have a mountPath
+(a volume without one is mounted by an init container or a sidecar only). The one list every mount-path guard of the
+main container reads (a later mount of the chart adds one row).
 Usage: {{- $m := dict }}{{- include "chart-base.mainMounts" (dict "ctx" $ "volumes" $volumes "out" $m) }}, then range $m.rows
 */}}
 {{- define "chart-base.mainMounts" -}}
@@ -114,8 +115,22 @@ Usage: {{- $m := dict }}{{- include "chart-base.mainMounts" (dict "ctx" $ "volum
 {{- $rows = append $rows (dict "name" "config-files" "path" .ctx.Values.configFiles.mountPath "source" "configMap" "file" false "owner" "configFiles.mountPath") -}}
 {{- end -}}
 {{- range $name, $v := .volumes -}}
+{{- if hasKey $v "mountPath" -}}
 {{- $rows = append $rows (dict "name" $name "path" $v.mountPath "source" $v.type "file" (hasKey $v "subPath") "owner" (printf "volumes.%s.mountPath" $name)) -}}
+{{- end -}}
 {{- end -}}
 {{- range $r := $rows }}{{ $_ := set $r "clean" (include "chart-base.cleanPath" $r.path) }}{{ end -}}
 {{- $_ := set .out "rows" $rows -}}
+{{- end -}}
+
+{{/*
+chart-base.readOnlyMount: "true" when every mount of the named volume is read-only, whatever the mount says: the kubelet
+forces it for config-files and for a configMap or secret entry of volumes; for a persistentVolumeClaim entry declared
+ReadOnlyMany the CHART forces it (the claim's volume source carries no readOnly); nothing otherwise. Read by the mounts of init containers and sidecars and by their readOnly guard (the
+main container's mounts state the same rule in templates/_pod.tpl).
+Usage: include "chart-base.readOnlyMount" (dict "volumes" <the dict of chart-base.volumes> "name" <volume name>)
+*/}}
+{{- define "chart-base.readOnlyMount" -}}
+{{- $v := index .volumes .name | default dict -}}
+{{- if or (eq .name "config-files") (has ($v.type | default "") (list "configMap" "secret")) (and (eq ($v.type | default "") "persistentVolumeClaim") (eq ($v.claimAccessMode | default "ReadWriteOnce") "ReadOnlyMany")) }}true{{ end -}}
 {{- end -}}

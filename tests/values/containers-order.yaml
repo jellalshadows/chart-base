@@ -1,0 +1,6 @@
+# A start order read from a values file: tests/containers_test.yaml sorts it together with one from set.
+initContainers:
+  from-file:
+    image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+    resources: {requests: {cpu: 10m, memory: 16Mi}}
+    order: 7

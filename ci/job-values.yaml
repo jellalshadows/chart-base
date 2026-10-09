@@ -1,6 +1,8 @@
 # Job as a pre-deploy Helm hook (e.g. DB migrations). Its ServiceAccount,
 # ConfigMaps and ExternalSecret are hooks too, created before the Job runs.
 # The kind e2e provides a ClusterSecretStore named "fake" (ESO fake provider).
+# A sidecar (side, TCP 8081) runs next to the main container, which reaches it first; the Job still completes: the
+# kubelet ends the sidecar once the main container is done (job.activeDeadlineSeconds, required with a sidecar, is set).
 workload:
   type: job
 image:
@@ -10,6 +12,7 @@ command:
   - sh
   - -c
   - >-
+    /agnhost connect 127.0.0.1:8081 --timeout=2s &&
     test "$APP_MODE" = migrate &&
     test "$DB_PASSWORD" = s3cr3t &&
     test -f /config/migrations.yaml &&
@@ -37,3 +40,12 @@ job:
   phase: pre-deploy
   backoffLimit: 0
   activeDeadlineSeconds: 120
+
+sidecars:
+  side:
+    image: {repository: registry.k8s.io/e2e-test-images/agnhost, tag: "2.66.1"}
+    args: ["netexec", "--http-port=8081", "--udp-port=-1"]
+    resources: {requests: {cpu: 10m, memory: 16Mi}}
+    ports: [{name: side, containerPort: 8081}]
+    probes:
+      startup: {tcpSocket: {port: side}, periodSeconds: 1, failureThreshold: 30}

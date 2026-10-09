@@ -31,9 +31,10 @@ Conventional commits, squash-merged with the PR title as the commit message, dec
    `chore(main): release X.Y.Z`. It contains the `CHANGELOG.md` entry, the `Chart.yaml` version
    and the quick-start version in `README.md` and `README.md.gotmpl` (the `x-release-please-version` markers).
    ```bash
-   gh pr list --repo jellalshadows/chart-base --search "chore(main): release"
+   gh pr list --repo jellalshadows/chart-base --state open --search '"chore(main): release" in:title'
    ```
-   Expected: one open pull request. If none exists, see "If something goes wrong".
+   Expected: one open pull request. Quote the title as shown: an unquoted `chore(main):` matches nothing, even while the
+    Release PR exists (measured against the 0.7.0 Release PR). If none exists, see "If something goes wrong".
 3. **Wait for CI on the Release PR.** Because the PR is created with the App token, CI runs on it without
    a manual approval. Expected: every check green, including `ci-ok`.
    ```bash

@@ -1,0 +1,998 @@
+suite: init containers and sidecars (rendering, every workload type)
+templates:
+  - templates/deployment.yaml
+  - templates/configmap-env.yaml
+  - templates/configmap-files.yaml
+  - templates/cronjob.yaml
+  - templates/job.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+values:
+  - values/base.yaml
+tests:
+  - it: renders no initContainers key on a deployment without init containers or sidecars
+    template: templates/deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.initContainers
+
+  - it: renders no initContainers key on a cronjob without init containers or sidecars
+    template: templates/cronjob.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+    asserts:
+      - notExists:
+          path: spec.jobTemplate.spec.template.spec.initContainers
+
+  - it: renders no initContainers key on a job without init containers or sidecars
+    template: templates/job.yaml
+    set:
+      workload.type: job
+    asserts:
+      - notExists:
+          path: spec.template.spec.initContainers
+
+  - it: renders no initContainers key for initContainers {} and sidecars {}
+    template: templates/deployment.yaml
+    set:
+      initContainers: {}
+      sidecars: {}
+    asserts:
+      - notExists:
+          path: spec.template.spec.initContainers
+
+  - it: renders no initContainers key for initContainers null and sidecars null (an override file clears every entry)
+    template: templates/deployment.yaml
+    set:
+      initContainers: null
+      sidecars: null
+    asserts:
+      - notExists:
+          path: spec.template.spec.initContainers
+
+  - it: renders no initContainers key for maps of null entries on a deployment
+    template: templates/deployment.yaml
+    set:
+      initContainers: {migrate: null}
+      sidecars: {proxy: null}
+    asserts:
+      - notExists:
+          path: spec.template.spec.initContainers
+
+  - it: renders no initContainers key for maps of null entries on a cronjob
+    template: templates/cronjob.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      initContainers: {migrate: null}
+      sidecars: {proxy: null}
+    asserts:
+      - notExists:
+          path: spec.jobTemplate.spec.template.spec.initContainers
+
+  - it: renders no initContainers key for maps of null entries on a job
+    template: templates/job.yaml
+    set:
+      workload.type: job
+      initContainers: {migrate: null}
+      sidecars: {proxy: null}
+    asserts:
+      - notExists:
+          path: spec.template.spec.initContainers
+
+  - it: renders an init container and a sidecar in start order on a deployment, a sidecar with restartPolicy Always
+    template: templates/deployment.yaml
+    set:
+      initContainers:
+        migrate:
+          image: {repository: ghcr.io/acme/sales, tag: "1.4.0", digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+          command: [/app/migrate, up]
+          resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {memory: 128Mi}}
+      sidecars:
+        db-proxy:
+          image: {repository: gcr.io/cloud-sql-connectors/cloud-sql-proxy, tag: "2.26.0", pullPolicy: Always}
+          args: ["--http-address=0.0.0.0", "acme:europe-west1:sales"]
+          order: -10
+          resources: {requests: {cpu: 100m, memory: 128Mi}}
+          securityContext: {runAsUser: 1001}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers
+          value:
+            - name: db-proxy
+              image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.26.0
+              imagePullPolicy: Always
+              restartPolicy: Always
+              args: ["--http-address=0.0.0.0", "acme:europe-west1:sales"]
+              resources: {requests: {cpu: 100m, memory: 128Mi}}
+              securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true, runAsNonRoot: true, runAsUser: 1001}
+            - name: migrate
+              image: ghcr.io/acme/sales@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+              imagePullPolicy: IfNotPresent
+              command: [/app/migrate, up]
+              resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {memory: 128Mi}}
+              securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true, runAsNonRoot: true}
+
+  - it: renders an init container and a sidecar in start order on a cronjob, a sidecar with restartPolicy Always
+    template: templates/cronjob.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      initContainers:
+        migrate:
+          image: {repository: ghcr.io/acme/sales, tag: "1.4.0", digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+          command: [/app/migrate, up]
+          resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {memory: 128Mi}}
+      sidecars:
+        db-proxy:
+          image: {repository: gcr.io/cloud-sql-connectors/cloud-sql-proxy, tag: "2.26.0", pullPolicy: Always}
+          args: ["--http-address=0.0.0.0", "acme:europe-west1:sales"]
+          order: -10
+          resources: {requests: {cpu: 100m, memory: 128Mi}}
+          securityContext: {runAsUser: 1001}
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.initContainers
+          value:
+            - name: db-proxy
+              image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.26.0
+              imagePullPolicy: Always
+              restartPolicy: Always
+              args: ["--http-address=0.0.0.0", "acme:europe-west1:sales"]
+              resources: {requests: {cpu: 100m, memory: 128Mi}}
+              securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true, runAsNonRoot: true, runAsUser: 1001}
+            - name: migrate
+              image: ghcr.io/acme/sales@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+              imagePullPolicy: IfNotPresent
+              command: [/app/migrate, up]
+              resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {memory: 128Mi}}
+              securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true, runAsNonRoot: true}
+
+  - it: renders an init container and a sidecar in start order on a job, a sidecar with restartPolicy Always
+    template: templates/job.yaml
+    set:
+      workload.type: job
+      initContainers:
+        migrate:
+          image: {repository: ghcr.io/acme/sales, tag: "1.4.0", digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+          command: [/app/migrate, up]
+          resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {memory: 128Mi}}
+      sidecars:
+        db-proxy:
+          image: {repository: gcr.io/cloud-sql-connectors/cloud-sql-proxy, tag: "2.26.0", pullPolicy: Always}
+          args: ["--http-address=0.0.0.0", "acme:europe-west1:sales"]
+          order: -10
+          resources: {requests: {cpu: 100m, memory: 128Mi}}
+          securityContext: {runAsUser: 1001}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers
+          value:
+            - name: db-proxy
+              image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.26.0
+              imagePullPolicy: Always
+              restartPolicy: Always
+              args: ["--http-address=0.0.0.0", "acme:europe-west1:sales"]
+              resources: {requests: {cpu: 100m, memory: 128Mi}}
+              securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true, runAsNonRoot: true, runAsUser: 1001}
+            - name: migrate
+              image: ghcr.io/acme/sales@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+              imagePullPolicy: IfNotPresent
+              command: [/app/migrate, up]
+              resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {memory: 128Mi}}
+              securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true, runAsNonRoot: true}
+
+  - it: renders an entry without securityContext and pullPolicy like the main container under default values (the two copies of each default agree)
+    template: templates/deployment.yaml
+    set:
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true, runAsNonRoot: true}
+      - equal:
+          path: spec.template.spec.initContainers[0].securityContext
+          value: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true, runAsNonRoot: true}
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: IfNotPresent
+      - equal:
+          path: spec.template.spec.initContainers[0].imagePullPolicy
+          value: IfNotPresent
+
+  - it: renders the image with its digest when both a tag and a digest are set, and with its tag when the digest is null
+    template: templates/deployment.yaml
+    set:
+      initContainers:
+        a: {image: {repository: ghcr.io/acme/a, tag: "1.0", digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+        b: {image: {repository: ghcr.io/acme/b, tag: "2.0", digest: null}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].image
+          value: ghcr.io/acme/a@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      - equal:
+          path: spec.template.spec.initContainers[1].image
+          value: ghcr.io/acme/b:2.0
+
+  - it: renders imagePullPolicy IfNotPresent for a null pullPolicy, and a pullPolicy that is set
+    template: templates/deployment.yaml
+    set:
+      initContainers:
+        a: {image: {repository: r, tag: "1", pullPolicy: null}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+        b: {image: {repository: r, tag: "1", pullPolicy: Never}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].imagePullPolicy
+          value: IfNotPresent
+      - equal:
+          path: spec.template.spec.initContainers[1].imagePullPolicy
+          value: Never
+
+  - it: quotes every string from values (a container name that YAML reads as a boolean, a command word, args; the image is rendered as written, repo:tag)
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        "true": {image: {repository: r, tag: "1.10"}, command: ["true"], args: ["on", "8080", "true"], resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: "true"
+      - equal:
+          path: spec.template.spec.initContainers[0].image
+          value: r:1.10
+      - equal:
+          path: spec.template.spec.initContainers[0].command
+          value: ["true"]
+      - equal:
+          path: spec.template.spec.initContainers[0].args
+          value: ["on", "8080", "true"]
+
+  - it: renders no command or args for empty and null lists, and no limits for limits null
+    template: templates/deployment.yaml
+    set:
+      initContainers:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, command: [], args: null, resources: {requests: {cpu: 10m, memory: 16Mi}, limits: null}}
+    asserts:
+      - notExists:
+          path: spec.template.spec.initContainers[0].command
+      - notExists:
+          path: spec.template.spec.initContainers[0].args
+      - equal:
+          path: spec.template.spec.initContainers[0].resources
+          value: {requests: {cpu: 10m, memory: 16Mi}}
+
+  - it: renders resources from the pruned entry (a null limit is absent)
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi, ephemeral-storage: null}, limits: {cpu: null, memory: 32Mi}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].resources
+          value: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 32Mi}}
+
+  - it: keeps an entry's readOnlyRootFilesystem false over the hardened default (an explicit false is a value)
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, securityContext: {readOnlyRootFilesystem: false}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].securityContext
+          value: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: false, runAsNonRoot: true}
+
+  - it: keeps drop [ALL] next to an entry's capabilities.add (the default is merged field by field)
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, securityContext: {capabilities: {add: [NET_BIND_SERVICE]}, runAsUser: 1001}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].securityContext
+          value: {allowPrivilegeEscalation: false, capabilities: {add: [NET_BIND_SERVICE], drop: [ALL]}, readOnlyRootFilesystem: true, runAsNonRoot: true, runAsUser: 1001}
+
+  - it: restores the hardened default for a null security field (readOnlyRootFilesystem, runAsUser and capabilities.add null)
+    template: templates/deployment.yaml
+    set:
+      initContainers:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, securityContext: {readOnlyRootFilesystem: null, runAsUser: null, capabilities: {add: null}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].securityContext
+          value: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true, runAsNonRoot: true}
+
+  - it: replaces the default drop list with an entry's own (drop [NET_RAW]; drop [] renders an empty list)
+    template: templates/deployment.yaml
+    set:
+      initContainers:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, securityContext: {capabilities: {drop: [NET_RAW]}}}
+        b: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, securityContext: {capabilities: {drop: []}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].securityContext.capabilities
+          value: {drop: [NET_RAW]}
+      - equal:
+          path: spec.template.spec.initContainers[1].securityContext.capabilities
+          value: {drop: []}
+
+  - it: never starts an entry from the component's securityContext (a relaxation of the main container stays there)
+    template: templates/deployment.yaml
+    set:
+      securityContext:
+        readOnlyRootFilesystem: false
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: false
+      - equal:
+          path: spec.template.spec.initContainers[0].securityContext
+          value: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true, runAsNonRoot: true}
+
+  - it: starts negative orders in ascending order across both maps (mesh -20, db-proxy -10, migrate -5)
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        mesh: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: -20}
+        db-proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: -10}
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: -5}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: mesh
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: db-proxy
+      - equal:
+          path: spec.template.spec.initContainers[2].name
+          value: migrate
+
+  - it: starts an init container before a sidecar of the same order, whatever the names
+    template: templates/deployment.yaml
+    set:
+      initContainers:
+        zz: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: 5}
+      sidecars:
+        aa: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: 5}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: zz
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: aa
+
+  - it: starts the bounds -1000, -999, 999 and 1000 in order
+    template: templates/deployment.yaml
+    set:
+      initContainers:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: 1000}
+        b: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: 999}
+        c: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: -999}
+        d: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: -1000}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: d
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: c
+      - equal:
+          path: spec.template.spec.initContainers[2].name
+          value: b
+      - equal:
+          path: spec.template.spec.initContainers[3].name
+          value: a
+
+  - it: starts every init container before the sidecars whose order is not set (defaults 0 and 1000)
+    template: templates/deployment.yaml
+    set:
+      initContainers:
+        fetch-cert: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: 1}
+        render-config: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: 2}
+        plain: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+      sidecars:
+        envoy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+        shipper: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: plain
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: fetch-cert
+      - equal:
+          path: spec.template.spec.initContainers[2].name
+          value: render-config
+      - equal:
+          path: spec.template.spec.initContainers[3].name
+          value: envoy
+      - equal:
+          path: spec.template.spec.initContainers[4].name
+          value: shipper
+
+  - it: starts an init container at order 1000 before a sidecar whose order is not set
+    template: templates/deployment.yaml
+    set:
+      initContainers:
+        zz: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: 1000}
+      sidecars:
+        aa: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: zz
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: aa
+
+  - it: reads order null as the default (a sidecar whose order is null starts after an init container at order 1)
+    template: templates/deployment.yaml
+    set:
+      initContainers:
+        b: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: 1}
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: null}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: b
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: a
+
+  - it: starts a sidecar at order -1 before an init container whose order is not set (the init default is 0)
+    template: templates/deployment.yaml
+    set:
+      initContainers:
+        b: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: -1}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: a
+
+  - it: starts a sidecar whose order is not set before a sidecar named later at order 1000 (the sidecar default is 1000, ties by name)
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        z: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: 1000}
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: a
+
+  - it: sorts an order from a values file together with one from set (an integer from --set is in the alias contract)
+    template: templates/deployment.yaml
+    values:
+      - values/base.yaml
+      - values/containers-order.yaml
+    set:
+      sidecars:
+        from-set: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: 6}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: from-set
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: from-file
+
+  - it: renders an entry's own env references in key order, and no envFrom without inheritEnv
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        shipper:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          env:
+            TOKEN: {valueFrom: {secretKeyRef: {name: shipper-token, key: token}}}
+            NODE: {valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].env
+          value:
+            - name: NODE
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: shipper-token
+                  key: token
+      - notExists:
+          path: spec.template.spec.initContainers[0].envFrom
+
+  - it: gives an entry with inheritEnv true exactly the main container's envFrom and env, in the same order
+    template: templates/deployment.yaml
+    values:
+      - values/base.yaml
+      - values/env-refs.yaml
+    set:
+      config.APP_MODE: api
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: gcp-sm
+      externalSecret.data.API_KEY.key: sales-api-key
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, inheritEnv: true}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: vending.db-app
+                  key: password
+            - name: FLAG_X
+              valueFrom:
+                configMapKeyRef:
+                  name: shared-flags
+                  key: x
+            - name: MEMORY_MB
+              valueFrom:
+                resourceFieldRef:
+                  resource: limits.memory
+                  divisor: 1Mi
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+      - equal:
+          path: spec.template.spec.initContainers[0].env
+          value:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: vending.db-app
+                  key: password
+            - name: FLAG_X
+              valueFrom:
+                configMapKeyRef:
+                  name: shared-flags
+                  key: x
+            - name: MEMORY_MB
+              valueFrom:
+                resourceFieldRef:
+                  resource: limits.memory
+                  divisor: 1Mi
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+      - equal:
+          path: spec.template.spec.containers[0].envFrom
+          value:
+            - secretRef:
+                name: sales-kafka-user
+            - configMapRef:
+                name: shared-flags
+                optional: true
+              prefix: SHARED_
+            - configMapRef:
+                name: vending-chart-base-env
+            - secretRef:
+                name: vending-chart-base-secrets
+      - equal:
+          path: spec.template.spec.initContainers[0].envFrom
+          value:
+            - secretRef:
+                name: sales-kafka-user
+            - configMapRef:
+                name: shared-flags
+                optional: true
+              prefix: SHARED_
+            - configMapRef:
+                name: vending-chart-base-env
+            - secretRef:
+                name: vending-chart-base-secrets
+
+  - it: merges an entry's own env with the inherited one into one list in key order
+    template: templates/deployment.yaml
+    set:
+      env:
+        POD_NAME: {valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+      initContainers:
+        migrate:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          inheritEnv: true
+          env:
+            CPU: {valueFrom: {resourceFieldRef: {resource: requests.cpu}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].env
+          value:
+            - name: CPU
+              valueFrom:
+                resourceFieldRef:
+                  resource: requests.cpu
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+
+  - it: renders no env and no envFrom for inheritEnv false, and for env null
+    template: templates/deployment.yaml
+    set:
+      config.APP_MODE: api
+      env:
+        POD_NAME: {valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, inheritEnv: false}
+        b: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, inheritEnv: null, env: null}
+    asserts:
+      - notExists:
+          path: spec.template.spec.initContainers[0].env
+      - notExists:
+          path: spec.template.spec.initContainers[0].envFrom
+      - notExists:
+          path: spec.template.spec.initContainers[1].env
+      - notExists:
+          path: spec.template.spec.initContainers[1].envFrom
+
+  - it: renders an entry's env without a variable set to null
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        shipper:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          env:
+            NODE: {valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
+            GONE: null
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].env
+          value:
+            - name: NODE
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+  - it: renders an inherited variable once next to the entry's env NAME null (a null never removes an inherited variable)
+    template: templates/deployment.yaml
+    set:
+      env:
+        POD_NAME: {valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, inheritEnv: true, env: {POD_NAME: null}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].env
+          value:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+
+  - it: renders a sidecar's ports with protocol TCP and the names quoted (on and true)
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, ports: [{name: "on", containerPort: 9090}, {name: "true", containerPort: 9901}]}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].ports
+          value:
+            - name: "on"
+              containerPort: 9090
+              protocol: TCP
+            - name: "true"
+              containerPort: 9901
+              protocol: TCP
+
+  - it: renders no ports for a sidecar's ports [] and ports null
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, ports: []}
+        b: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, ports: null}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: a
+      - notExists:
+          path: spec.template.spec.initContainers[0].ports
+      - notExists:
+          path: spec.template.spec.initContainers[1].ports
+
+  - it: renders a sidecar's startup, liveness and readiness probes (tcpSocket, httpGet, grpc) and an exec probe
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        proxy:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          ports: [{name: proxy-health, containerPort: 9090}]
+          probes:
+            startup: {tcpSocket: {port: proxy-health}, periodSeconds: 1, failureThreshold: 60}
+            liveness: {httpGet: {path: /liveness, port: proxy-health, httpHeaders: [{name: X-Probe, value: "1"}]}, timeoutSeconds: 2}
+            readiness: {grpc: {port: 9091, service: health}, initialDelaySeconds: 0}
+        shipper:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          probes:
+            liveness: {exec: {command: [/bin/health, --quiet]}, terminationGracePeriodSeconds: 10}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: proxy
+      - equal:
+          path: spec.template.spec.initContainers[0].startupProbe
+          value: {tcpSocket: {port: proxy-health}, periodSeconds: 1, failureThreshold: 60}
+      - equal:
+          path: spec.template.spec.initContainers[0].livenessProbe
+          value: {httpGet: {path: /liveness, port: proxy-health, httpHeaders: [{name: X-Probe, value: "1"}]}, timeoutSeconds: 2}
+      - equal:
+          path: spec.template.spec.initContainers[0].readinessProbe
+          value: {grpc: {port: 9091, service: health}, initialDelaySeconds: 0}
+      - equal:
+          path: spec.template.spec.initContainers[1].livenessProbe
+          value: {exec: {command: [/bin/health, --quiet]}, terminationGracePeriodSeconds: 10}
+      - notExists:
+          path: spec.template.spec.initContainers[1].startupProbe
+
+  - it: renders a probe whose httpGet is null next to a tcpSocket (an overlay switching the handler) without its null fields
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        proxy:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          probes:
+            liveness: {httpGet: null, tcpSocket: {port: 9090}, periodSeconds: null}
+            readiness: null
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].livenessProbe
+          value: {tcpSocket: {port: 9090}}
+      - notExists:
+          path: spec.template.spec.initContainers[0].readinessProbe
+      - notExists:
+          path: spec.template.spec.initContainers[0].ports
+
+  - it: renders an entry's mounts in key order, read-only where the kubelet forces it
+    template: templates/deployment.yaml
+    set:
+      configFiles.files:
+        app.yaml: {a: b}
+      volumes:
+        rules: {type: configMap, name: rules}
+        certs: {type: secret, secretName: certs}
+        logs: {type: emptyDir, mountPath: /var/log/app}
+        shared: {type: persistentVolumeClaim, claimName: shared, claimAccessMode: ReadOnlyMany}
+        data: {type: persistentVolumeClaim, claimName: data, claimAccessMode: ReadWriteMany}
+      sidecars:
+        shipper:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          volumeMounts:
+            tmp: {mountPath: /tmp}
+            config-files: {mountPath: /etc/app}
+            rules: {mountPath: /etc/rules/alerts.yaml, subPath: alerts.yaml}
+            certs: {mountPath: /etc/certs, readOnly: true}
+            logs: {mountPath: /var/log/app, readOnly: true}
+            shared: {mountPath: /shared}
+            data: {mountPath: /data, readOnly: false}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          value:
+            - {name: certs, mountPath: /etc/certs, readOnly: true}
+            - {name: config-files, mountPath: /etc/app, readOnly: true}
+            - {name: data, mountPath: /data, readOnly: false}
+            - {name: logs, mountPath: /var/log/app, readOnly: true}
+            - {name: rules, mountPath: /etc/rules/alerts.yaml, subPath: alerts.yaml, readOnly: true}
+            - {name: shared, mountPath: /shared, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+
+  - it: renders a volume without mountPath with no mount in the main container, mounted by an init container
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        work: {type: emptyDir}
+      initContainers:
+        setup: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {work: {mountPath: /work}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - {name: tmp, mountPath: /tmp}
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - {name: tmp, emptyDir: {}}
+            - {name: work, emptyDir: {}}
+      - equal:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          value:
+            - {name: work, mountPath: /work}
+
+  - it: renders an emptyDir read-only in the main container and writable in an init container (the init container fills it)
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        work: {type: emptyDir, mountPath: /work, readOnly: true}
+      initContainers:
+        setup: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {work: {mountPath: /work}}}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: work, mountPath: /work, readOnly: true}
+      - equal:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          value:
+            - {name: work, mountPath: /work}
+
+  - it: renders a ReadWriteOnce claim mounted writable by a sidecar and read-only by the main container, the claim's source without readOnly
+    template: templates/deployment.yaml
+    set:
+      strategy: {type: Recreate}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: data, readOnly: true}
+      sidecars:
+        backup: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {data: {mountPath: /data}}}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: data, mountPath: /data, readOnly: true}
+      - equal:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          value:
+            - {name: data, mountPath: /data}
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: data, persistentVolumeClaim: {claimName: data}}
+
+  - it: renders no volumeMounts for volumeMounts {} and null, and no null mount
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {}}
+        b: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: null}
+        c: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {tmp: {mountPath: /tmp}, gone: null}}
+    asserts:
+      - notExists:
+          path: spec.template.spec.initContainers[0].volumeMounts
+      - notExists:
+          path: spec.template.spec.initContainers[1].volumeMounts
+      - equal:
+          path: spec.template.spec.initContainers[2].volumeMounts
+          value:
+            - {name: tmp, mountPath: /tmp}
+
+  - it: quotes a mount path and a subPath from values (a hash after a space would start a comment)
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        work: {type: emptyDir}
+      initContainers:
+        setup: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {work: {mountPath: "/srv/a #1", subPath: "b #2"}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          value:
+            - {name: work, mountPath: "/srv/a #1", subPath: "b #2"}
+
+  - it: lists the Secrets and ConfigMaps of the entries' own env for Reloader, with the main container's, once each, sorted and regex-quoted
+    template: templates/deployment.yaml
+    set:
+      env:
+        DB: {valueFrom: {secretKeyRef: {name: shared.creds, key: db}}}
+      sidecars:
+        proxy:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          env:
+            CREDS: {valueFrom: {secretKeyRef: {name: shared.creds, key: proxy}}}
+            TOKEN: {valueFrom: {secretKeyRef: {name: proxy-token, key: token}}}
+            CONF: {valueFrom: {configMapKeyRef: {name: proxy-conf, key: conf}}}
+    asserts:
+      - equal:
+          path: metadata.annotations["secret.reloader.stakater.com/reload"]
+          value: 'proxy-token,shared\.creds'
+      - equal:
+          path: metadata.annotations["configmap.reloader.stakater.com/reload"]
+          value: proxy-conf
+
+  - it: lists nothing new for inheritEnv, for an entry's fieldRef and resourceFieldRef, a null entry and a null variable
+    template: templates/deployment.yaml
+    set:
+      env:
+        DB: {valueFrom: {secretKeyRef: {name: app-db, key: db}}}
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, inheritEnv: true}
+        gone: null
+      sidecars:
+        shipper:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          env:
+            NODE: {valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
+            CPU: {valueFrom: {resourceFieldRef: {resource: requests.cpu}}}
+            OLD: null
+    asserts:
+      - equal:
+          path: metadata.annotations["secret.reloader.stakater.com/reload"]
+          value: app-db
+      - notExists:
+          path: metadata.annotations["configmap.reloader.stakater.com/reload"]
+
+  - it: renders no Reloader annotation for an entry's references on a cronjob
+    template: templates/cronjob.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, env: {TOKEN: {valueFrom: {secretKeyRef: {name: proxy-token, key: token}}}}}
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  - it: renders no Reloader annotation for an entry's references with reloadOnChange false
+    template: templates/deployment.yaml
+    set:
+      reloadOnChange: false
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, env: {TOKEN: {valueFrom: {secretKeyRef: {name: proxy-token, key: token}}}}}
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  - it: quotes an entry's env reference whose key is the string "true" and keeps optional false a boolean
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        shipper:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          env:
+            FLAG: {valueFrom: {configMapKeyRef: {name: c, key: "true", optional: false}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].env[0].valueFrom.configMapKeyRef.key
+          value: "true"
+      - equal:
+          path: spec.template.spec.initContainers[0].env[0].valueFrom.configMapKeyRef.optional
+          value: false
+
+  - it: starts a sidecar with an explicit order 0 before an init container at order 1 (0 is a value, not an absent order)
+    template: templates/deployment.yaml
+    set:
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: 1}
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, order: 0}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: proxy
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: migrate
+
+  - it: lists the Secret of a volume without mountPath that only a sidecar mounts for Reloader (the pod-level feed of 0.7.0)
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        vol-s: {type: secret, secretName: vol-s}
+      sidecars:
+        side: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {vol-s: {mountPath: /etc/vol}}}
+    asserts:
+      - equal:
+          path: metadata.annotations["secret.reloader.stakater.com/reload"]
+          value: vol-s

@@ -4,6 +4,9 @@ Every message is prefixed with "chart-base[<component>]:".
 */ -}}
 {{- $component := include "chart-base.component" . -}}
 {{- $fullname := include "chart-base.fullname" . -}}
+{{- /* initContainers and sidecars: every check reads chart-base.containers, so a null entry and a null field are absent before any check. */ -}}
+{{- $containers := dict -}}
+{{- include "chart-base.containers" (dict "ctx" . "out" $containers) -}}
 {{- $dns1035 := "^[a-z]([-a-z0-9]*[a-z0-9])?$" -}}
 {{- if not (regexMatch $dns1035 $component) -}}
 {{- include "chart-base.fail" (list . (printf "alias %q must be lowercase kebab-case (%s)" $component $dns1035)) -}}
@@ -74,10 +77,12 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list . (printf "metrics.port %q is not the name of an entry in ports: Prometheus scrapes a named port, so declare it in ports (a worker without a Service too), e.g. ports: [{name: metrics, containerPort: 9090}]" .Values.metrics.port)) -}}
 {{- end -}}
 {{- end -}}
-{{- /* A main-container probe port given by NAME must be the name of an entry of ports, on every workload type. */ -}}
+{{- /* A main-container probe port given by NAME must be the name of an entry of ports, on every workload type: the kubelet resolves a name among the probed container's own ports only, so a sidecar's port name is not one, and the message says where such a name is declared. */ -}}
+{{- $sidecarPortPaths := dict -}}
+{{- range $c := $containers.ordered }}{{ range $p := $c.entry.ports | default list }}{{ $_ := set $sidecarPortPaths $p.name (printf "sidecars.%s.ports" $c.name) }}{{ end }}{{ end -}}
 {{- $mainPortNames := list -}}
 {{- range (.Values.ports | default list) }}{{ $mainPortNames = append $mainPortNames .name }}{{ end -}}
-{{- include "chart-base.validateProbePorts" (dict "ctx" . "path" "probes" "probes" .Values.probes "portNames" $mainPortNames "portsPath" "ports") -}}
+{{- include "chart-base.validateProbePorts" (dict "ctx" . "path" "probes" "probes" .Values.probes "portNames" $mainPortNames "portsPath" "ports" "declared" $sidecarPortPaths) -}}
 {{- if .Values.networkPolicy.enabled -}}
 {{- $in := .Values.networkPolicy.ingress -}}
 {{- $eg := .Values.networkPolicy.egress -}}
@@ -166,11 +171,14 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if kindIs "slice" .Values.env -}}
 {{- include "chart-base.fail" (list . "env is a map of NAME: {valueFrom: ...}, not a Kubernetes env list: literal values belong in config, references in env as a map") -}}
 {{- end -}}
+{{- /* The variables the main container receives from the chart (chart-base.chartEnvNames): also read by the inheritEnv guard of init containers and sidecars. */ -}}
+{{- $chartEnv := dict -}}
+{{- include "chart-base.chartEnvNames" (dict "ctx" . "out" $chartEnv) -}}
 {{- range $name, $ref := .Values.env -}}
 {{- if not (kindIs "map" $ref) -}}
 {{- include "chart-base.fail" (list $ (printf "env.%s is a literal value: literal values belong in config; env only takes valueFrom references" $name)) -}}
 {{- end -}}
-{{- if or (hasKey (default dict $.Values.config) $name) (hasKey (default dict $.Values.externalSecret.data) $name) -}}
+{{- if has $name $chartEnv.names -}}
 {{- include "chart-base.fail" (list $ (printf "env.%s duplicates a key of config or externalSecret.data: literal values belong in config, secrets in externalSecret, references in env" $name)) -}}
 {{- end -}}
 {{- end -}}
@@ -203,13 +211,26 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list $ (printf "volumes.%s.%s is a field of type %s and the entry is %s: remove it (from an overlay, set it to null)" $name $field (join " or " $owners) $v.type)) -}}
 {{- end -}}
 {{- end -}}
+{{- /* A volume without mountPath is not mounted in the main container: a non-null mount of a non-null init container or sidecar must mount it, and subPath and readOnly (the main container's mount) are not set. */ -}}
+{{- if not (hasKey $v "mountPath") -}}
+{{- $mounted := false -}}
+{{- range $c := $containers.ordered }}{{ if hasKey ($c.entry.volumeMounts | default dict) $name }}{{ $mounted = true }}{{ end }}{{ end -}}
+{{- if not $mounted -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s has no mountPath and no container mounts it: set volumes.%s.mountPath (the main container's mount), mount it in a sidecar or init container (volumeMounts.%s), or remove it with volumes.%s: null" $name $name $name $name)) -}}
+{{- end -}}
+{{- range $field := list "subPath" "readOnly" -}}
+{{- if hasKey $v $field -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.%s describes the main container's mount, and volumes.%s has no mountPath: set mountPath, or remove %s (from an overlay, set it to null)" $name $field $name $field)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 
 {{- /* volumes: paths. A mount path is compared normalized (chart-base.cleanPath), with every mount the main container renders (chart-base.mainMounts); a relative path is checked as written. */ -}}
 {{- $mounts := dict -}}
 {{- include "chart-base.mainMounts" (dict "ctx" . "volumes" $volumes "out" $mounts) -}}
 {{- range $name, $v := $volumes -}}
-{{- $clean := include "chart-base.cleanPath" $v.mountPath -}}
+{{- $clean := "" }}{{ if hasKey $v "mountPath" }}{{ $clean = include "chart-base.cleanPath" $v.mountPath }}{{ end -}}
 {{- if eq $clean "/" -}}
 {{- include "chart-base.fail" (list $ (printf "volumes.%s.mountPath %q is / once normalized: a volume cannot be mounted at the container's root; choose a directory" $name $v.mountPath)) -}}
 {{- end -}}
@@ -254,8 +275,14 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if and (eq $v.type "persistentVolumeClaim") (eq ($v.claimAccessMode | default "ReadWriteOnce") "ReadOnlyMany") (hasKey $v "readOnly") (not $v.readOnly) -}}
 {{- include "chart-base.fail" (list $ (printf "volumes.%s.readOnly is false, and the claim is declared ReadOnlyMany (claimAccessMode), so its mount is read-only: remove readOnly, or declare the claim's real access mode" $name)) -}}
 {{- end -}}
-{{- if and (has $v.type (list "emptyDir" "ephemeral")) (hasKey $v "readOnly") $v.readOnly -}}
-{{- include "chart-base.fail" (list $ (printf "volumes.%s.readOnly is true on an %s volume: the main container is the only one that mounts it, so nothing could ever write it; remove readOnly" $name $v.type)) -}}
+{{- /* An emptyDir or ephemeral volume that every container mounts read-only can never be written (an init container that fills a volume the main container reads mounts it writable). */ -}}
+{{- if has $v.type (list "emptyDir" "ephemeral") -}}
+{{- $readOnly := list -}}
+{{- if hasKey $v "mountPath" }}{{ $readOnly = append $readOnly (and (hasKey $v "readOnly") $v.readOnly) }}{{ end -}}
+{{- range $c := $containers.ordered }}{{ with get ($c.entry.volumeMounts | default dict) $name }}{{ $readOnly = append $readOnly (and (hasKey . "readOnly") .readOnly) }}{{ end }}{{ end -}}
+{{- if and $readOnly (not (has false $readOnly)) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s (%s) is mounted read-only by every container that mounts it, so nothing can write it: mount it writable in one container" $name $v.type)) -}}
+{{- end -}}
 {{- end -}}
 {{- range $field := list "sizeLimit" "size" -}}
 {{- if and (hasKey $v $field) (not (regexMatch "^[0-9.]*[1-9]" (index $v $field))) -}}
@@ -300,6 +327,144 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if and $twoPods (eq $v.type "persistentVolumeClaim") (has $declared (list "ReadWriteOnce" "ReadWriteOncePod")) -}}
 {{- $declaration := printf "%s (claimAccessMode%s)" $declared (ternary "" ", the default" (hasKey $v "claimAccessMode")) -}}
 {{- include "chart-base.fail" (list $ (printf "volumes.%s mounts the existing claim %q, declared %s: a node attaches such a claim for one pod at a time, and this Deployment can run a second pod (%s); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: replicas 0 or 1, autoscaling.enabled: false, and a strategy that adds no pod: strategy: {type: Recreate} for a new component; strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}} for a Deployment that already exists (with Helm 4 the API refuses a switch to Recreate in that upgrade); strategy: {type: Recreate, rollingUpdate: null} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.%s.claimAccessMode" $name $v.claimName $declaration (join "; " $twoPods) $name)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* initContainers and sidecars: the map form, the names, restartPolicy (written by the chart), UID 0 with runAsNonRoot on the merged security context, and a deadline for a batch component with a sidecar. */ -}}
+{{- range $kind := list "initContainers" "sidecars" -}}
+{{- if kindIs "slice" (index $.Values $kind) -}}
+{{- include "chart-base.fail" (list $ (printf "%s is a map keyed by the container name, not a Kubernetes list: %s: {<name>: {image: {repository, tag}, resources: {requests: {cpu, memory}}}}" $kind $kind)) -}}
+{{- end -}}
+{{- end -}}
+{{- range $c := $containers.ordered -}}
+{{- $path := printf "%s.%s" $c.kind $c.name -}}
+{{- if or (not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $c.name)) (gt (len $c.name) 63) -}}
+{{- include "chart-base.fail" (list $ (printf "%s: a container name is a lowercase DNS-1123 label (a-z, 0-9, \"-\", at most 63 characters), e.g. cloud-sql-proxy" $path)) -}}
+{{- end -}}
+{{- if eq $c.name $component -}}
+{{- include "chart-base.fail" (list $ (printf "%s: the name %s is already the name of the main container (the component's alias): container names are unique in a pod, rename it" $path $c.name)) -}}
+{{- end -}}
+{{- if and (eq $c.kind "sidecars") (hasKey $containers.initContainers $c.name) -}}
+{{- include "chart-base.fail" (list $ (printf "%s: the name %s is already the name of initContainers.%s: container names are unique in a pod, rename it" $path $c.name $c.name)) -}}
+{{- end -}}
+{{- if hasKey $c.entry "restartPolicy" -}}
+{{- include "chart-base.fail" (list $ (printf (ternary "sidecars.%s.restartPolicy is set by the chart: every sidecar gets restartPolicy: Always" "initContainers.%s.restartPolicy is set by the chart: a container that keeps running (restartPolicy: Always) goes under sidecars; an init container takes none" (eq $c.kind "sidecars")) $c.name)) -}}
+{{- end -}}
+{{- $sc := $c.securityContext -}}
+{{- $uid := $sc.runAsUser -}}
+{{- if kindIs "invalid" $uid }}{{ $uid = ($.Values.podSecurityContext | default dict).runAsUser }}{{ end -}}
+{{- if and (eq (toString $sc.runAsNonRoot) "true") (not (kindIs "invalid" $uid)) (eq (toString $uid) "0") -}}
+{{- include "chart-base.fail" (list $ (printf "%s would run as UID 0 with runAsNonRoot: true and the kubelet would never start it: set its securityContext.runAsUser to a non-zero UID, or securityContext.runAsNonRoot: false (Pod Security restricted then rejects the pod)" $path)) -}}
+{{- end -}}
+{{- end -}}
+{{- if and (has .Values.workload.type (list "job" "cronjob")) (include "chart-base.hasSidecars" .) (kindIs "invalid" .Values.job.activeDeadlineSeconds) -}}
+{{- include "chart-base.fail" (list . (printf "sidecars on a %s need job.activeDeadlineSeconds (e.g. 600; for a job, below Helm's --timeout): a sidecar that exits before it has started is restarted with back-off and never counts as a failure, so the pod stays Pending and the run never fails; with cronjob.concurrencyPolicy: Forbid every later run is then skipped" .Values.workload.type)) -}}
+{{- end -}}
+
+{{- /* The env of init containers and sidecars: a map of references (a literal and the list form fail with a remedy), and with inheritEnv: true no name that the main container already receives (its env, and chart-base.chartEnvNames, the list of its own duplicate guard). */ -}}
+{{- range $c := $containers.ordered -}}
+{{- $path := printf "%s.%s" $c.kind $c.name -}}
+{{- if kindIs "slice" $c.entry.env -}}
+{{- include "chart-base.fail" (list $ (printf "%s.env is a map of NAME: {valueFrom: ...}, not a Kubernetes env list: references go in env as a map, literal values in args (or in the component's config, with inheritEnv: true)" $path)) -}}
+{{- end -}}
+{{- if kindIs "map" $c.entry.env -}}
+{{- range $name, $ref := $c.entry.env -}}
+{{- if not (kindIs "map" $ref) -}}
+{{- include "chart-base.fail" (list $ (printf "%s.env.%s is a literal value: env takes valueFrom references only; pass literals in args, or put them in the component's config and set inheritEnv: true" $path $name)) -}}
+{{- end -}}
+{{- if and $c.entry.inheritEnv (or (hasKey ($.Values.env | default dict) $name) (has $name $chartEnv.names)) -}}
+{{- include "chart-base.fail" (list $ (printf "%s.env.%s is also a variable of the main container, which inheritEnv: true already gives this container: rename it, or drop inheritEnv and reference what the container needs" $path $name)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Ports: a port name and a port number are declared once in the pod, across the main container's ports and every sidecar's (the API only warns, and a name declared twice is ambiguous). Two ports of the main container are not compared here (the API rejects two names in one container). */ -}}
+{{- $portRows := list -}}
+{{- range $i, $p := .Values.ports | default list }}{{ $portRows = append $portRows (dict "path" (printf "ports[%d]" $i) "name" $p.name "number" (int64 $p.containerPort) "container" "") }}{{ end -}}
+{{- range $c := $containers.ordered }}{{ range $i, $p := $c.entry.ports | default list }}{{ $portRows = append $portRows (dict "path" (printf "sidecars.%s.ports[%d]" $c.name $i) "name" $p.name "number" (int64 $p.containerPort) "container" $c.name) }}{{ end }}{{ end -}}
+{{- range $i, $a := $portRows -}}
+{{- range $j, $b := $portRows -}}
+{{- if and (ne $a.container "") (lt $j $i) (eq $a.name $b.name) -}}
+{{- include "chart-base.fail" (list $ (printf "%s.name %q is already declared in %s: a port name must be unique in the pod (a named probe, metrics.port or a Service targetPort resolves a name to one container's port, and two containers declaring it is ambiguous): rename it, or remove it here (a port the pod exposes is declared in ports)" $a.path $a.name $b.path)) -}}
+{{- end -}}
+{{- if and (ne $a.container "") (lt $j $i) (eq $a.number $b.number) -}}
+{{- include "chart-base.fail" (list $ (printf "%s.containerPort %d is already declared in %s: the containers of a pod share one network namespace, so a port is declared once: remove it here, and probe it by number from the container that serves it" $a.path $a.number $b.path)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- /* A sidecar's probe port given by NAME must be one of that sidecar's own ports (chart-base.validateProbePorts per sidecar; the message names where else the name is declared). */ -}}
+{{- range $c := $containers.ordered -}}
+{{- if eq $c.kind "sidecars" -}}
+{{- $own := list -}}
+{{- $elsewhere := dict -}}
+{{- range $r := $portRows }}{{ if eq $r.container $c.name }}{{ $own = append $own $r.name }}{{ else }}{{ $_ := set $elsewhere $r.name (ternary "ports" (printf "sidecars.%s.ports" $r.container) (eq $r.container "")) }}{{ end }}{{ end -}}
+{{- include "chart-base.validateProbePorts" (dict "ctx" $ "path" (printf "sidecars.%s.probes" $c.name) "probes" ($c.entry.probes | default dict) "portNames" $own "portsPath" (printf "sidecars.%s.ports" $c.name) "declared" $elsewhere) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* The mounts of init containers and sidecars (volumeMounts, keyed by the volume name): a volume of the pod, read-only where the kubelet forces it (chart-base.readOnlyMount), and per container the rules of the main container's mounts: normalized paths unique, not /, not the token directory, no ConfigMap or Secret file beneath a ConfigMap or Secret mount, a relative subPath, and with items a subPath that names one of them. */ -}}
+{{- $hasConfigFiles := include "chart-base.hasConfigFiles" . -}}
+{{- range $c := $containers.ordered -}}
+{{- $path := printf "%s.%s" $c.kind $c.name -}}
+{{- $rows := list -}}
+{{- range $vol, $m := $c.entry.volumeMounts | default dict -}}
+{{- $at := printf "%s.volumeMounts.%s" $path $vol -}}
+{{- $v := index $volumes $vol | default dict -}}
+{{- $source := "" -}}
+{{- if eq $vol "tmp" }}{{ $source = "emptyDir" }}{{ else if and (eq $vol "config-files") $hasConfigFiles }}{{ $source = "configMap" }}{{ else if hasKey $volumes $vol }}{{ $source = $v.type }}{{ end -}}
+{{- if not $source -}}
+{{- include "chart-base.fail" (list $ (printf "%s names no volume of the component: mount tmp, config-files (while configFiles.files has a file) or a non-null entry of volumes" $at)) -}}
+{{- end -}}
+{{- if and (include "chart-base.readOnlyMount" (dict "volumes" $volumes "name" $vol)) (hasKey $m "readOnly") (not $m.readOnly) -}}
+{{- $why := ternary "config-files is a ConfigMap mount, always read-only (the kubelet forces it)" (printf "a %s mount is always read-only (the kubelet forces it)" $source) (eq $vol "config-files") -}}
+{{- if eq $source "persistentVolumeClaim" }}{{ $why = printf "the claim is declared ReadOnlyMany (volumes.%s.claimAccessMode), so its mount is read-only" $vol }}{{ end -}}
+{{- include "chart-base.fail" (list $ (printf "%s.readOnly is false, and %s: remove readOnly" $at $why)) -}}
+{{- end -}}
+{{- if and (hasKey $m "subPath") (or (hasPrefix "/" $m.subPath) (has ".." (splitList "/" $m.subPath))) -}}
+{{- include "chart-base.fail" (list $ (printf "%s.subPath %q must be a relative path without a .. element: a path inside the volume, such as tls.crt" $at $m.subPath)) -}}
+{{- end -}}
+{{- if and (hasKey $m "subPath") (has $source (list "configMap" "secret")) (hasKey $v "items") -}}
+{{- $sub := include "chart-base.cleanPath" $m.subPath -}}
+{{- /* The volume's root (a subPath of . or ./) holds every item. */ -}}
+{{- $named := eq $sub "/" -}}
+{{- $paths := list -}}
+{{- range $item := $v.items }}{{ $p := include "chart-base.cleanPath" $item.path }}{{ $paths = append $paths $item.path }}{{ if or (eq $p $sub) (hasPrefix (printf "%s/" $sub) $p) }}{{ $named = true }}{{ end }}{{ end -}}
+{{- if not $named -}}
+{{- include "chart-base.fail" (list $ (printf "%s.subPath %q names no file of volumes.%s.items (%s): with items, the volume holds only those paths, and the kubelet would mount an empty directory there; name one of them, or a directory that holds one" $at $m.subPath $vol (join ", " $paths))) -}}
+{{- end -}}
+{{- end -}}
+{{- /* A subPath of config-files is . (the whole directory) or one of the files rendered: the keys of configFiles.files are flat file names, and a null one is no file. */ -}}
+{{- if and (hasKey $m "subPath") (eq $vol "config-files") $hasConfigFiles -}}
+{{- $sub := include "chart-base.cleanPath" $m.subPath -}}
+{{- $named := eq $sub "/" -}}
+{{- $files := list -}}
+{{- range $file, $content := $.Values.configFiles.files -}}
+{{- if not (kindIs "invalid" $content) }}{{ $files = append $files $file }}{{ if eq (printf "/%s" $file) $sub }}{{ $named = true }}{{ end }}{{ end -}}
+{{- end -}}
+{{- if not $named -}}
+{{- include "chart-base.fail" (list $ (printf "%s.subPath %q names no file of configFiles.files (%s): config-files holds only those files; name one of them, or . for the whole directory" $at $m.subPath (join ", " $files))) -}}
+{{- end -}}
+{{- end -}}
+{{- $rows = append $rows (dict "name" $vol "path" $m.mountPath "clean" (include "chart-base.cleanPath" $m.mountPath) "source" $source "file" (hasKey $m "subPath") "owner" (printf "%s.mountPath" $at) "mount" $at) -}}
+{{- end -}}
+{{- range $r := $rows -}}
+{{- if eq $r.clean "/" -}}
+{{- include "chart-base.fail" (list $ (printf "%s %q is / once normalized: a volume cannot be mounted at the container's root; choose a directory" $r.owner $r.path)) -}}
+{{- end -}}
+{{- if eq $r.clean "/var/run/secrets/kubernetes.io/serviceaccount" -}}
+{{- include "chart-base.fail" (list $ (printf "%s %q is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized: a volume there replaces the token, whether or not serviceAccount.automountToken is true now; choose another directory" $r.owner $r.path)) -}}
+{{- end -}}
+{{- end -}}
+{{- range $i, $x := $rows -}}
+{{- range $j, $y := $rows -}}
+{{- if and (lt $j $i) (eq $x.clean $y.clean) -}}
+{{- include "chart-base.fail" (list $ (printf "%s %q and %s %q are the same path once normalized (%s): each mount of %s needs a path of its own; choose another directory (one beneath it, such as %s/cache, is allowed)" $x.owner $x.path $y.owner $y.path $x.clean $path $x.clean)) -}}
+{{- end -}}
+{{- if and $x.file (has $x.source (list "configMap" "secret")) (has $y.source (list "configMap" "secret")) (ne $x.name $y.name) (hasPrefix (printf "%s/" $y.clean) $x.clean) -}}
+{{- include "chart-base.fail" (list $ (printf "%s mounts one file (subPath) at %q, beneath %s %q, a ConfigMap or Secret mount: the kubelet creates that mount point as a directory inside the parent volume, and a file cannot be mounted on a directory. Mount the volume as a directory beneath it (without subPath, for example %s/secrets), or the file beside it" $x.mount $x.path $y.owner $y.path $y.clean)) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

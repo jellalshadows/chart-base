@@ -51,7 +51,9 @@ A single required check, `ci-ok`, depends on all the jobs. chart-testing (`ct`) 
   component), `rbac` (the Role and RoleBindings, hooks on a job component), `externalsecret`, `exposure`, `scaling`,
   `service`, `serviceaccount`, `hooks`, `validate`, `schema`, `snapshot`, `volumes` (the five types on every workload
   type, the accessor, the Reloader feed), `volumes_guards` (the schema rules and guards of `volumes`, and the strategy
-  guards)). Each suite names the templates it renders.
+  guards), `containers` (init containers and sidecars: the start order and the security context on every workload type; `env`,
+  ports, probes and mounts on a Deployment; and the Reloader feed), `containers_guards` (the schema rules and guards of
+  `initContainers` and `sidecars`)). Each suite names the templates it renders.
 - Shared values in `tests/values/`: `base.yaml` (the minimum valid values every suite starts from),
   `env-refs.yaml` (one reference of every kind plus `envFrom` sources, for the `env` suite),
   `pod-runtime.yaml` (every pod runtime knob, for the `pod` suite), `prometheus-rules.yaml` (a recording
@@ -64,7 +66,7 @@ A single required check, `ci-ok`, depends on all the jobs. chart-testing (`ct`) 
 - **Schema tests** use `failedTemplate` with an `errorPattern` that matches the schema error path, for
   example `"/image/repository': minLength"`. They go through `templates/validate.yaml`, because rendering
   any template makes Helm validate the values against the schema first.
-- **Guard tests** (`tests/validate_test.yaml`, and `tests/volumes_guards_test.yaml` for `volumes`) assert the `chart-base[<alias>]: ...` messages of the
+- **Guard tests** (`tests/validate_test.yaml`, `tests/volumes_guards_test.yaml` for `volumes` and `tests/containers_guards_test.yaml` for `initContainers` and `sidecars`) assert the `chart-base[<alias>]: ...` messages of the
   guards, including the boundaries: a 63-character name passes and a 64-character one fails, and the same
   for 52 and 53 with a CronJob.
 - Every suite sets `capabilities` (Kubernetes 1.33) and a real `release.name`, because the defaults of
@@ -184,8 +186,14 @@ covered: a hyphen in the values key, the `condition` path and the resource names
   (`emptyDir` to `ephemeral`) renders with the old field set to `null` in all four, and fails with the guard's message
   without it; a `null` `secretName` fails (on Helm 4.3 U0 the schema answers, because Helm drops the `null`);
   `volumes: null` from F and U0 leaves the chart's own volume only. And `strategy: {type: Recreate, rollingUpdate:
-  null}` renders `type: Recreate` alone in U0, U1, F and S. Paths go through values files (Git Bash rewrites
-  `--set a=/x`);
+  null}` renders `type: Recreate` alone in U0, U1, F and S. For `initContainers` and `sidecars`: a `null` entry,
+  mount, probe, env variable and security field are absent in all four layers (`readOnlyRootFilesystem: null` renders
+  the hardened `true`, on Helm 3.22 too); `sidecars: null` and `initContainers: null` from F and U0 render no init
+  container; an `order` from `--set` (an integer) sorts with one of the umbrella's values; an autoscaled component's
+  HPA has `ContainerResource` metrics of its main container with a sidecar and `Resource` ones once its only sidecar is
+  `null` from F or S; a sidecar named like the alias fails; a `null` inside a sidecar's `env` `valueFrom` fails the
+  schema (F); and a `--set` below an entry that an override file sets to `null` fails in Helm itself. Paths go through
+  values files (Git Bash rewrites `--set a=/x`);
 - an uppercase alias is rejected by the guard.
 
 **Where it lives.** `.github/scripts/alias-contract.sh <chart-dir>`. The script copies the chart next to
@@ -254,11 +262,11 @@ Each scenario is installed with `helm upgrade --install ... --wait --timeout 5m`
 
 | Scenario | Assertions |
 |---|---|
-| `deployment` | The Deployment becomes Ready in the restricted namespace. A second upgrade with `--set config.APP_MODE=api-v2` creates a new ReplicaSet: a config change rolls the pods (the checksum annotation). Then two in-place upgrades on Helm 4.3's server-side apply, with values files the script writes (the scenario installs no `strategy`): the claim `e2e-data` as a `persistentVolumeClaim` volume with `strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}` (the Deployment is Ready with the claim mounted), then `strategy: {type: Recreate}` (`spec.strategy` is exactly `{"type":"Recreate"}`). The Helm 3.22 path is not in the e2e. |
+| `deployment` | The Deployment becomes Ready in the restricted namespace. A second upgrade with `--set config.APP_MODE=api-v2` creates a new ReplicaSet: a config change rolls the pods (the checksum annotation). Then two in-place upgrades on Helm 4.3's server-side apply, with values files the script writes (the scenario installs no `strategy`): the claim `e2e-data` as a `persistentVolumeClaim` volume with `strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}` (the Deployment is Ready with the claim mounted), then `strategy: {type: Recreate}` (`spec.strategy` is exactly `{"type":"Recreate"}`). The Helm 3.22 path is not in the e2e. Its init containers and sidecar: the stored `initContainers` are `setup`, `side`, `wait-side` in that order and only `side` carries `restartPolicy: Always`; `wait-side`, whose only process connects to the sidecar on `127.0.0.1:8081`, exited 0 at its first attempt (it reached a sidecar that `order` placed before it, the runtime proof of the start order); the main container reads `/work/marker`, which `setup` wrote on an `emptyDir`, and a write to `/work`, mounted read-only, fails with `Read-only file system`; `side` is started, no later than the main container. Every `kubectl exec` and `kubectl logs` names its container (`-c`). |
 | `worker` | The worker becomes Ready and there is no Service named for it. It has a PodMonitor labelled `release: e2e` whose endpoint port is the container port `metrics`, and no ServiceMonitor. |
 | `cronjob` | A Job created manually from the CronJob (`kubectl create job --from=cronjob/...`) completes within 180 seconds: a restricted pod that reads its config from the ConfigMap, its `env` references (`fieldRef`, `resourceFieldRef`) and the `e2e-shared` Secret injected with `envFrom` and a prefix. Service links are off: `KUBERNETES_SERVICE_HOST` is set, `DEPLOYMENT_CHART_BASE_SERVICE_HOST` (the `deployment` scenario's Service, installed before; the script first checks that it has a ClusterIP) is not. Its volumes: each run fails if its marker is already on its `ephemeral` volume (a reused volume), writes to an `emptyDir`, appends its pod name to a file on the existing claim `e2e-runs` and prints the file. A second manual run must print the first run's pod name (the claim is the same volume for every run; a scheduled run in between changes nothing). The first run's ephemeral claim (`<pod>-scratch`) is owned by its pod and carries `app.kubernetes.io/instance`, and once the pod is deleted it is gone (polled every 2 seconds for up to 120). |
-| `job` | The `pre-deploy` hook Job succeeds and its log contains `migrations-ok`: it saw `APP_MODE`, `DB_PASSWORD` (from the ExternalSecret) and `/config/migrations.yaml`, all created as hooks before it ran. A second deploy with `--set-string podAnnotations.revision=2` succeeds, so the Job hook is recreated instead of hitting `field is immutable` ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)). |
-| `full` | The ExternalSecret becomes Ready, the Secret it creates holds the value `s3cr3t` from the fake provider, the API server accepts the HTTPRoute, the Deployment's `secret.reloader.stakater.com/reload` annotation is exactly `e2e-files,e2e-shared,full-chart-base-secrets` and its `configmap.reloader.stakater.com/reload` exactly `e2e-rules` (nothing but the volumes references those two), and the HPA, PDB and Ingress are created. In a pod, `/agnhost mounttest --fs_type` reports `tmpfs` for the `medium: Memory` volume at `/tmp/cache` and not for `/tmp`; the Secret `e2e-files`, mounted as a directory at `/config/secrets` beneath the config-files mount, is readable and a write fails with `Read-only file system`; the key `alerts` of `e2e-rules`, mounted with `items`, `defaultMode`, `subPath` and `optional: false` at `/etc/rules/alerts.yaml`, holds what the script wrote. The Deployment carries `strategy` (`maxSurge: 1`, `maxUnavailable: 0`), `minReadySeconds` and `revisionHistoryLimit`; a pod carries `priorityClassName: e2e-high` resolved to priority 1000 by the API server, `enableServiceLinks: false`, the `dnsConfig` option and the `hostAliases` entry. The ServiceMonitor is labelled `release: e2e` and its endpoint targets the Service port `http` with a `30s` interval, there is no PodMonitor, and the PrometheusRule is labelled `release: e2e` and holds the alert `FullChartBaseDown`. The NetworkPolicy is accepted with both policy types, the `except` of its `ipBlock` and its `endPort`. The Role is accepted with its `resourceNames` and its subresource rule, and the RoleBindings `full-chart-base` (to the Role) and `full-chart-base.view` (to the ClusterRole `view`) bind the ServiceAccount `full-chart-base`. |
+| `job` | The `pre-deploy` hook Job succeeds and its log contains `migrations-ok`: it saw `APP_MODE`, `DB_PASSWORD` (from the ExternalSecret) and `/config/migrations.yaml`, all created as hooks before it ran. A second deploy with `--set-string podAnnotations.revision=2` succeeds, so the Job hook is recreated instead of hitting `field is immutable` ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)). The pod has a sidecar `side` that the main command reaches first (`/agnhost connect 127.0.0.1:8081`): the hook still completes, its pod is `Succeeded` and the sidecar is terminated. |
+| `full` | The ExternalSecret becomes Ready, the Secret it creates holds the value `s3cr3t` from the fake provider, the API server accepts the HTTPRoute, the Deployment's `secret.reloader.stakater.com/reload` annotation is exactly `e2e-files,e2e-shared,full-chart-base-secrets` and its `configmap.reloader.stakater.com/reload` exactly `e2e-rules` (nothing but the volumes references those two), and the HPA, PDB and Ingress are created. In a pod, `/agnhost mounttest --fs_type` reports `tmpfs` for the `medium: Memory` volume at `/tmp/cache` and not for `/tmp`; the Secret `e2e-files`, mounted as a directory at `/config/secrets` beneath the config-files mount, is readable and a write fails with `Read-only file system`; the key `alerts` of `e2e-rules`, mounted with `items`, `defaultMode`, `subPath` and `optional: false` at `/etc/rules/alerts.yaml`, holds what the script wrote. The Deployment carries `strategy` (`maxSurge: 1`, `maxUnavailable: 0`), `minReadySeconds` and `revisionHistoryLimit`; a pod carries `priorityClassName: e2e-high` resolved to priority 1000 by the API server, `enableServiceLinks: false`, the `dnsConfig` option and the `hostAliases` entry. The ServiceMonitor is labelled `release: e2e` and its endpoint targets the Service port `http` with a `30s` interval, there is no PodMonitor, and the PrometheusRule is labelled `release: e2e` and holds the alert `FullChartBaseDown`. The NetworkPolicy is accepted with both policy types, the `except` of its `ipBlock` and its `endPort`. The Role is accepted with its `resourceNames` and its subresource rule, and the RoleBindings `full-chart-base` (to the Role) and `full-chart-base.view` (to the ClusterRole `view`) bind the ServiceAccount `full-chart-base`. It has a sidecar `shipper` that references nothing (the Reloader annotations stay the same), so the API server stores the HPA's two metrics as `ContainerResource` of the main container `chart-base`. |
 | `port-names` | The API server accepts the component whose only port is named `on`, and stores `on` as a string in the Service port name and `targetPort`, the container port name, the Ingress backend port name and the ServiceMonitor endpoint port. |
 
 What the e2e does not show about volumes (one node, one Helm version; covered by the unit tests, the prototype's
@@ -268,6 +276,13 @@ failure that the Deployment guard prevents; `fsGroup` on claims; `ReadWriteMany`
 ConfigMap, Secret or claim; an RWO claim shared between components or with a pre-deploy hook; the Helm 3.22 path of
 the strategy change; a `subPath` file beneath a ConfigMap mount (the guard forbids rendering it); helmfile's layering
 of `null`.
+
+What the e2e does not show about init containers and sidecars (covered by the unit tests, by the prototype's
+API-server measurements recorded in [ADR-0051](../adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md) and [ADR-0052](../adr/0052-hpa-targets-measure-the-main-container-with-sidecars.md), or only by the
+docs): a sidecar that never starts; HPA arithmetic and scaling (no metrics-server: the e2e checks the stored metrics
+only); the termination order and its 2-second floor; ResourceQuota and LimitRange effects; that a probe's port name
+declared on another container never resolves, and the kubelet refusing UID 0 with `runAsNonRoot: true`; CNIs other than
+kindnet; the Helm 3.22 path.
 
 After the scenarios, the **NetworkPolicy checks**. The script creates a namespace `netpol` (Pod Security
 `restricted`) with a default-deny NetworkPolicy (`podSelector: {}`, `policyTypes: [Ingress, Egress]`, no rule), and
@@ -279,7 +294,11 @@ umbrella `shop` like the alias contract does, with three aliases, and installs i
 - `web` (the same image) allows no ingress source and isolates its egress: the cluster DNS (the default) and
   `toComponents: [api]`;
 - `migrate`, a `pre-deploy` Job with egress isolated (DNS only), resolves and connects over TCP to
-  `kube-dns.kube-system.svc.cluster.local:53`, with up to 20 attempts one second apart.
+  `kube-dns.kube-system.svc.cluster.local:53`, with up to 20 attempts one second apart;
+- `front`, the fronting-proxy recipe of the README: its main container serves 8080, which is NOT in its `ports`
+  (readiness probe by number); its `ports` is `[{name: http, containerPort: 8081}]`, served by its sidecar `proxy`;
+  `fromComponents: [web]`. `web`'s `toComponents` is `[api, front]` (a `toComponents` rule opens every port, so a
+  refusal can only come from `front`'s ingress).
 
 Each probe is `kubectl exec ... /agnhost connect <host>:<port> --timeout=3s`, repeated every second for up to
 10 seconds until the result is the expected one, as Kubernetes' own NetworkPolicy e2e does: an allowed connection
@@ -298,6 +317,8 @@ NetworkPolicy is enforced, that the chart's rules allow what they should, and th
 | `web` → the `probe` pod's IP, port 8080 | Denied: `web`'s rules allow only the cluster DNS and `api`, and the default-deny allows nothing (the destination has no policy). |
 | `monitoring/probe` → `shop-api.netpol.svc.cluster.local:9090` | Allowed (`REFUSED`): `metricsFromNamespaces` opens the `metrics` port. |
 | `monitoring/probe` → `shop-api.netpol.svc.cluster.local:8080` | Denied: the monitoring namespace reaches only the metrics port. |
+| `web` → `shop-front:8081` | Allowed, and served: the Service's named port resolves to 8081, declared on the main container, and the sidecar `proxy` listens there (nothing on the main container does); kindnet resolves the NetworkPolicy's named port on the main container. |
+| `web` → `front`'s pod IP, port 8080 | Denied: `front`'s policy opens only the entries of its `ports`, so the application's own port is closed to a client that bypasses the proxy. |
 
 Then the script deletes the default-deny, so that only the chart's policies remain, and checks the chart's own
 isolation:

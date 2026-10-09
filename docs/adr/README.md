@@ -59,8 +59,10 @@ not published; each record restates every fact it uses.
 | [0046](0046-configfiles-mountpath-compared-normalized-rendered-as-written.md) | `configFiles.mountPath` is compared normalized and rendered as written | Accepted | 0.7.0 |
 | [0047](0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md) | When-enabled keys are required, an ExternalSecret needs a source, and a probe port name must be declared | Amended by 0050 | 0.7.0 |
 | [0048](0048-httproute-parentrefs-and-matches-are-closed.md) | The entries of `httpRoute.parentRefs` and `httpRoute.matches` are closed objects | Amended by 0050 | 0.7.0 |
-| [0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md) | Extra volumes are a map of typed entries, each mounted in the main container | Accepted | 0.7.0 |
+| [0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md) | Extra volumes are a map of typed entries, each mounted in the main container | Amended by 0051 | 0.7.0 |
 | [0050](0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md) | An existing claim on a Deployment declares its access mode; `strategy.rollingUpdate: null` is absent | Accepted | 0.7.0 |
+| [0051](0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md) | Init containers and sidecars are two maps in one start order, and nothing is inherited from the main container | Accepted | 0.8.0 |
+| [0052](0052-hpa-targets-measure-the-main-container-with-sidecars.md) | With a sidecar, the HPA's built-in targets measure the main container | Accepted | 0.8.0 |
 
 ## Adding a record
 
