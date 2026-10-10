@@ -61,6 +61,16 @@ externalSecret:
   data:
     DB_PASSWORD:
       key: /sales/db-password
+  # The extract brings DB_PASSWORD too (data wins), LOG_LEVEL and api-key (not a variable name: the kubelet still makes it
+  # a variable, which the e2e checks); one templated key next to them (Merge); the whole Secret mounted as files.
+  dataFrom:
+    - extract:
+        key: /sales/config
+  template:
+    data:
+      DATABASE_URL: "postgres://sales:{{ .DB_PASSWORD }}@db:5432/sales"
+    mergePolicy: Merge
+  mountPath: /etc/app-secrets
 probes:
   startup:
     httpGet:

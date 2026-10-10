@@ -10,7 +10,10 @@
 # emptyDir, a Secret directory beneath the config-files mount, one ConfigMap key as a file, the Reloader feed, and two
 # in-place strategy changes of a Deployment that mounts an existing claim. The deployment, job and full scenarios and a
 # fourth component of the NetworkPolicy umbrella check init containers and sidecars: the start order, a volume an init
-# container fills, a hook Job that completes with a sidecar, the fronting-proxy recipe and the HPA's metrics.
+# container fills, a hook Job that completes with a sidecar, the fronting-proxy recipe and the HPA's metrics. The full,
+# job and worker scenarios check the ExternalSecret's dataFrom, template and file mount: the Secret's key set, the value
+# of a key two sources bring, a templated value and the chart's labels, a key that is no variable name in the
+# environment, the files in the pods and in the hook Job, and a component that reads the Secret without envFrom.
 # Usage: e2e.sh <chart-dir>
 # Env: GATEWAY_API_VERSION (e.g. v1.6.2), ESO_CHART_VERSION (e.g. 2.11.0),
 #      PROMETHEUS_OPERATOR_VERSION (e.g. v0.94.1)
@@ -30,6 +33,11 @@ fail() {
     kubectl describe persistentvolumeclaims -n "$ns" >&2 || true
     # A pod stuck Pending or failing to start (a claim that does not bind, a nested mount) shows why in its events.
     kubectl describe pods,jobs -n "$ns" >&2 || true
+    # An ExternalSecret that does not sync (an extract, a template) shows why in its events and conditions, and the
+    # External Secrets controller logs a provider or decoding error in more detail (the release external-secrets of the
+    # chart external-secrets names its controller Deployment external-secrets).
+    kubectl describe externalsecrets -n "$ns" >&2 || true
+    kubectl logs -n external-secrets deploy/external-secrets --tail=100 >&2 || true
     # Every container's log of the deployment and job scenarios: an init container that exits (wait-side's REFUSED), a
     # sidecar that never starts.
     kubectl logs -n "$ns" deploy/deployment-chart-base --all-containers --prefix --tail=50 >&2 || true
@@ -81,8 +89,16 @@ spec:
       data:
         - key: /sales/db-password
           value: s3cr3t
+        # dataFrom extracts: JSON objects (full: one member that data brings too, one that is no variable name; worker:
+        # base64 text that decodingStrategy Base64 decodes).
+        - key: /sales/config
+          value: '{"DB_PASSWORD":"from-extract","LOG_LEVEL":"debug","api-key":"k-123"}'
+        - key: /sales/certs
+          value: '{"tls.crt":"Y2VydGlmaWNhdGUtdGV4dA==","tls.key":"a2V5LXRleHQ="}'
 EOF
 kubectl wait clustersecretstore/fake --for=condition=Ready --timeout=120s
+# The container runtime of the kind nodes (the binary-value fixes of decision 7 are runtime versions): printed, not checked.
+echo "== kind nodes: container runtime $(kubectl get nodes -o jsonpath='{.items[*].status.nodeInfo.containerRuntimeVersion}' || true)"
 
 kubectl create namespace "$ns"
 kubectl label namespace "$ns" \
@@ -175,6 +191,28 @@ pm="$(kubectl get podmonitor -n "$ns" worker-chart-base -o jsonpath='{.metadata.
 [ "$pm" = "e2e metrics" ] || fail "worker must have a PodMonitor labelled release=e2e whose endpoint targets the container port 'metrics', got '$pm'"
 kubectl get servicemonitor -n "$ns" worker-chart-base > /dev/null 2>&1 && fail "worker has no Service: it must not have a ServiceMonitor"
 pass "worker runs without a Service; its PodMonitor's endpoint targets its named container port"
+# The worker reads its Secret without envFrom: a dataFrom extract decoded from base64 is the only source, one key is a
+# file (items), the other a variable through externalSecretKeyRef. The pod needed the Secret to start (--wait passed).
+kubectl wait -n "$ns" externalsecret/worker-chart-base-secrets --for=condition=Ready --timeout=120s \
+  || fail "the worker's ExternalSecret (dataFrom only) did not sync"
+keys="$(kubectl get secret -n "$ns" worker-chart-base-secrets -o go-template="{{range \$k, \$v := .data}}{{\$k}} {{end}}" || true)"
+[ "$keys" = "tls.crt tls.key " ] || fail "the worker's Secret must hold exactly the extracted keys tls.crt and tls.key, got '$keys'"
+wpod="$(kubectl get pods -n "$ns" -l app.kubernetes.io/instance=worker -o jsonpath='{.items[0].metadata.name}' || true)"
+[ -n "$wpod" ] || fail "the worker scenario has no pod"
+crt="$(kubectl exec -n "$ns" "$wpod" -c chart-base -- cat /etc/certs/tls/tls.crt 2>&1 || true)"
+[ "$crt" = certificate-text ] || fail "the item tls.crt must be the decoded file /etc/certs/tls/tls.crt, got '$crt'"
+other="$(kubectl exec -n "$ns" "$wpod" -c chart-base -- sh -c 'if [ -e /etc/certs/tls.key ]; then echo present; else echo absent; fi' 2>&1 || true)"
+[ "$other" = absent ] || fail "a key that items does not list (tls.key) must not be a file of the mount, got '$other'"
+# The environment as the kubelet set it (PID 1's); the file first, then tr: no pipeline under pipefail.
+kubectl exec -n "$ns" "$wpod" -c chart-base -- cat /proc/1/environ > "$work/worker.environ" \
+  || fail "could not read the environment of the worker's main container"
+tr '\0' '\n' < "$work/worker.environ" > "$work/worker.env" || fail "could not convert the environment of the worker's main container"
+grep -qxF 'TLS_KEY=key-text' "$work/worker.env" || fail "TLS_KEY (externalSecretKeyRef on tls.key) must hold the decoded key-text"
+if grep -qE '^(tls\.crt|tls\.key)=' "$work/worker.env"; then fail "with envFrom false the Secret's keys must not be variables of the container"; fi
+ref="$(kubectl get pod -n "$ns" "$wpod" -o jsonpath='{.spec.containers[0].env[?(@.name=="TLS_KEY")].valueFrom.secretKeyRef.name}' || true)"
+[ "$ref" = worker-chart-base-secrets ] || fail "TLS_KEY must reference the Secret worker-chart-base-secrets, got '$ref'"
+kubectl get secret -n "$ns" "$ref" > /dev/null || fail "the Secret $ref that TLS_KEY references must exist"
+pass "worker: a dataFrom-only Secret decoded from base64, one key a file (items), one a variable (externalSecretKeyRef), no key injected"
 
 echo "== cronjob"
 install cronjob || fail "cronjob scenario failed"
@@ -217,11 +255,11 @@ done
 pass "an ephemeral claim is owned by its pod, carries the instance label, and is deleted with the pod"
 
 echo "== job (pre-deploy hook)"
-install job || fail "job hook failed: it must see APP_MODE, DB_PASSWORD (ESO) and /config/migrations.yaml, and reach its sidecar side on 127.0.0.1:8081"
+install job || fail "job hook failed: it must see APP_MODE, DB_PASSWORD (ESO, as a variable and as the file /etc/app-secrets/DB_PASSWORD) and /config/migrations.yaml, and reach its sidecar side on 127.0.0.1:8081"
 # The log goes to a file first (no pipeline into grep -q under pipefail); -c names the container (the pod has a sidecar).
 kubectl logs -n "$ns" job/job-chart-base -c chart-base > "$work/job.log" || fail "could not read the job's log"
 grep -qxF migrations-ok "$work/job.log" || fail "job output missing"
-pass "pre-deploy Job ran with its hook ConfigMaps and ExternalSecret"
+pass "pre-deploy Job ran with its hook ConfigMaps and ExternalSecret, and read the Secret's mounted file"
 # A hook Job with a native sidecar completes: once the main container is done the kubelet ends the sidecar, and the pod
 # is Succeeded only when the sidecar has stopped too (kubelet source reading, measured by this check).
 job_pod="$(kubectl get pods -n "$ns" -l job-name=job-chart-base -o jsonpath='{.items[0].status.phase} {.items[0].status.initContainerStatuses[?(@.name=="side")].state.terminated.finishedAt}' || true)"
@@ -236,7 +274,14 @@ install full || fail "full scenario failed"
 kubectl wait -n "$ns" externalsecret/full-chart-base-secrets --for=condition=Ready --timeout=120s \
   || fail "ExternalSecret did not sync"
 [ "$(kubectl get secret -n "$ns" full-chart-base-secrets -o jsonpath='{.data.DB_PASSWORD}' | base64 -d)" = s3cr3t ] \
-  || fail "Secret content mismatch"
+  || fail "DB_PASSWORD must be the value of data (s3cr3t), which wins over the dataFrom extract's from-extract"
+# The Secret's exact key set pins the merge policy (Merge: data, the extract and the templated key).
+keys="$(kubectl get secret -n "$ns" full-chart-base-secrets -o go-template="{{range \$k, \$v := .data}}{{\$k}} {{end}}" || true)"
+[ "$keys" = "DATABASE_URL DB_PASSWORD LOG_LEVEL api-key " ] || fail "full's Secret must hold DATABASE_URL, DB_PASSWORD, LOG_LEVEL and api-key (Merge), got '$keys'"
+[ "$(kubectl get secret -n "$ns" full-chart-base-secrets -o jsonpath='{.data.DATABASE_URL}' | base64 -d)" = "postgres://sales:s3cr3t@db:5432/sales" ] \
+  || fail "the templated DATABASE_URL must be rendered from DB_PASSWORD"
+labels="$(kubectl get secret -n "$ns" full-chart-base-secrets -o jsonpath='{.metadata.labels.app\.kubernetes\.io/name} {.metadata.labels.app\.kubernetes\.io/instance}' || true)"
+[ "$labels" = "chart-base full" ] || fail "the templated Secret must carry the chart's labels (template.metadata.labels), got '$labels'"
 kubectl get httproute -n "$ns" full-chart-base > /dev/null || fail "HTTPRoute not accepted by the API"
 reload="$(kubectl get deployment -n "$ns" full-chart-base -o jsonpath='{.metadata.annotations.secret\.reloader\.stakater\.com/reload}' || true)"
 [ "$reload" = "e2e-files,e2e-shared,full-chart-base-secrets" ] || fail "Reloader annotation must list the referenced and the mounted Secrets, got '$reload'"
@@ -266,6 +311,14 @@ case "$write" in *"Read-only file system"*) ;; *) fail "the write to the Secret 
 rules="$(kubectl exec -n "$ns" "$pod" -c chart-base -- cat /etc/rules/alerts.yaml 2>&1 || true)"
 [ "$rules" = "groups: []" ] || fail "the ConfigMap key mounted with items and subPath at /etc/rules/alerts.yaml must hold what the script wrote, got '$rules'"
 pass "full: a tmpfs emptyDir beneath /tmp, a read-only Secret directory beneath the config-files mount, one ConfigMap key as one file"
+url="$(kubectl exec -n "$ns" "$pod" -c chart-base -- cat /etc/app-secrets/DATABASE_URL 2>&1 || true)"
+[ "$url" = "postgres://sales:s3cr3t@db:5432/sales" ] || fail "the mounted Secret must hold the templated DATABASE_URL at /etc/app-secrets/DATABASE_URL, got '$url'"
+# Every key of an injected Secret is a variable, whatever its name (decision 7's premise): PID 1's environment, as a file.
+kubectl exec -n "$ns" "$pod" -c chart-base -- cat /proc/1/environ > "$work/full.environ" \
+  || fail "could not read the environment of full's main container"
+tr '\0' '\n' < "$work/full.environ" > "$work/full.env" || fail "could not convert the environment of full's main container"
+grep -qxF 'api-key=k-123' "$work/full.env" || fail "the extracted key api-key (no variable name) must be a variable of the injected container"
+pass "full: the mounted Secret holds the templated key, and a key that is no variable name is a variable of the container"
 sm="$(kubectl get servicemonitor -n "$ns" full-chart-base -o jsonpath='{.metadata.labels.release} {.spec.endpoints[0].port} {.spec.endpoints[0].interval}' || true)"
 [ "$sm" = "e2e http 30s" ] || fail "full must have a ServiceMonitor labelled release=e2e whose endpoint targets the Service port 'http' with a 30s interval, got '$sm'"
 kubectl get podmonitor -n "$ns" full-chart-base > /dev/null 2>&1 && fail "full has a Service: it must not have a PodMonitor"

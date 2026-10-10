@@ -545,6 +545,9 @@ full scenario:
                 - mountPath: /config
                   name: config-files
                   readOnly: true
+                - mountPath: /etc/app-secrets
+                  name: external-secret
+                  readOnly: true
                 - mountPath: /tmp/cache
                   name: cache
                 - mountPath: /config/secrets
@@ -617,6 +620,9 @@ full scenario:
             - configMap:
                 name: vending-chart-base-files
               name: config-files
+            - name: external-secret
+              secret:
+                secretName: vending-chart-base-secrets
             - emptyDir:
                 medium: Memory
                 sizeLimit: 16Mi
@@ -651,6 +657,9 @@ full scenario:
         - remoteRef:
             key: /sales/db-password
           secretKey: DB_PASSWORD
+      dataFrom:
+        - extract:
+            key: /sales/config
       refreshInterval: 1h
       secretStoreRef:
         kind: ClusterSecretStore
@@ -658,6 +667,19 @@ full scenario:
       target:
         creationPolicy: Owner
         name: vending-chart-base-secrets
+        template:
+          data:
+            DATABASE_URL: postgres://sales:{{ .DB_PASSWORD }}@db:5432/sales
+          mergePolicy: Merge
+          metadata:
+            labels:
+              app.kubernetes.io/component: deployment
+              app.kubernetes.io/instance: vending
+              app.kubernetes.io/managed-by: Helm
+              app.kubernetes.io/name: chart-base
+              app.kubernetes.io/part-of: vending
+              app.kubernetes.io/version: 2.66.1
+              helm.sh/chart: chart-base-0.0.0-test
   5: |
     apiVersion: autoscaling/v2
     kind: HorizontalPodAutoscaler
@@ -1144,7 +1166,7 @@ job scenario:
             - command:
                 - sh
                 - -c
-                - /agnhost connect 127.0.0.1:8081 --timeout=2s && test "$APP_MODE" = migrate && test "$DB_PASSWORD" = s3cr3t && test -f /config/migrations.yaml && echo migrations-ok
+                - /agnhost connect 127.0.0.1:8081 --timeout=2s && test "$APP_MODE" = migrate && test "$DB_PASSWORD" = s3cr3t && test "$(cat /etc/app-secrets/DB_PASSWORD)" = s3cr3t && test -f /config/migrations.yaml && echo migrations-ok
               envFrom:
                 - configMapRef:
                     name: vending-chart-base-env
@@ -1169,6 +1191,9 @@ job scenario:
                   name: tmp
                 - mountPath: /config
                   name: config-files
+                  readOnly: true
+                - mountPath: /etc/app-secrets
+                  name: external-secret
                   readOnly: true
           enableServiceLinks: false
           initContainers:
@@ -1217,6 +1242,9 @@ job scenario:
             - configMap:
                 name: vending-chart-base-files
               name: config-files
+            - name: external-secret
+              secret:
+                secretName: vending-chart-base-secrets
       ttlSecondsAfterFinished: 3600
   5: |
     apiVersion: v1
@@ -1455,6 +1483,8 @@ worker scenario:
     apiVersion: apps/v1
     kind: Deployment
     metadata:
+      annotations:
+        secret.reloader.stakater.com/reload: vending-chart-base-secrets
       labels:
         app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
@@ -1486,6 +1516,12 @@ worker scenario:
           containers:
             - args:
                 - pause
+              env:
+                - name: TLS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      key: tls.key
+                      name: vending-chart-base-secrets
               envFrom:
                 - configMapRef:
                     name: vending-chart-base-env
@@ -1520,6 +1556,9 @@ worker scenario:
               volumeMounts:
                 - mountPath: /tmp
                   name: tmp
+                - mountPath: /etc/certs
+                  name: external-secret
+                  readOnly: true
           enableServiceLinks: false
           securityContext:
             fsGroup: 65532
@@ -1553,7 +1592,38 @@ worker scenario:
           volumes:
             - emptyDir: {}
               name: tmp
+            - name: external-secret
+              secret:
+                items:
+                  - key: tls.crt
+                    path: tls/tls.crt
+                secretName: vending-chart-base-secrets
   3: |
+    apiVersion: external-secrets.io/v1
+    kind: ExternalSecret
+    metadata:
+      labels:
+        app.kubernetes.io/component: deployment
+        app.kubernetes.io/instance: vending
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: chart-base
+        app.kubernetes.io/part-of: vending
+        app.kubernetes.io/version: 2.66.1
+        helm.sh/chart: chart-base-0.0.0-test
+      name: vending-chart-base-secrets
+    spec:
+      dataFrom:
+        - extract:
+            decodingStrategy: Base64
+            key: /sales/certs
+      refreshInterval: 1h
+      secretStoreRef:
+        kind: ClusterSecretStore
+        name: fake
+      target:
+        creationPolicy: Owner
+        name: vending-chart-base-secrets
+  4: |
     apiVersion: policy/v1
     kind: PodDisruptionBudget
     metadata:
@@ -1573,7 +1643,7 @@ worker scenario:
           app.kubernetes.io/instance: vending
           app.kubernetes.io/name: chart-base
       unhealthyPodEvictionPolicy: AlwaysAllow
-  4: |
+  5: |
     apiVersion: monitoring.coreos.com/v1
     kind: PodMonitor
     metadata:
@@ -1595,7 +1665,7 @@ worker scenario:
         matchLabels:
           app.kubernetes.io/instance: vending
           app.kubernetes.io/name: chart-base
-  5: |
+  6: |
     apiVersion: v1
     automountServiceAccountToken: false
     kind: ServiceAccount
