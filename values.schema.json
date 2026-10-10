@@ -358,7 +358,7 @@
       "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
     },
     "envVar": {
-      "description": "One variable of env, NAME: {valueFrom: {<one source>}}: the one definition of the env of every container (the main container's, an init container's, a sidecar's). A literal (a string, number or boolean) passes the schema and fails in templates/validate.yaml with a remedy. Inside it a null stays an error: it is shared with the main container, whose env does not take null.",
+      "description": "One variable of env, NAME: {valueFrom: {<one source>}}: the one definition of the env of every container (the main container's, an init container's, a sidecar's). The sources: fieldRef, resourceFieldRef, secretKeyRef, configMapKeyRef (Kubernetes', copied as written) and externalSecretKeyRef (the chart's: a key of the component's own ExternalSecret Secret, rendered as a secretKeyRef on <fullname>-secrets). A literal (a string, number or boolean) passes the schema and fails in templates/validate.yaml with a remedy. Inside it a null stays an error: it is shared with the main container, whose env does not take null.",
       "type": ["object", "string", "number", "boolean"],
       "additionalProperties": false,
       "required": ["valueFrom"],
@@ -370,7 +370,8 @@
             { "required": ["fieldRef"] },
             { "required": ["resourceFieldRef"] },
             { "required": ["secretKeyRef"] },
-            { "required": ["configMapKeyRef"] }
+            { "required": ["configMapKeyRef"] },
+            { "required": ["externalSecretKeyRef"] }
           ],
           "properties": {
             "fieldRef": {
@@ -393,7 +394,12 @@
               }
             },
             "secretKeyRef": { "$ref": "#/definitions/keyRef" },
-            "configMapKeyRef": { "$ref": "#/definitions/keyRef" }
+            "configMapKeyRef": { "$ref": "#/definitions/keyRef" },
+            "externalSecretKeyRef": {
+              "description": "A key of the component's own ExternalSecret Secret: the chart resolves its name (<fullname>-secrets). No name and no optional (a missing key must stop the container, not unset the variable).",
+              "type": "object", "additionalProperties": false, "required": ["key"],
+              "properties": { "key": { "type": "string", "minLength": 1, "maxLength": 253, "pattern": "^[-._a-zA-Z0-9]+$" } }
+            }
           }
         }
       }

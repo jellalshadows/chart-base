@@ -9,16 +9,25 @@
 
 {{/*
 chart-base.env: the items of a container's env from a map NAME -> {valueFrom: ...}, in key order: the one renderer of
-the env of every container (the main container's, an init container's, a sidecar's), so that a later source of the
-shared definition is rendered once for all. A literal (not a map) is never rendered: templates/validate.yaml rejects it.
-Usage: {{- with include "chart-base.env" <map> | trim }} env: {{- . | nindent <n> }} {{- end }}
+the env of every container (the main container's, an init container's, a sidecar's). The Kubernetes sources are copied
+as written; externalSecretKeyRef, the chart's own source, is rendered as a secretKeyRef on <fullname>-secrets, so that
+no manifest carries it and the name follows the release and the alias. A literal (not a map) is never rendered:
+templates/validate.yaml rejects it.
+Usage: {{- with include "chart-base.env" (dict "ctx" $ "env" <map>) | trim }} env: {{- . | nindent <n> }} {{- end }}
 */}}
 {{- define "chart-base.env" -}}
-{{- range $name, $ref := . }}
+{{- $secret := printf "%s-secrets" (include "chart-base.fullname" .ctx) -}}
+{{- range $name, $ref := .env }}
 {{- if kindIs "map" $ref }}
 - name: {{ $name | quote }}
   valueFrom:
+    {{- if hasKey $ref.valueFrom "externalSecretKeyRef" }}
+    secretKeyRef:
+      name: {{ $secret }}
+      key: {{ $ref.valueFrom.externalSecretKeyRef.key | quote }}
+    {{- else }}
     {{- toYaml $ref.valueFrom | nindent 4 }}
+    {{- end }}
 {{- end }}
 {{- end }}
 {{- end -}}
@@ -111,7 +120,7 @@ containers:
         protocol: TCP
       {{- end }}
     {{- end }}
-    {{- with include "chart-base.env" ($.Values.env | default dict) | trim }}
+    {{- with include "chart-base.env" (dict "ctx" $ "env" ($.Values.env | default dict)) | trim }}
     env:
       {{- . | nindent 6 }}
     {{- end }}

@@ -45,9 +45,17 @@ resources: {}
 config: {}
 
 # -- Environment variables from REFERENCES only (literal values belong in `config`): a map of `NAME: {valueFrom:
-# {<source>: ...}}` where the source is one of `fieldRef`, `resourceFieldRef`, `secretKeyRef` or `configMapKeyRef`.
-# Rendered as container `env`, which wins over every `envFrom` source. Quote a name that YAML 1.1 reads as a boolean
-# (`ON`, `OFF`, `YES`, `NO`, `Y`, `N`): unquoted it becomes `true` or `false`.
+# {<source>: ...}}` where the source is one of `fieldRef`, `resourceFieldRef`, `secretKeyRef`, `configMapKeyRef` or
+# `externalSecretKeyRef: {key}`. `externalSecretKeyRef` reads one key of the component's own ExternalSecret Secret and is
+# rendered as a `secretKeyRef` on `<fullname>-secrets`, a name the chart resolves for every release name and alias (a
+# hand-written `secretKeyRef.name: <release>-<alias>-secrets` breaks under another release name or alias). It takes
+# `key` only (no `name`, no `optional`): it requires `externalSecret.enabled: true` (the render fails otherwise, an
+# override file cannot remove one `env` entry, so keep such an entry in the values of the environments that enable the
+# ExternalSecret), and while the chart knows every key of the Secret (`dataFrom` empty, or a templated `mergePolicy:
+# Replace`) the key must be one of them; with a `dataFrom` entry under `Merge` it is not checked, and a key the Secret
+# lacks keeps the container from being created (`couldn't find key`: kubelet source reading). Rendered as container
+# `env`, which wins over every `envFrom` source. Quote a name that YAML 1.1 reads as a boolean (`ON`, `OFF`, `YES`,
+# `NO`, `Y`, `N`): unquoted it becomes `true` or `false`.
 env: {}
 
 # -- Existing ConfigMaps/Secrets injected whole, e.g. `[{secretRef: {name: sales-kafka-user}}]` or

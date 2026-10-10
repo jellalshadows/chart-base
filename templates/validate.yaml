@@ -226,7 +226,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- end -}}
 {{- end -}}
 {{- if and $.Values.externalSecret.enabled (not $es.injected) -}}
-{{- /* A reader: an env variable of the main container or of an init container or sidecar whose secretKeyRef names <fullname>-secrets. */ -}}
+{{- /* A reader: an env variable of the main container or of an init container or sidecar with an externalSecretKeyRef, or whose secretKeyRef names <fullname>-secrets. */ -}}
 {{- $secretName := printf "%s-secrets" $fullname -}}
 {{- $read := false -}}
 {{- $envs := list ($.Values.env | default dict) -}}
@@ -234,10 +234,22 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- range $env := $envs -}}
 {{- range $_, $ref := $env -}}
 {{- if kindIs "map" $ref }}{{ with ($ref.valueFrom | default dict).secretKeyRef }}{{ if eq .name $secretName }}{{ $read = true }}{{ end }}{{ end }}{{ end -}}
+{{- if kindIs "map" $ref }}{{ if hasKey ($ref.valueFrom | default dict) "externalSecretKeyRef" }}{{ $read = true }}{{ end }}{{ end -}}
 {{- end -}}
 {{- end -}}
 {{- if not $read -}}
 {{- include "chart-base.fail" (list $ "externalSecret.envFrom is false and nothing reads the Secret: mount it (externalSecret.mountPath), reference its keys in env (env.<NAME>.valueFrom.externalSecretKeyRef), or set externalSecret.envFrom: true") -}}
+{{- end -}}
+{{- end -}}
+{{- /* env.<NAME>.valueFrom.externalSecretKeyRef (decision 14), in the main container's env and in the own env of every non-null init container and sidecar: the block is enabled (its Secret is not rendered otherwise; this check also runs while the block is disabled), and while the chart knows every key of the Secret (chart-base.externalSecret: closed) the key is one of them. */ -}}
+{{- $refs := list -}}
+{{- range $name, $ref := $.Values.env | default dict }}{{ if kindIs "map" $ref }}{{ with ($ref.valueFrom | default dict).externalSecretKeyRef }}{{ $refs = append $refs (dict "path" (printf "env.%s" $name) "key" .key "entry" false) }}{{ end }}{{ end }}{{ end -}}
+{{- range $c := $containers.ordered }}{{ if kindIs "map" $c.entry.env }}{{ range $name, $ref := $c.entry.env }}{{ if kindIs "map" $ref }}{{ with ($ref.valueFrom | default dict).externalSecretKeyRef }}{{ $refs = append $refs (dict "path" (printf "%s.%s.env.%s" $c.kind $c.name $name) "key" .key "entry" true) }}{{ end }}{{ end }}{{ end }}{{ end }}{{ end -}}
+{{- range $r := $refs -}}
+{{- if not $.Values.externalSecret.enabled -}}
+{{- include "chart-base.fail" (list $ (printf "%s.valueFrom.externalSecretKeyRef references the Secret of the component's ExternalSecret, and externalSecret.enabled is false, so that Secret is not rendered: set externalSecret.enabled: true, or remove %s (%s)" $r.path $r.path (ternary (printf "an overlay removes it with %s: null" $r.path) "an override file cannot remove one env entry that another values file defines: keep the entry in the values files of the environments that enable the ExternalSecret" $r.entry))) -}}
+{{- else if and $es.closed (not (has $r.key $es.delivered)) -}}
+{{- include "chart-base.fail" (list $ (include "chart-base.notDelivered" (dict "es" $es "what" (printf "%s.valueFrom.externalSecretKeyRef.key" $r.path) "key" $r.key))) -}}
 {{- end -}}
 {{- end -}}
 
