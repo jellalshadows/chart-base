@@ -25,11 +25,14 @@ Usage: {{- with include "chart-base.env" <map> | trim }} env: {{- . | nindent <n
 
 {{/*
 chart-base.envFrom: the items of the main container's envFrom: the imported sources (envFrom) first, then <fullname>-env
-(config) and <fullname>-secrets (externalSecret), so that the component's own keys win on a duplicate. An init container
-or a sidecar with inheritEnv: true gets exactly these.
+(config) and <fullname>-secrets (externalSecret, while chart-base.externalSecret says it is injected: enabled and
+externalSecret.envFrom true), so that the component's own keys win on a duplicate. An init container or a sidecar with
+inheritEnv: true gets exactly these.
 Usage: {{- with include "chart-base.envFrom" $ | trim }} envFrom: {{- . | nindent <n> }} {{- end }}
 */}}
 {{- define "chart-base.envFrom" -}}
+{{- $es := dict -}}
+{{- include "chart-base.externalSecret" (dict "ctx" . "out" $es) -}}
 {{- with .Values.envFrom }}
 {{ toYaml . }}
 {{- end }}
@@ -37,7 +40,7 @@ Usage: {{- with include "chart-base.envFrom" $ | trim }} envFrom: {{- . | ninden
 - configMapRef:
     name: {{ include "chart-base.fullname" . }}-env
 {{- end }}
-{{- if .Values.externalSecret.enabled }}
+{{- if $es.injected }}
 - secretRef:
     name: {{ include "chart-base.fullname" . }}-secrets
 {{- end }}

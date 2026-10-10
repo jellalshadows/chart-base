@@ -169,7 +169,10 @@ initContainers: {}
 sidecars: {}
 
 externalSecret:
-  # -- Render an ExternalSecret (external-secrets.io/v1) whose Secret `<fullname>-secrets` is injected with `envFrom`.
+  # -- Render an ExternalSecret (`external-secrets.io/v1`: External Secrets Operator 0.16 or later) whose Secret
+  # `<fullname>-secrets` the containers read: injected whole with `envFrom` (see `externalSecret.envFrom`), mounted as
+  # files (`externalSecret.mountPath`), or one key at a time (`env.<NAME>.valueFrom.externalSecretKeyRef`). While
+  # `false`, the block's keys are kept and not checked, so an umbrella can switch the block per environment.
   enabled: false
   secretStoreRef:
     # -- `ClusterSecretStore` or `SecretStore`. Required when enabled (a `null` fails the render).
@@ -182,7 +185,12 @@ externalSecret:
   # decodingStrategy}` (`property`: a field of a JSON value; `version`: a string, quote a numeric version;
   # `decodingStrategy`: `None`, `Base64` or `Base64URL`). In `data` a `null` entry or field is absent: an overlay removes
   # one key with `data.<KEY>: null`. A key that `dataFrom` brings too gets the value of `data`. An enabled ExternalSecret
-  # needs a source: a non-null entry here or an entry in `dataFrom` (the render fails otherwise).
+  # needs a source: a non-null entry here or an entry in `dataFrom` (the render fails otherwise). A key is a Secret key
+  # (`[-._a-zA-Z0-9]+`, at most 253 characters, such as `tls.crt`); while `envFrom` is true a key that reaches the
+  # Secret must be an environment variable name (`[A-Za-z_][A-Za-z0-9_]*`), and `decodingStrategy: Base64` or
+  # `Base64URL` fails (decoded content would become a variable), unless the block is templated with `mergePolicy:
+  # Replace`. Quote a key that YAML 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`, `off`, lowercase, capitalized
+  # or uppercase): unquoted it is renamed to `"true"` or `"false"`, and two such keys collide silently (measured).
   data: {}
   # -- Remote secrets whose every key reaches the Secret, in External Secrets' own shape: a list of `{extract: {key,
   # property, version, conversionStrategy, decodingStrategy}, rewrite: [...]}` (`conversionStrategy`: `Default` or
@@ -226,6 +234,16 @@ externalSecret:
     # schema (on Helm 4.3 a `null` in an umbrella's own values, with nothing passed for the alias, keeps the default:
     # see the consuming guide).
     mergePolicy: Merge
+  # -- `true` (the default): the Secret is injected whole with `envFrom` into the main container (and into an init
+  # container or a sidecar with `inheritEnv: true`), so every key the chart sees (`data`, `template.data`) must be an
+  # environment variable name: the kubelet makes every key a variable, whatever its name (kubelet source reading), and
+  # with it every key of a `dataFrom` entry. `false`: the Secret is not injected whole; it is read as files
+  # (`mountPath`), one key at a time (`env.<NAME>.valueFrom.externalSecretKeyRef`), or both, and one reader is required
+  # (the render fails otherwise; a Secret read only by another component keeps `true`). The mixed case, variables and
+  # a file from one Secret, is `false` with `mountPath` and one `externalSecretKeyRef` per variable. Required (`null`
+  # fails the schema; on Helm 4.3 a `null` in an umbrella's own values, with nothing passed for the alias, keeps the
+  # default: see the consuming guide). A switch, unlike the component's `envFrom` list.
+  envFrom: true
 
 # -- Restart Deployments (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is
 # updated: the ExternalSecret's Secret and every Secret/ConfigMap referenced in `env`/`envFrom` (and in the `env` of an

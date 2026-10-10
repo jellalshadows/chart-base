@@ -17,6 +17,10 @@ chart-base.externalSecret: fills the dict `out` with what the templates and guar
   defaulted here).
 - out.replace: true when the block is templated and mergePolicy is Replace: the keys of data and dataFrom are then only
   the template's inputs (External Secrets writes the templated keys alone).
+- out.delivered: the keys that reach the Secret as far as the chart can see them, sorted: the keys of templateData, and
+  the keys of data unless replace (a dataFrom entry brings keys the chart cannot see).
+- out.injected: true when externalSecret.enabled and externalSecret.envFrom are both true: the Secret is injected whole
+  (envFrom: secretRef <fullname>-secrets) into the main container, and into an entry with inheritEnv: true.
 The one reader of externalSecret.data and externalSecret.dataFrom: never read them from .Values elsewhere, test a field
 with hasKey on the pruned entry, never with its truthiness.
 Usage: {{- $es := dict }}{{- include "chart-base.externalSecret" (dict "ctx" $ "out" $es) }}, then $es.data, $es.dataFrom
@@ -39,4 +43,8 @@ Usage: {{- $es := dict }}{{- include "chart-base.externalSecret" (dict "ctx" $ "
 {{- $_ := set .out "templated" $templated -}}
 {{- $_ := set .out "mergePolicy" $template.mergePolicy -}}
 {{- $_ := set .out "replace" (and $templated (eq (toString $template.mergePolicy) "Replace")) -}}
+{{- $delivered := keys $templateData -}}
+{{- if not .out.replace }}{{ $delivered = concat $delivered (keys $data) }}{{ end -}}
+{{- $_ := set .out "delivered" ($delivered | uniq | sortAlpha) -}}
+{{- $_ := set .out "injected" (and $values.enabled (eq (toString $values.envFrom) "true")) -}}
 {{- end -}}

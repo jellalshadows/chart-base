@@ -649,9 +649,10 @@
     "externalSecret": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "refreshInterval", "secretStoreRef", "template"],
+      "required": ["enabled", "envFrom", "refreshInterval", "secretStoreRef", "template"],
       "properties": {
         "enabled": { "type": "boolean" },
+        "envFrom": { "type": "boolean", "description": "true: the Secret is injected whole (envFrom). Required: a null must not switch the variables off silently." },
         "secretStoreRef": {
           "type": "object",
           "additionalProperties": false,
@@ -662,9 +663,9 @@
         },
         "refreshInterval": { "type": "string" },
         "data": {
-          "description": "The keys of the Secret, each from one remote value. A null entry or field is absent (chart-base.externalSecret).",
+          "description": "The keys of the Secret, each from one remote value. A null entry or field is absent (chart-base.externalSecret). A Secret key; templates/validate.yaml requires an environment variable name while the Secret is injected.",
           "type": "object",
-          "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "propertyNames": { "maxLength": 253, "pattern": "^[-._a-zA-Z0-9]+$" },
           "additionalProperties": {
             "type": ["object", "null"], "description": "One key of the Secret; null = no such key.",
             "additionalProperties": false,

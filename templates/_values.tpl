@@ -38,17 +38,22 @@ Usage: {{- if include "chart-base.hasConfigFiles" . }}
 
 {{/*
 chart-base.chartEnvNames: sets out.names to the names of the variables the main container receives from the chart:
-the keys of config (in <fullname>-env) and of externalSecret.data (in <fullname>-secrets). The one list of the main
-container's duplicate guard (its env against it) and of the inheritEnv guard of an init container or a sidecar (its
-env against it and the component's env), so that a change of what the main container receives reaches both.
-Usage: {{- $e := dict }}{{- include "chart-base.chartEnvNames" (dict "ctx" $ "out" $e) }}, then $e.names
+out.config, the keys of config (in <fullname>-env), and out.secret, the keys of <fullname>-secrets that the chart can see
+while the Secret is injected (chart-base.externalSecret: delivered, while injected; none otherwise: a disabled block or
+envFrom false injects nothing). The one list of the main container's duplicate guard (its env against it) and of the
+inheritEnv guard of an init container or a sidecar (its env against it and the component's env), so that a change of
+what the main container receives reaches both.
+Usage: {{- $e := dict }}{{- include "chart-base.chartEnvNames" (dict "ctx" $ "out" $e) }}, then $e.names, $e.config, $e.secret
 */}}
 {{- define "chart-base.chartEnvNames" -}}
-{{- $names := list -}}
-{{- range $name, $_ := .ctx.Values.config | default dict }}{{ $names = append $names $name }}{{ end -}}
+{{- $config := list -}}
+{{- range $name, $_ := .ctx.Values.config | default dict }}{{ $config = append $config $name }}{{ end -}}
 {{- $es := dict }}{{ include "chart-base.externalSecret" (dict "ctx" .ctx "out" $es) -}}
-{{- range $name, $_ := $es.data }}{{ $names = append $names $name }}{{ end -}}
-{{- $_ := set .out "names" ($names | uniq) -}}
+{{- $secret := list -}}
+{{- if $es.injected }}{{ $secret = $es.delivered }}{{ end -}}
+{{- $_ := set .out "config" $config -}}
+{{- $_ := set .out "secret" $secret -}}
+{{- $_ := set .out "names" (concat $config $secret | uniq) -}}
 {{- end -}}
 
 {{/*

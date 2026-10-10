@@ -225,7 +225,7 @@ tests:
       externalSecret.data.bad-key.key: x
     asserts:
       - failedTemplate:
-          errorPattern: "'bad-key' does not match pattern"
+          errorPattern: 'chart-base\[chart-base\]: externalSecret.data key "bad-key" is not an environment variable name and externalSecret.envFrom is true \(every key of the Secret becomes a variable\): rename it, or set externalSecret.envFrom: false and read the keys as files \(externalSecret.mountPath\) or one by one \(env.<NAME>.valueFrom.externalSecretKeyRef\)'
 
   - it: rejects a configFiles.mountPath that is not absolute
     set:

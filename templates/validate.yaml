@@ -197,8 +197,47 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if not (kindIs "map" $ref) -}}
 {{- include "chart-base.fail" (list $ (printf "env.%s is a literal value: literal values belong in config; env only takes valueFrom references" $name)) -}}
 {{- end -}}
-{{- if has $name $chartEnv.names -}}
+{{- if has $name $chartEnv.config -}}
 {{- include "chart-base.fail" (list $ (printf "env.%s duplicates a key of config or externalSecret.data: literal values belong in config, secrets in externalSecret, references in env" $name)) -}}
+{{- end -}}
+{{- if has $name $chartEnv.secret -}}
+{{- include "chart-base.fail" (list $ (printf "env.%s is also a key of the component's Secret (externalSecret.data or externalSecret.template.data), which externalSecret.envFrom: true injects as the variable %s: remove one of the two, rename the env entry, or set externalSecret.envFrom: false and reference the keys you need in env" $name $name)) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* externalSecret and the containers (decisions 6 and 7), while enabled: with the Secret injected (envFrom), every key the chart sees is an environment variable name, and no source decodes content (unless the block is templated with Replace: the sources are then template inputs); with envFrom false, something of the component reads the Secret. */ -}}
+{{- if $es.injected -}}
+{{- range $key := $es.delivered -}}
+{{- if not (regexMatch "^[A-Za-z_][A-Za-z0-9_]*$" $key) -}}
+{{- include "chart-base.fail" (list $ (printf "%s key %q is not an environment variable name and externalSecret.envFrom is true (every key of the Secret becomes a variable): rename it, or set externalSecret.envFrom: false and read the keys as files (externalSecret.mountPath) or one by one (env.<NAME>.valueFrom.externalSecretKeyRef)" (ternary "externalSecret.template.data" "externalSecret.data" (hasKey $es.templateData $key)) $key)) -}}
+{{- end -}}
+{{- end -}}
+{{- if not $es.replace -}}
+{{- range $key, $ref := $es.data -}}
+{{- if has ($ref.decodingStrategy | default "None") (list "Base64" "Base64URL") -}}
+{{- include "chart-base.fail" (list $ (printf "%s: %s delivers decoded content, and externalSecret.envFrom is true (every key of the Secret becomes a variable, and binary content can keep the container from starting): set externalSecret.envFrom: false and reference the variables you need in env (valueFrom.externalSecretKeyRef), or decode a text value in externalSecret.template.data with b64dec" (printf "externalSecret.data.%s.decodingStrategy" $key) $ref.decodingStrategy)) -}}
+{{- end -}}
+{{- end -}}
+{{- range $i, $entry := $es.dataFrom -}}
+{{- if has ($entry.extract.decodingStrategy | default "None") (list "Base64" "Base64URL") -}}
+{{- include "chart-base.fail" (list $ (printf "%s: %s delivers decoded content, and externalSecret.envFrom is true (every key of the Secret becomes a variable, and binary content can keep the container from starting): set externalSecret.envFrom: false and reference the variables you need in env (valueFrom.externalSecretKeyRef), or decode a text value in externalSecret.template.data with b64dec" (printf "externalSecret.dataFrom[%d].extract.decodingStrategy" $i) $entry.extract.decodingStrategy)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if and $.Values.externalSecret.enabled (not $es.injected) -}}
+{{- /* A reader: an env variable of the main container or of an init container or sidecar whose secretKeyRef names <fullname>-secrets. */ -}}
+{{- $secretName := printf "%s-secrets" $fullname -}}
+{{- $read := false -}}
+{{- $envs := list ($.Values.env | default dict) -}}
+{{- range $c := $containers.ordered }}{{ $envs = append $envs ($c.entry.env | default dict) }}{{ end -}}
+{{- range $env := $envs -}}
+{{- range $_, $ref := $env -}}
+{{- if kindIs "map" $ref }}{{ with ($ref.valueFrom | default dict).secretKeyRef }}{{ if eq .name $secretName }}{{ $read = true }}{{ end }}{{ end }}{{ end -}}
+{{- end -}}
+{{- end -}}
+{{- if not $read -}}
+{{- include "chart-base.fail" (list $ "externalSecret.envFrom is false and nothing reads the Secret: mount it (externalSecret.mountPath), reference its keys in env (env.<NAME>.valueFrom.externalSecretKeyRef), or set externalSecret.envFrom: true") -}}
 {{- end -}}
 {{- end -}}
 
