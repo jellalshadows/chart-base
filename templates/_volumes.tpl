@@ -104,7 +104,8 @@ ephemeral: [size, accessMode, storageClassName]
 chart-base.mainMounts: sets out.rows to the mounts the main container renders, in rendering order, each a dict: name,
 path (as written), clean (chart-base.cleanPath of the path), source (emptyDir, configMap, secret, persistentVolumeClaim,
 ephemeral), file (true for a subPath mount) and owner (how a message names the path). The chart's own tmp; config-files
-only when chart-base.hasConfigFiles says it is rendered; then the entries of chart-base.volumes that have a mountPath
+only when chart-base.hasConfigFiles says it is rendered; external-secret only when chart-base.externalSecret says the
+main container mounts it (mainMount); then the entries of chart-base.volumes that have a mountPath
 (a volume without one is mounted by an init container or a sidecar only). The one list every mount-path guard of the
 main container reads (a later mount of the chart adds one row).
 Usage: {{- $m := dict }}{{- include "chart-base.mainMounts" (dict "ctx" $ "volumes" $volumes "out" $m) }}, then range $m.rows
@@ -113,6 +114,10 @@ Usage: {{- $m := dict }}{{- include "chart-base.mainMounts" (dict "ctx" $ "volum
 {{- $rows := list (dict "name" "tmp" "path" "/tmp" "source" "emptyDir" "file" false "owner" "the chart's own tmp mount") -}}
 {{- if include "chart-base.hasConfigFiles" .ctx -}}
 {{- $rows = append $rows (dict "name" "config-files" "path" .ctx.Values.configFiles.mountPath "source" "configMap" "file" false "owner" "configFiles.mountPath") -}}
+{{- end -}}
+{{- $es := dict }}{{ include "chart-base.externalSecret" (dict "ctx" .ctx "out" $es) -}}
+{{- if $es.mainMount -}}
+{{- $rows = append $rows (dict "name" "external-secret" "path" .ctx.Values.externalSecret.mountPath "source" "secret" "file" false "owner" "externalSecret.mountPath") -}}
 {{- end -}}
 {{- range $name, $v := .volumes -}}
 {{- if hasKey $v "mountPath" -}}
@@ -125,12 +130,35 @@ Usage: {{- $m := dict }}{{- include "chart-base.mainMounts" (dict "ctx" $ "volum
 
 {{/*
 chart-base.readOnlyMount: "true" when every mount of the named volume is read-only, whatever the mount says: the kubelet
-forces it for config-files and for a configMap or secret entry of volumes; for a persistentVolumeClaim entry declared
-ReadOnlyMany the CHART forces it (the claim's volume source carries no readOnly); nothing otherwise. Read by the mounts of init containers and sidecars and by their readOnly guard (the
-main container's mounts state the same rule in templates/_pod.tpl).
+forces it for config-files, for external-secret (the Secret of the ExternalSecret) and for a configMap or secret entry
+of volumes; for a persistentVolumeClaim entry declared ReadOnlyMany the CHART forces it (the claim's volume source
+carries no readOnly); nothing otherwise. Read by the mounts of init containers and sidecars and by their readOnly guard
+(the main container's mounts state the same rule in templates/_pod.tpl).
 Usage: include "chart-base.readOnlyMount" (dict "volumes" <the dict of chart-base.volumes> "name" <volume name>)
 */}}
 {{- define "chart-base.readOnlyMount" -}}
 {{- $v := index .volumes .name | default dict -}}
-{{- if or (eq .name "config-files") (has ($v.type | default "") (list "configMap" "secret")) (and (eq ($v.type | default "") "persistentVolumeClaim") (eq ($v.claimAccessMode | default "ReadWriteOnce") "ReadOnlyMany")) }}true{{ end -}}
+{{- if or (has .name (list "config-files" "external-secret")) (has ($v.type | default "") (list "configMap" "secret")) (and (eq ($v.type | default "") "persistentVolumeClaim") (eq ($v.claimAccessMode | default "ReadWriteOnce") "ReadOnlyMany")) }}true{{ end -}}
+{{- end -}}
+
+{{/*
+chart-base.validateItems: the items of a ConfigMap or Secret volume (an entry of volumes, the externalSecret mount): every
+path relative without a .. element, and the paths unique once normalized (the kubelet keeps one file per path).
+Renders nothing; fails through chart-base.fail. `path` names the items in the messages (volumes.<name>, externalSecret).
+Usage: include "chart-base.validateItems" (dict "ctx" $ "path" "volumes.certs" "items" <a list, or nil>)
+*/}}
+{{- define "chart-base.validateItems" -}}
+{{- $itemPaths := list -}}
+{{- range $i, $item := .items | default list -}}
+{{- if or (hasPrefix "/" $item.path) (has ".." (splitList "/" $item.path)) -}}
+{{- include "chart-base.fail" (list $.ctx (printf "%s.items[%d].path %q must be a relative path without a .. element: a file inside the volume, such as tls.crt" $.path $i $item.path)) -}}
+{{- end -}}
+{{- $itemClean := include "chart-base.cleanPath" $item.path -}}
+{{- range $seen := $itemPaths -}}
+{{- if eq $seen.clean $itemClean -}}
+{{- include "chart-base.fail" (list $.ctx (printf "%s.items[%d].path %q names the same file as items[%d].path %q (%s within the volume, once normalized): the kubelet keeps only one of them; give each item a path of its own" $.path $i $item.path $seen.index $seen.path $itemClean)) -}}
+{{- end -}}
+{{- end -}}
+{{- $itemPaths = append $itemPaths (dict "index" $i "path" $item.path "clean" $itemClean) -}}
+{{- end -}}
 {{- end -}}

@@ -24,6 +24,14 @@ chart-base.externalSecret: fills the dict `out` with what the templates and guar
 - out.closed: true when the chart knows every key of the Secret: dataFrom is empty, or replace (the keys of a dataFrom
   entry are then template inputs only). A key named in the values (an externalSecretKeyRef, an item of the mount) is
   checked against delivered only then.
+- out.mainMount: true when the block is enabled and externalSecret.mountPath is set: the main container mounts the
+  volume external-secret there (mountPath, items and defaultMode are read nil-safe: Helm hands their null defaults as
+  absent keys or as null, depending on the Helm version and the values files).
+- out.mounted: true when the block is enabled and a container mounts the volume: the main container (mainMount), or a
+  non-null init container or sidecar through a non-null volumeMounts.external-secret. The volume is rendered then, and
+  only then.
+- out.volume: the volume's source as an entry of chart-base.volumes (type secret, secretName <fullname>-secrets, items
+  and defaultMode when set), rendered by chart-base.volumeSource and read by the entries' subPath guard.
 The one reader of externalSecret.data and externalSecret.dataFrom: never read them from .Values elsewhere, test a field
 with hasKey on the pruned entry, never with its truthiness.
 Usage: {{- $es := dict }}{{- include "chart-base.externalSecret" (dict "ctx" $ "out" $es) }}, then $es.data, $es.dataFrom
@@ -51,6 +59,17 @@ Usage: {{- $es := dict }}{{- include "chart-base.externalSecret" (dict "ctx" $ "
 {{- $_ := set .out "delivered" ($delivered | uniq | sortAlpha) -}}
 {{- $_ := set .out "injected" (and $values.enabled (eq (toString $values.envFrom) "true")) -}}
 {{- $_ := set .out "closed" (or (not $dataFrom) .out.replace) -}}
+{{- $mainMount := and $values.enabled (kindIs "string" $values.mountPath) -}}
+{{- $_ := set .out "mainMount" $mainMount -}}
+{{- $containers := dict -}}
+{{- include "chart-base.containers" (dict "ctx" .ctx "out" $containers) -}}
+{{- $entryMount := false -}}
+{{- range $c := $containers.ordered }}{{ if hasKey ($c.entry.volumeMounts | default dict) "external-secret" }}{{ $entryMount = true }}{{ end }}{{ end -}}
+{{- $_ := set .out "mounted" (and $values.enabled (or $mainMount $entryMount)) -}}
+{{- $volume := dict "type" "secret" "secretName" (printf "%s-secrets" (include "chart-base.fullname" .ctx)) -}}
+{{- if kindIs "slice" $values.items }}{{ $_ := set $volume "items" $values.items }}{{ end -}}
+{{- if not (kindIs "invalid" $values.defaultMode) }}{{ $_ := set $volume "defaultMode" $values.defaultMode }}{{ end -}}
+{{- $_ := set .out "volume" $volume -}}
 {{- end -}}
 
 {{/*

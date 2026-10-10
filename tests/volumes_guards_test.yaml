@@ -279,7 +279,7 @@ tests:
         tmp: {type: emptyDir, mountPath: /scratch}
     asserts:
       - failedTemplate:
-          errorPattern: 'chart-base\[chart-base\]: volumes.tmp: tmp, config-files and external-secret are the names of volumes chart-base mounts itself \(external-secret from 0.9.0\): choose another name'
+          errorPattern: 'chart-base\[chart-base\]: volumes.tmp: tmp, config-files and external-secret are the names of volumes chart-base mounts itself \(external-secret: the Secret of externalSecret, mounted with externalSecret.mountPath\): choose another name'
 
   - it: rejects the volume name config-files (chart-base's own)
     set:
@@ -287,15 +287,15 @@ tests:
         config-files: {type: emptyDir, mountPath: /scratch}
     asserts:
       - failedTemplate:
-          errorPattern: 'chart-base\[chart-base\]: volumes.config-files: tmp, config-files and external-secret are the names of volumes chart-base mounts itself \(external-secret from 0.9.0\): choose another name'
+          errorPattern: 'chart-base\[chart-base\]: volumes.config-files: tmp, config-files and external-secret are the names of volumes chart-base mounts itself \(external-secret: the Secret of externalSecret, mounted with externalSecret.mountPath\): choose another name'
 
-  - it: rejects the volume name external-secret (reserved for 0.9.0)
+  - it: rejects the volume name external-secret (the volume of externalSecret.mountPath)
     set:
       volumes:
         external-secret: {type: emptyDir, mountPath: /scratch}
     asserts:
       - failedTemplate:
-          errorPattern: 'chart-base\[chart-base\]: volumes.external-secret: tmp, config-files and external-secret are the names of volumes chart-base mounts itself \(external-secret from 0.9.0\): choose another name'
+          errorPattern: 'chart-base\[chart-base\]: volumes.external-secret: tmp, config-files and external-secret are the names of volumes chart-base mounts itself \(external-secret: the Secret of externalSecret, mounted with externalSecret.mountPath\): choose another name'
 
   - it: rejects a volume name with the prefix kube-api-access-
     set:
@@ -824,7 +824,7 @@ tests:
         creds: {type: secret, mountPath: /creds, secretName: vending-chart-base-secrets}
     asserts:
       - failedTemplate:
-          errorPattern: 'chart-base\[chart-base\]: volumes.creds.secretName "vending-chart-base-secrets" is the Secret of this component''s ExternalSecret: its keys already reach the container as environment variables, env can reference one under another name with secretKeyRef, and mounting it as files comes with externalSecret.mountPath \(0.9.0\)'
+          errorPattern: 'chart-base\[chart-base\]: volumes.creds.secretName "vending-chart-base-secrets" is the Secret of this component''s ExternalSecret: mount it with externalSecret.mountPath \(an init container or a sidecar mounts the volume external-secret\), and read one of its keys in env with valueFrom.externalSecretKeyRef'
 
   - it: accepts a configMap entry named like the component's Secret (no chart object of that kind has that name)
     set:

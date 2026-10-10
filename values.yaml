@@ -252,6 +252,28 @@ externalSecret:
   # fails the schema; on Helm 4.3 a `null` in an umbrella's own values, with nothing passed for the alias, keeps the
   # default: see the consuming guide). A switch, unlike the component's `envFrom` list.
   envFrom: true
+  # -- (string) Mount the Secret as files in the main container: an absolute directory, one file per key (or the keys
+  # of `items`), the volume `external-secret`, always read-only. `null` (the default): the main container does not mount
+  # it; an init container or a sidecar mounts it with `volumeMounts.external-secret` (read-only; while the chart knows
+  # every key of the Secret, a `subPath` is `.` or one of its keys, and a `subPath` mount never follows a change of the
+  # Secret). The path is compared normalized with the main container's other mounts (the chart's `/tmp`,
+  # `configFiles.mountPath`, the `volumes` entries) and must not be `/` or the ServiceAccount token directory; a
+  # `configMap` or `secret` file (`subPath`) of `volumes` must not lie beneath it. One mount in the main container: for
+  # groups of files use subdirectories in `items[].path` (`tls/tls.crt`, `gcp/key.json`). The kubelet updates the files
+  # in place when the Secret changes (kubelet source reading), and the Deployment is still restarted through Reloader
+  # while `reloadOnChange` is true: the Secret is in the Reloader list whenever the block is enabled.
+  mountPath: null
+  # -- (list) The keys to mount, each at a relative path: `[{key, path, mode}]`, as the `items` of a `secret` entry of
+  # `volumes`. `null` (the default): every key; `[]` fails the schema (the API reads an empty list as every key). The
+  # paths are relative, without `..`, and unique once normalized; while the chart knows every key of the Secret
+  # (`dataFrom` empty, or a templated `mergePolicy: Replace`) each `key` must be one of them; with a `dataFrom` entry
+  # under `Merge` it is not checked, and a key the Secret lacks keeps the pod in `ContainerCreating` (kubelet source
+  # reading). A list: an overlay replaces it whole, and clears an umbrella's with `items: null`. Without a mount of the
+  # Secret it fails the render.
+  items: null
+  # -- (int) The mode of the mounted files, 0 to 0777: write it in octal with a leading zero, unquoted (`0440`); `440`
+  # is decimal. `null` (the default): Kubernetes' 0644. Without a mount of the Secret it fails the render.
+  defaultMode: null
 
 # -- Restart Deployments (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is
 # updated: the ExternalSecret's Secret and every Secret/ConfigMap referenced in `env`/`envFrom` (and in the `env` of an

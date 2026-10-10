@@ -701,7 +701,10 @@
             },
             "mergePolicy": { "enum": ["Merge", "Replace"] }
           }
-        }
+        },
+        "mountPath": { "pattern": "^/", "type": ["string", "null"], "description": "The main container's mount of the Secret (the volume external-secret, read-only), absolute; null = none." },
+        "items": { "description": "The keys of the Secret to mount (definitions.volumeItems): null = every key.", "$ref": "#/definitions/volumeItems" },
+        "defaultMode": { "description": "The mode of the mounted files (definitions.fileMode): null = 0644.", "$ref": "#/definitions/fileMode" }
       }
     },
     "reloadOnChange": { "type": "boolean" },

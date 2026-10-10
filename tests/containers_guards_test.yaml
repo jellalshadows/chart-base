@@ -611,7 +611,7 @@ tests:
         shipper: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {logz: {mountPath: /logs}}}
     asserts:
       - failedTemplate:
-          errorPattern: 'chart-base\[chart-base\]: sidecars.shipper.volumeMounts.logz names no volume of the component: mount tmp, config-files \(while configFiles.files has a file\) or a non-null entry of volumes'
+          errorPattern: 'chart-base\[chart-base\]: sidecars.shipper.volumeMounts.logz names no volume of the component: mount tmp, config-files \(while configFiles.files has a file\), external-secret \(while externalSecret.enabled is true\) or a non-null entry of volumes'
 
   - it: rejects a mount of config-files when no config file is rendered
     set:
@@ -619,7 +619,7 @@ tests:
         shipper: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {config-files: {mountPath: /etc/app}}}
     asserts:
       - failedTemplate:
-          errorPattern: 'chart-base\[chart-base\]: sidecars.shipper.volumeMounts.config-files names no volume of the component: mount tmp, config-files \(while configFiles.files has a file\) or a non-null entry of volumes'
+          errorPattern: 'chart-base\[chart-base\]: sidecars.shipper.volumeMounts.config-files names no volume of the component: mount tmp, config-files \(while configFiles.files has a file\), external-secret \(while externalSecret.enabled is true\) or a non-null entry of volumes'
 
   - it: rejects a mount of a volume whose entry is null
     set:
@@ -629,7 +629,7 @@ tests:
         setup: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, volumeMounts: {gone: {mountPath: /gone}}}
     asserts:
       - failedTemplate:
-          errorPattern: 'chart-base\[chart-base\]: initContainers.setup.volumeMounts.gone names no volume of the component: mount tmp, config-files \(while configFiles.files has a file\) or a non-null entry of volumes'
+          errorPattern: 'chart-base\[chart-base\]: initContainers.setup.volumeMounts.gone names no volume of the component: mount tmp, config-files \(while configFiles.files has a file\), external-secret \(while externalSecret.enabled is true\) or a non-null entry of volumes'
 
   - it: accepts a mount of config-files while a config file is rendered
     set:

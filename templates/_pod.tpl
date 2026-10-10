@@ -77,6 +77,8 @@ Deployment-only parts (the built-in preStop sleep, topology spread) are rendered
 {{- include "chart-base.volumes" (dict "ctx" $ "out" $volumes) -}}
 {{- $containers := dict -}}
 {{- include "chart-base.containers" (dict "ctx" $ "out" $containers) -}}
+{{- $es := dict -}}
+{{- include "chart-base.externalSecret" (dict "ctx" $ "out" $es) -}}
 {{- /* An existing ServiceAccount's name comes from values: quoted, so that a name such as `on` stays a string. */ -}}
 {{- $serviceAccountName := include "chart-base.serviceAccountName" $ -}}
 {{- if and (not $.Values.serviceAccount.create) $.Values.serviceAccount.name }}{{ $serviceAccountName = quote $serviceAccountName }}{{ end -}}
@@ -173,6 +175,12 @@ containers:
         mountPath: {{ $.Values.configFiles.mountPath | quote }}
         readOnly: true
       {{- end }}
+      {{- /* The Secret of the ExternalSecret as files (chart-base.externalSecret: mainMount), read-only, without subPath. */}}
+      {{- if $es.mainMount }}
+      - name: external-secret
+        mountPath: {{ $.Values.externalSecret.mountPath | quote }}
+        readOnly: true
+      {{- end }}
       {{- range $name, $v := $volumes }}
       {{- /* A volume without mountPath has no mount in the main container: an init container or a sidecar mounts it. */}}
       {{- if hasKey $v "mountPath" }}
@@ -196,6 +204,11 @@ volumes:
   - name: config-files
     configMap:
       name: {{ $fullname }}-files
+  {{- end }}
+  {{- /* Rendered when a container mounts it (chart-base.externalSecret: mounted), with the helper of a secret entry of volumes. */}}
+  {{- if $es.mounted }}
+  - name: external-secret
+    {{- include "chart-base.volumeSource" (dict "ctx" $ "volume" $es.volume) | nindent 4 }}
   {{- end }}
   {{- range $volumeName, $v := $volumes }}
   - name: {{ $volumeName | quote }}
