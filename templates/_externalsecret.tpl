@@ -10,6 +10,13 @@ chart-base.externalSecret: fills the dict `out` with what the templates and guar
   counts as empty (nil: Helm hands one for a deleted default).
 - out.dataFrom: externalSecret.dataFrom as written (a list: an overlay replaces it whole, and a null item or field is a
   schema error); nil counts as empty.
+- out.templateData: the non-null entries of externalSecret.template.data (template.data: null is none).
+- out.templated: true when templateData has an entry. spec.target.template is rendered then, and only then: "templated"
+  is never the presence of the map (an overlay that nulls its last entry leaves an empty map).
+- out.mergePolicy: externalSecret.template.mergePolicy as written (Merge or Replace: required by the schema, never
+  defaulted here).
+- out.replace: true when the block is templated and mergePolicy is Replace: the keys of data and dataFrom are then only
+  the template's inputs (External Secrets writes the templated keys alone).
 The one reader of externalSecret.data and externalSecret.dataFrom: never read them from .Values elsewhere, test a field
 with hasKey on the pruned entry, never with its truthiness.
 Usage: {{- $es := dict }}{{- include "chart-base.externalSecret" (dict "ctx" $ "out" $es) }}, then $es.data, $es.dataFrom
@@ -23,4 +30,13 @@ Usage: {{- $es := dict }}{{- include "chart-base.externalSecret" (dict "ctx" $ "
 {{- $dataFrom := list -}}
 {{- if kindIs "slice" $values.dataFrom }}{{ $dataFrom = $values.dataFrom }}{{ end -}}
 {{- $_ := set .out "dataFrom" $dataFrom -}}
+{{- $template := $values.template | default dict -}}
+{{- $templateData := dict -}}
+{{- if kindIs "map" $template.data }}{{ $templateData = deepCopy $template.data }}{{ end -}}
+{{- include "chart-base.pruneNulls" $templateData -}}
+{{- $_ := set .out "templateData" $templateData -}}
+{{- $templated := gt (len $templateData) 0 -}}
+{{- $_ := set .out "templated" $templated -}}
+{{- $_ := set .out "mergePolicy" $template.mergePolicy -}}
+{{- $_ := set .out "replace" (and $templated (eq (toString $template.mergePolicy) "Replace")) -}}
 {{- end -}}

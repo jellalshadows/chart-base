@@ -198,6 +198,34 @@ externalSecret:
   # (measured): vary a remote key per environment in one templated values file (helmfile: `key: "/{{
   # .Environment.Name }}/sales/db"`), not in a copy of the list per environment.
   dataFrom: []
+  template:
+    # -- Keys of the Secret that External Secrets renders from the keys `data` and `dataFrom` bring: a map of `<secret
+    # key>: <template>`, each value an External Secrets template string with at least one action, e.g. `DATABASE_URL:
+    # "postgres://{{ .DB_USER }}:{{ .DB_PASSWORD }}@db/sales"` (a key with a dash or a dot is read with `index`). A value
+    # without `{{` fails the render: it would be a constant written into the Secret (put a constant in `config` or
+    # `configFiles`; a non-secret constant that must be a key of this Secret is written as an action, `'{{ "value" }}'`).
+    # Write a template quoted in a values file (unquoted, a value that starts with `{{` is a YAML error), never with
+    # `--set` (`--set-literal` and `--set-json` carry it), and in a helmfile `.gotmpl` values file as ``{{ `{{
+    # .DB_PASSWORD }}` }}`` (unescaped, helmfile fails before the chart runs: measured on helmfile 1.4.4 and 1.8.0). Only
+    # External Secrets' default delimiters `{{` and `}}` are supported. In `template.data` a `null` entry is absent; with
+    # `null` or only `null` entries no template is rendered. A template is not part of the deploy's rollout (the pod
+    # template's checksums cover `config` and `configFiles` only): editing one changes the ExternalSecret alone, Helm
+    # returns without rolling a pod, and the change reaches the pods later through Reloader (never for variables
+    # without Reloader or with `reloadOnChange: false`); for a file the deploy must roll and wait for, prefer
+    # `configFiles` with `${VAR}` placeholders. A template that calls a non-deterministic function (`bcrypt`,
+    # `htpasswd`, `randAlphaNum`, `randBytes`, `uuidv4`, `now`, `genPrivateKey`) changes the Secret at every
+    # `refreshInterval`, which restarts a Deployment through Reloader each time (source reading). Quote a key that YAML
+    # 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`, `off`, lowercase, capitalized or uppercase): unquoted it is
+    # renamed to `"true"` or `"false"` (measured).
+    data: {}
+    # -- `Merge` (the chart's default) or `Replace`. With `Merge` the templated keys join the keys of `data` and
+    # `dataFrom` and win on a key of the same name; with `Replace` only the templated keys reach the Secret, and the
+    # keys of `data` and `dataFrom` are the template's inputs only. External Secrets' own default is `Replace`, which the
+    # chart never leaves to it: whenever a template is rendered, `mergePolicy` is rendered from this value. `Replace`
+    # without a templated key fails the render. Required: `template: null` and `template.mergePolicy: null` fail the
+    # schema (on Helm 4.3 a `null` in an umbrella's own values, with nothing passed for the alias, keeps the default:
+    # see the consuming guide).
+    mergePolicy: Merge
 
 # -- Restart Deployments (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is
 # updated: the ExternalSecret's Secret and every Secret/ConfigMap referenced in `env`/`envFrom` (and in the `env` of an

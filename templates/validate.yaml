@@ -176,6 +176,15 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list $ (printf "externalSecret.dataFrom[%d]: extract.conversionStrategy is ignored by External Secrets when rewrite is set: remove it and rename the keys in the rewrite" $i)) -}}
 {{- end -}}
 {{- end -}}
+{{- /* mergePolicy Replace needs a templated key (an overlay that nulls the last one would otherwise deliver every input); a template value needs a template action (a constant is plaintext in the values; heuristic: the default delimiters). */ -}}
+{{- if and (eq (toString $es.mergePolicy) "Replace") (not $es.templated) -}}
+{{- include "chart-base.fail" (list . "externalSecret.template.mergePolicy: Replace has no effect without a templated key (External Secrets then writes every data and dataFrom key to the Secret): add an externalSecret.template.data entry, or set mergePolicy: Merge") -}}
+{{- end -}}
+{{- range $key, $value := $es.templateData -}}
+{{- if not (contains "{{" $value) -}}
+{{- include "chart-base.fail" (list $ (printf "externalSecret.template.data.%s has no template action, so it is a constant written into the Secret: a constant belongs in config or configFiles, and a secret value belongs in the store (reference it as {{ .KEY }})" $key)) -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 
 {{- if kindIs "slice" .Values.env -}}

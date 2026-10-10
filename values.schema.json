@@ -649,7 +649,7 @@
     "externalSecret": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "refreshInterval", "secretStoreRef"],
+      "required": ["enabled", "refreshInterval", "secretStoreRef", "template"],
       "properties": {
         "enabled": { "type": "boolean" },
         "secretStoreRef": {
@@ -681,6 +681,19 @@
           "description": "Remote values whose every key reaches the Secret, in list order (a later entry wins; data wins over every entry). A list: an overlay replaces it whole; null is none.",
           "type": ["array", "null"],
           "items": { "$ref": "#/definitions/externalSecretDataFrom" }
+        },
+        "template": {
+          "description": "Keys of the Secret rendered by External Secrets (data) and how they join the other keys (mergePolicy, required: a null must not hand the consumer External Secrets' default Replace).",
+          "type": "object", "additionalProperties": false, "required": ["mergePolicy"],
+          "properties": {
+            "data": {
+              "description": "Secret key -> External Secrets template string; a null entry is absent.",
+              "type": ["object", "null"],
+              "propertyNames": { "pattern": "^[-._a-zA-Z0-9]+$", "maxLength": 253 },
+              "additionalProperties": { "type": ["string", "null"] }
+            },
+            "mergePolicy": { "enum": ["Merge", "Replace"] }
+          }
         }
       }
     },
