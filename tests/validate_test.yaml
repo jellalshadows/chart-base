@@ -1004,7 +1004,7 @@ tests:
       externalSecret.data: {}
     asserts:
       - failedTemplate:
-          errorPattern: "externalSecret.enabled is true and externalSecret.data has no entry: list at least one key in externalSecret.data, or set externalSecret.enabled: false"
+          errorPattern: "externalSecret.enabled is true and the ExternalSecret has no source: list at least one key in externalSecret.data or one entry in externalSecret.dataFrom, or set externalSecret.enabled: false"
 
   - it: accepts externalSecret.data null while externalSecret is disabled
     set:

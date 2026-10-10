@@ -178,9 +178,26 @@ externalSecret:
     name: ""
   # -- How often ESO re-reads the remote secrets.
   refreshInterval: 1h
-  # -- Map of `ENV_VAR: {key: <remote key>, property: <optional field>}`. At least one entry when enabled: an enabled
-  # ExternalSecret with `data` empty or `null` fails the render.
+  # -- The remote values of the Secret, one key each: a map of `<KEY>: {key: <remote key>, property, version,
+  # decodingStrategy}` (`property`: a field of a JSON value; `version`: a string, quote a numeric version;
+  # `decodingStrategy`: `None`, `Base64` or `Base64URL`). In `data` a `null` entry or field is absent: an overlay removes
+  # one key with `data.<KEY>: null`. A key that `dataFrom` brings too gets the value of `data`. An enabled ExternalSecret
+  # needs a source: a non-null entry here or an entry in `dataFrom` (the render fails otherwise).
   data: {}
+  # -- Remote secrets whose every key reaches the Secret, in External Secrets' own shape: a list of `{extract: {key,
+  # property, version, conversionStrategy, decodingStrategy}, rewrite: [...]}` (`conversionStrategy`: `Default` or
+  # `Unicode`; `decodingStrategy`: `None`, `Base64` or `Base64URL`; each `rewrite` item holds one of `regexp: {source,
+  # target}` or `transform: {template}`). The list order is the precedence: a later entry wins on a key that two entries
+  # bring, and `data` wins over every entry. `conversionStrategy` next to a non-empty `rewrite` fails the render: External
+  # Secrets skips the conversion once a rewrite is present (source reading). Not offered: `find`, `sourceRef`,
+  # `metadataPolicy`. The chart cannot see the keys an `extract` brings: such a key replaces a `config` key of the same
+  # name in the container, the `env` duplicate check cannot see it, and it can set a process-level variable such as
+  # `HTTPS_PROXY`, `NODE_OPTIONS` or `JAVA_TOOL_OPTIONS`. A list: an overlay replaces it whole, a `null` item or field
+  # fails the schema, and `null` or `[]` is none. `--set 'externalSecret.dataFrom[0].extract.key=...'` (or a helmfile
+  # `set:`) renders a list of that one entry, without the other entries and without entry 0's `rewrite`, and no error
+  # (measured): vary a remote key per environment in one templated values file (helmfile: `key: "/{{
+  # .Environment.Name }}/sales/db"`), not in a copy of the list per environment.
+  dataFrom: []
 
 # -- Restart Deployments (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is
 # updated: the ExternalSecret's Secret and every Secret/ConfigMap referenced in `env`/`envFrom` (and in the `env` of an

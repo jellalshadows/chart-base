@@ -7,6 +7,9 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- /* initContainers and sidecars: every check reads chart-base.containers, so a null entry and a null field are absent before any check. */ -}}
 {{- $containers := dict -}}
 {{- include "chart-base.containers" (dict "ctx" . "out" $containers) -}}
+{{- /* externalSecret: every check reads chart-base.externalSecret, so a null data entry and a null field are absent before any check. */ -}}
+{{- $es := dict -}}
+{{- include "chart-base.externalSecret" (dict "ctx" . "out" $es) -}}
 {{- $dns1035 := "^[a-z]([-a-z0-9]*[a-z0-9])?$" -}}
 {{- if not (regexMatch $dns1035 $component) -}}
 {{- include "chart-base.fail" (list . (printf "alias %q must be lowercase kebab-case (%s)" $component $dns1035)) -}}
@@ -163,9 +166,16 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if has "cluster-admin" .Values.rbac.clusterRoles -}}
 {{- include "chart-base.fail" (list . "rbac.clusterRoles: cluster-admin is rejected: bound in the namespace, it allows every verb on every resource there, the * that rbac.rules rejects, and a deployer with only the namespace's admin rights cannot bind it: list the rules the component needs in rbac.rules, or bind a narrower ClusterRole such as view") -}}
 {{- end -}}
-{{- /* An ExternalSecret needs a source: externalSecret.data null (absent once Helm removes it), {} or empty fails here, with one message from every values layer. */ -}}
-{{- if and .Values.externalSecret.enabled (empty (.Values.externalSecret.data | default dict)) -}}
-{{- include "chart-base.fail" (list . "externalSecret.enabled is true and externalSecret.data has no entry: list at least one key in externalSecret.data, or set externalSecret.enabled: false (an override file cannot remove single keys that another values file defines, and data: {} removes nothing: maps are merged)") -}}
+{{- /* externalSecret, while enabled (a disabled block keeps its keys unchecked): a source, a non-null data entry or a dataFrom entry (data null, {} or only null entries is none, with one message from every values layer); and no extract.conversionStrategy next to a rewrite, which External Secrets ignores. */ -}}
+{{- if .Values.externalSecret.enabled -}}
+{{- if and (not $es.data) (not $es.dataFrom) -}}
+{{- include "chart-base.fail" (list . "externalSecret.enabled is true and the ExternalSecret has no source: list at least one key in externalSecret.data or one entry in externalSecret.dataFrom, or set externalSecret.enabled: false") -}}
+{{- end -}}
+{{- range $i, $entry := $es.dataFrom -}}
+{{- if and (hasKey $entry.extract "conversionStrategy") $entry.rewrite -}}
+{{- include "chart-base.fail" (list $ (printf "externalSecret.dataFrom[%d]: extract.conversionStrategy is ignored by External Secrets when rewrite is set: remove it and rename the keys in the rewrite" $i)) -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 
 {{- if kindIs "slice" .Values.env -}}

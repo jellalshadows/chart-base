@@ -46,7 +46,8 @@ Usage: {{- $e := dict }}{{- include "chart-base.chartEnvNames" (dict "ctx" $ "ou
 {{- define "chart-base.chartEnvNames" -}}
 {{- $names := list -}}
 {{- range $name, $_ := .ctx.Values.config | default dict }}{{ $names = append $names $name }}{{ end -}}
-{{- range $name, $_ := .ctx.Values.externalSecret.data | default dict }}{{ $names = append $names $name }}{{ end -}}
+{{- $es := dict }}{{ include "chart-base.externalSecret" (dict "ctx" .ctx "out" $es) -}}
+{{- range $name, $_ := $es.data }}{{ $names = append $names $name }}{{ end -}}
 {{- $_ := set .out "names" ($names | uniq) -}}
 {{- end -}}
 

@@ -505,6 +505,44 @@
         "order": { "description": "An init container's default is 0.", "$ref": "#/definitions/containerOrder" }
       }
     },
+    "externalSecretDecoding": {
+      "description": "How External Secrets decodes a remote value: None, Base64 or Base64URL (Auto is not offered: External Secrets itself warns about it). null = absent.",
+      "enum": ["None", "Base64", "Base64URL", null]
+    },
+    "externalSecretDataFrom": {
+      "description": "An entry of externalSecret.dataFrom, External Secrets' own shape limited to extract and rewrite: closed at every level, and a null field is an error (a list is replaced whole by an overlay, so nothing inside it is an overlay's deletion).",
+      "type": "object", "additionalProperties": false, "required": ["extract"],
+      "properties": {
+        "extract": {
+          "type": "object", "additionalProperties": false, "required": ["key"],
+          "properties": {
+            "key": { "type": "string", "minLength": 1 },
+            "property": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "minLength": 1 },
+            "conversionStrategy": { "enum": ["Default", "Unicode"] },
+            "decodingStrategy": { "enum": ["None", "Base64", "Base64URL"] }
+          }
+        },
+        "rewrite": {
+          "description": "Applied in order to the keys of the extract; an empty list is not rendered.",
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "oneOf": [{ "required": ["regexp"] }, { "required": ["transform"] }],
+            "properties": {
+              "regexp": {
+                "type": "object", "additionalProperties": false, "required": ["source", "target"],
+                "properties": { "source": { "type": "string", "minLength": 1 }, "target": { "type": "string" } }
+              },
+              "transform": {
+                "type": "object", "additionalProperties": false, "required": ["template"],
+                "properties": { "template": { "type": "string", "minLength": 1 } }
+              }
+            }
+          }
+        }
+      }
+    },
     "sidecar": {
       "description": "An entry of sidecars: a container that keeps running next to the main container (an init container with restartPolicy: Always, written by the chart). Closed at every level the chart defines; every optional field also accepts null (absent).",
       "type": "object", "additionalProperties": false, "required": ["image", "resources"],
@@ -624,17 +662,25 @@
         },
         "refreshInterval": { "type": "string" },
         "data": {
+          "description": "The keys of the Secret, each from one remote value. A null entry or field is absent (chart-base.externalSecret).",
           "type": "object",
           "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
           "additionalProperties": {
-            "type": "object",
+            "type": ["object", "null"], "description": "One key of the Secret; null = no such key.",
             "additionalProperties": false,
             "required": ["key"],
             "properties": {
               "key": { "type": "string", "minLength": 1 },
-              "property": { "type": "string" }
+              "property": { "type": ["string", "null"] },
+              "version": { "type": ["string", "null"], "minLength": 1, "description": "A string: quote a numeric version (External Secrets' field is a string)." },
+              "decodingStrategy": { "$ref": "#/definitions/externalSecretDecoding" }
             }
           }
+        },
+        "dataFrom": {
+          "description": "Remote values whose every key reaches the Secret, in list order (a later entry wins; data wins over every entry). A list: an overlay replaces it whole; null is none.",
+          "type": ["array", "null"],
+          "items": { "$ref": "#/definitions/externalSecretDataFrom" }
         }
       }
     },

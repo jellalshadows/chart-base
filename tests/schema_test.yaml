@@ -108,13 +108,13 @@ tests:
       - failedTemplate:
           errorPattern: "/externalSecret/secretStoreRef/name': minLength"
 
-  - it: requires at least one data entry when externalSecret is enabled with a store name
+  - it: requires a source (a data entry or a dataFrom entry) when externalSecret is enabled with a store name
     set:
       externalSecret.enabled: true
       externalSecret.secretStoreRef.name: gcp-sm
     asserts:
       - failedTemplate:
-          errorPattern: "externalSecret.enabled is true and externalSecret.data has no entry"
+          errorPattern: "externalSecret.enabled is true and the ExternalSecret has no source"
 
   - it: requires parentRefs when httpRoute is enabled
     set:
@@ -1582,7 +1582,7 @@ tests:
       externalSecret.data: null
     asserts:
       - failedTemplate:
-          errorPattern: "externalSecret.enabled is true and externalSecret.data has no entry"
+          errorPattern: "externalSecret.enabled is true and the ExternalSecret has no source"
 
   - it: fails on a null httpRoute.parentRefs while httpRoute is enabled (every when-enabled key is required)
     set:
