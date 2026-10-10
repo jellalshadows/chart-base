@@ -121,6 +121,69 @@ and **overrides** it; it must arrive as an environment variable, and directories
 ([Spring Boot docs](https://docs.spring.io/spring-boot/reference/features/external-config.html)).
 Never put secret values in `configFiles`: use `${VAR}` placeholders fed by `externalSecret`.
 
+### Secrets from a secret manager: a JSON secret, a connection string, a certificate as a file
+
+A JSON secret whose members all become keys of the component's Secret, renamed into variable names by a `rewrite`
+(JSON member names are rarely variable names), and a connection string that External Secrets renders from them
+([ADR-0053](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md)):
+
+```yaml
+billing:
+  image: {repository: ghcr.io/acme/billing, tag: "3.0.0"}
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+  externalSecret:
+    enabled: true
+    secretStoreRef: {kind: ClusterSecretStore, name: gcp-sm}
+    data:
+      DB_PASSWORD: {key: billing-db, property: password}
+    dataFrom:                              # every member of the JSON secret billing-api is a key
+      - extract: {key: billing-api}
+        rewrite:
+          - transform: {template: '{{ .value | upper | replace "-" "_" }}'}   # api-key -> API_KEY
+    template:
+      data:                                # added to the keys above (mergePolicy: Merge, the default)
+        DATABASE_URL: 'postgres://billing:{{ .DB_PASSWORD }}@db:5432/billing'
+```
+
+The order of `dataFrom` is the precedence, and `data` wins over it; a key that an extract brings replaces a `config` key
+of the same name in the container, and the chart cannot see it. A `regexp` rewrite adds a prefix instead
+(`{source: "^(.*)$", target: "BILLING_$1"}`); or keep the member names, set `externalSecret.envFrom: false` and
+reference the members you need one by one (`env.API_KEY.valueFrom.externalSecretKeyRef.key: api-key`). Write a template
+quoted (unquoted, a value that starts with an action is a YAML error), never with `--set`; in a helmfile `.gotmpl`
+values file escape it as the values table says for `externalSecret.template.data`. An overlay replaces the whole
+`dataFrom` list: vary a remote key per environment in one templated values file, not with `--set` by index, which
+drops the other entries silently.
+
+A certificate as files next to variables (the mixed case): the Secret is mounted, not injected, and each variable
+references one key, whatever the release name and the alias:
+
+```yaml
+gateway-client:
+  image: {repository: ghcr.io/acme/gateway-client, tag: "1.2.0"}
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+  externalSecret:
+    enabled: true
+    secretStoreRef: {kind: ClusterSecretStore, name: gcp-sm}
+    envFrom: false                         # not injected whole: tls.crt is no variable name
+    data:
+      tls.crt: {key: partner-mtls, property: cert}
+      tls.key: {key: partner-mtls, property: key}
+      API_TOKEN: {key: partner-api-token}
+    mountPath: /etc/partner                # read-only, the volume external-secret
+    items:
+      - {key: tls.crt, path: tls/tls.crt}
+      - {key: tls.key, path: tls/tls.key, mode: 0400}
+  env:
+    PARTNER_TOKEN: {valueFrom: {externalSecretKeyRef: {key: API_TOKEN}}}   # a secretKeyRef on <fullname>-secrets
+```
+
+`items` lists the files (the API_TOKEN key is not a file here); while the chart knows every key of the Secret, an
+`items` key or an `externalSecretKeyRef` key that the Secret does not have fails the render. A Secret mounted this way
+still restarts the Deployment on rotation through Reloader while `reloadOnChange` is true, although the kubelet
+updates the files in place.
+
 ### Operator-created Secrets and pod metadata (CloudNativePG, Strimzi, OpenTelemetry)
 
 ```yaml
@@ -553,13 +616,20 @@ sales-migrations:
 | cronjob.timeZone | string | `""` | IANA time zone, e.g. `Europe/Madrid`. Empty = controller default (UTC). |
 | dnsConfig | object | `nil` | DNS settings merged into those of the pod's DNS policy (`dnsConfig`): `nameservers` (at most 3), `searches` (at most 32) and `options`, e.g. `{options: [{name: ndots, value: "2"}]}` (option values are strings: quote them). |
 | enableServiceLinks | bool | `false` | Inject `<SERVICE>_SERVICE_HOST`/`_PORT` and Docker-links variables for every Service of the namespace (`enableServiceLinks`). `false` here (Kubernetes defaults to `true`): a Service named e.g. `redis` injects `REDIS_PORT=tcp://...`, which an app that reads `REDIS_PORT` without the component setting it gets instead of a port. `KUBERNETES_SERVICE_HOST`/`_PORT` are injected either way. Set `true` to restore Kubernetes' behavior. |
-| env | object | `{}` | Environment variables from REFERENCES only (literal values belong in `config`): a map of `NAME: {valueFrom: {<source>: ...}}` where the source is one of `fieldRef`, `resourceFieldRef`, `secretKeyRef` or `configMapKeyRef`. Rendered as container `env`, which wins over every `envFrom` source. Quote a name that YAML 1.1 reads as a boolean (`ON`, `OFF`, `YES`, `NO`, `Y`, `N`): unquoted it becomes `true` or `false`. |
+| env | object | `{}` | Environment variables from REFERENCES only (literal values belong in `config`): a map of `NAME: {valueFrom: {<source>: ...}}` where the source is one of `fieldRef`, `resourceFieldRef`, `secretKeyRef`, `configMapKeyRef` or `externalSecretKeyRef: {key}`. `externalSecretKeyRef` reads one key of the component's own ExternalSecret Secret and is rendered as a `secretKeyRef` on `<fullname>-secrets`, a name the chart resolves for every release name and alias (a hand-written `secretKeyRef.name: <release>-<alias>-secrets` breaks under another release name or alias). It takes `key` only (no `name`, no `optional`): it requires `externalSecret.enabled: true` (the render fails otherwise, an override file cannot remove one `env` entry, so keep such an entry in the values of the environments that enable the ExternalSecret), and while the chart knows every key of the Secret (`dataFrom` empty, or a templated `mergePolicy: Replace`) the key must be one of them; with a `dataFrom` entry under `Merge` it is not checked, and a key the Secret lacks keeps the container from being created (`couldn't find key`: kubelet source reading). Rendered as container `env`, which wins over every `envFrom` source. Quote a name that YAML 1.1 reads as a boolean (`ON`, `OFF`, `YES`, `NO`, `Y`, `N`): unquoted it becomes `true` or `false`. |
 | envFrom | list | `[]` | Existing ConfigMaps/Secrets injected whole, e.g. `[{secretRef: {name: sales-kafka-user}}]` or `[{configMapRef: {name: shared, optional: true}, prefix: SHARED_}]`. Injected BEFORE the chart's own `-env`/`-secrets`, so the component's explicit `config`/`externalSecret` win on duplicate keys. |
-| externalSecret.data | object | `{}` | Map of `ENV_VAR: {key: <remote key>, property: <optional field>}`. At least one entry when enabled: an enabled ExternalSecret with `data` empty or `null` fails the render. |
-| externalSecret.enabled | bool | `false` | Render an ExternalSecret (external-secrets.io/v1) whose Secret `<fullname>-secrets` is injected with `envFrom`. |
+| externalSecret.data | object | `{}` | The remote values of the Secret, one key each: a map of `<KEY>: {key: <remote key>, property, version, decodingStrategy}` (`property`: a field of a JSON value; `version`: a string, quote a numeric version; `decodingStrategy`: `None`, `Base64` or `Base64URL`). In `data` a `null` entry or field is absent: an overlay removes one key with `data.<KEY>: null`. A key that `dataFrom` brings too gets the value of `data`. An enabled ExternalSecret needs a source: a non-null entry here or an entry in `dataFrom` (the render fails otherwise). A key is a Secret key (`[-._a-zA-Z0-9]+`, at most 253 characters, such as `tls.crt`); while `envFrom` is true a key that reaches the Secret must be an environment variable name (`[A-Za-z_][A-Za-z0-9_]*`), and `decodingStrategy: Base64` or `Base64URL` fails (decoded content would become a variable), unless the block is templated with `mergePolicy: Replace`. Quote a key that YAML 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`, `off`, lowercase, capitalized or uppercase): unquoted it is renamed to `"true"` or `"false"`, and two such keys collide silently (measured). |
+| externalSecret.dataFrom | list | `[]` | Remote secrets whose every key reaches the Secret, in External Secrets' own shape: a list of `{extract: {key, property, version, conversionStrategy, decodingStrategy}, rewrite: [...]}` (`conversionStrategy`: `Default` or `Unicode`; `decodingStrategy`: `None`, `Base64` or `Base64URL`; each `rewrite` item holds one of `regexp: {source, target}` or `transform: {template}`). The list order is the precedence: a later entry wins on a key that two entries bring, and `data` wins over every entry. `conversionStrategy` next to a non-empty `rewrite` fails the render: External Secrets skips the conversion once a rewrite is present (source reading). Not offered: `find`, `sourceRef`, `metadataPolicy`. The chart cannot see the keys an `extract` brings: such a key replaces a `config` key of the same name in the container, the `env` duplicate check cannot see it, and it can set a process-level variable such as `HTTPS_PROXY`, `NODE_OPTIONS` or `JAVA_TOOL_OPTIONS`. A list: an overlay replaces it whole, a `null` item or field fails the schema, and `null` or `[]` is none. `--set 'externalSecret.dataFrom[0].extract.key=...'` (or a helmfile `set:`) renders a list of that one entry, without the other entries and without entry 0's `rewrite`, and no error (measured): vary a remote key per environment in one templated values file (helmfile: `key: "/{{ .Environment.Name }}/sales/db"`), not in a copy of the list per environment. |
+| externalSecret.defaultMode | int | `nil` | The mode of the mounted files, 0 to 0777: write it in octal with a leading zero, unquoted (`0440`); `440` is decimal. `null` (the default): Kubernetes' 0644. Without a mount of the Secret it fails the render. |
+| externalSecret.enabled | bool | `false` | Render an ExternalSecret (`external-secrets.io/v1`: External Secrets Operator 0.16 or later) whose Secret `<fullname>-secrets` the containers read: injected whole with `envFrom` (see `externalSecret.envFrom`), mounted as files (`externalSecret.mountPath`), or one key at a time (`env.<NAME>.valueFrom.externalSecretKeyRef`). While `false`, the block's keys are kept and not checked, so an umbrella can switch the block per environment. |
+| externalSecret.envFrom | bool | `true` | `true` (the default): the Secret is injected whole with `envFrom` into the main container (and into an init container or a sidecar with `inheritEnv: true`), so every key the chart sees (`data`, `template.data`) must be an environment variable name: the kubelet makes every key a variable, whatever its name (kubelet source reading), and with it every key of a `dataFrom` entry. `false`: the Secret is not injected whole; it is read as files (`mountPath`), one key at a time (`env.<NAME>.valueFrom.externalSecretKeyRef`), or both, and one reader is required (the render fails otherwise; a Secret read only by another component keeps `true`). The mixed case, variables and a file from one Secret, is `false` with `mountPath` and one `externalSecretKeyRef` per variable. Required (`null` fails the schema; on Helm 4.3 a `null` in an umbrella's own values, with nothing passed for the alias, keeps the default: see the consuming guide). A switch, unlike the component's `envFrom` list. |
+| externalSecret.items | list | `nil` | The keys to mount, each at a relative path: `[{key, path, mode}]`, as the `items` of a `secret` entry of `volumes`. `null` (the default): every key; `[]` fails the schema (the API reads an empty list as every key). The paths are relative, without `..`, and unique once normalized; while the chart knows every key of the Secret (`dataFrom` empty, or a templated `mergePolicy: Replace`) each `key` must be one of them; with a `dataFrom` entry under `Merge` it is not checked, and a key the Secret lacks keeps the pod in `ContainerCreating` (kubelet source reading). A list: an overlay replaces it whole, and clears an umbrella's with `items: null`. Without a mount of the Secret it fails the render. |
+| externalSecret.mountPath | string | `nil` | Mount the Secret as files in the main container: an absolute directory, one file per key (or the keys of `items`), the volume `external-secret`, always read-only. `null` (the default): the main container does not mount it; an init container or a sidecar mounts it with `volumeMounts.external-secret` (read-only; while the chart knows every key of the Secret, a `subPath` is `.` or one of its keys, and a `subPath` mount never follows a change of the Secret). The path is compared normalized with the main container's other mounts (the chart's `/tmp`, `configFiles.mountPath`, the `volumes` entries) and must not be `/` or the ServiceAccount token directory; a `configMap` or `secret` file (`subPath`) of `volumes` must not lie beneath it. One mount in the main container: for groups of files use subdirectories in `items[].path` (`tls/tls.crt`, `gcp/key.json`). The kubelet updates the files in place when the Secret changes (kubelet source reading), and the Deployment is still restarted through Reloader while `reloadOnChange` is true: the Secret is in the Reloader list whenever the block is enabled. |
 | externalSecret.refreshInterval | string | `"1h"` | How often ESO re-reads the remote secrets. |
 | externalSecret.secretStoreRef.kind | string | `"ClusterSecretStore"` | `ClusterSecretStore` or `SecretStore`. Required when enabled (a `null` fails the render). |
 | externalSecret.secretStoreRef.name | string | `""` | Name of the secret store. Required when enabled. |
+| externalSecret.template.data | object | `{}` | Keys of the Secret that External Secrets renders from the keys `data` and `dataFrom` bring: a map of `<secret key>: <template>`, each value an External Secrets template string with at least one action, e.g. `DATABASE_URL: "postgres://{{ .DB_USER }}:{{ .DB_PASSWORD }}@db/sales"` (a key with a dash or a dot is read with `index`). A value without `{{` fails the render: it would be a constant written into the Secret (put a constant in `config` or `configFiles`; a non-secret constant that must be a key of this Secret is written as an action, `'{{ "value" }}'`). Write a template quoted in a values file (unquoted, a value that starts with `{{` is a YAML error), never with `--set` (`--set-literal` and `--set-json` carry it), and in a helmfile `.gotmpl` values file as ``{{ `{{ .DB_PASSWORD }}` }}`` (unescaped, helmfile fails before the chart runs: measured on helmfile 1.4.4 and 1.8.0). Only External Secrets' default delimiters `{{` and `}}` are supported. In `template.data` a `null` entry is absent; with `null` or only `null` entries no template is rendered. A template is not part of the deploy's rollout (the pod template's checksums cover `config` and `configFiles` only): editing one changes the ExternalSecret alone, Helm returns without rolling a pod, and the change reaches the pods later through Reloader (never for variables without Reloader or with `reloadOnChange: false`); for a file the deploy must roll and wait for, prefer `configFiles` with `${VAR}` placeholders. A template that calls a non-deterministic function (`bcrypt`, `htpasswd`, `randAlphaNum`, `randBytes`, `uuidv4`, `now`, `genPrivateKey`) changes the Secret at every `refreshInterval`, which restarts a Deployment through Reloader each time (source reading). Quote a key that YAML 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`, `off`, lowercase, capitalized or uppercase): unquoted it is renamed to `"true"` or `"false"` (measured). |
+| externalSecret.template.mergePolicy | string | `"Merge"` | `Merge` (the chart's default) or `Replace`. With `Merge` the templated keys join the keys of `data` and `dataFrom` and win on a key of the same name; with `Replace` only the templated keys reach the Secret, and the keys of `data` and `dataFrom` are the template's inputs only. External Secrets' own default is `Replace`, which the chart never leaves to it: whenever a template is rendered, `mergePolicy` is rendered from this value. `Replace` without a templated key fails the render. Required: `template: null` and `template.mergePolicy: null` fail the schema (on Helm 4.3 a `null` in an umbrella's own values, with nothing passed for the alias, keeps the default: see the consuming guide). |
 | hostAliases | list | `[]` | Extra `/etc/hosts` entries of the pods (`hostAliases`), e.g. `[{ip: 10.0.0.5, hostnames: [legacy-db.internal]}]`. |
 | httpRoute.enabled | bool | `false` | Render a Gateway API HTTPRoute (gateway.networking.k8s.io/v1). Requires `service.enabled`. |
 | httpRoute.hostnames | list | `[]` | Hostnames matched by the route. |
@@ -661,7 +731,8 @@ code, official docs) and local renders.
    *Rejected:* an HTTP Helm repository on GitHub Pages.
    [ADR-0003](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0003-oci-on-ghcr.md)
 4. **Env vars in a ConfigMap, secrets through ExternalSecret into a Secret, both via `envFrom`.**
-   Kubernetes: *"ConfigMap does not provide secrecy or encryption"*; Secrets get stricter RBAC.
+   Kubernetes: *"ConfigMap does not provide secrecy or encryption"*; Secrets get stricter RBAC. From 0.9.0 the Secret
+   can also be mounted as files or read one key at a time instead (decisions 53 and 54).
    *Rejected:* secrets in a ConfigMap (possible with ESO only behind `--unsafe-allow-generic-targets`).
    [ADR-0004](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0004-env-in-configmap-secrets-through-externalsecret.md)
 5. **`configFiles` accepts a string or a map.** A map merges per environment, and chart-base removes from it every
@@ -771,7 +842,8 @@ code, official docs) and local renders.
     *Rejected:* "Re-run failed jobs" (it re-runs the old workflow with the same broken steps).
     [ADR-0029](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0029-publishing-built-for-recovery.md)
 30. **`env` takes references only.** `valueFrom` with `fieldRef`, `resourceFieldRef`, `secretKeyRef` or
-    `configMapKeyRef`; literal values keep a single home in `config`. `env.FOO: bar` and a Kubernetes-style
+    `configMapKeyRef`, and from 0.9.0 the chart's `externalSecretKeyRef` (decision 54); literal values keep a single
+    home in `config`. `env.FOO: bar` and a Kubernetes-style
     list (`- name: FOO` / `value: bar`) fail with a message that points to `config`; `FOO: {value: bar}` is
     a schema error (`missing property 'valueFrom'`). *Rejected:* literals in `env` (two places for the
     same setting).
@@ -783,7 +855,8 @@ code, official docs) and local renders.
     [ADR-0031](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0031-existing-secrets-referenced-by-name.md)
 32. **External `envFrom` sources come first; `env` wins over everything.** The component's explicit
     `config`/`externalSecret` values are never overridden by a bulk import, and an `env` key that
-    duplicates a `config` or `externalSecret.data` key fails. *Rejected:* external sources last (an
+    duplicates a `config` key, or a key of the component's Secret while it is injected, fails (a key that a
+    `dataFrom` extract brings is not visible to the chart: decision 53). *Rejected:* external sources last (an
     imported ConfigMap could silently override `config`).
     [ADR-0032](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0032-external-envfrom-first-env-wins.md)
 33. **`reloadOnChange` is per component and covers everything that changes outside the deploy.** The
@@ -908,7 +981,8 @@ code, official docs) and local renders.
     [ADR-0046](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0046-configfiles-mountpath-compared-normalized-rendered-as-written.md)
 47. **When-enabled keys are required, an ExternalSecret needs a source, and a probe port name must be declared.**
     `cronjob.schedule`, `externalSecret.secretStoreRef.kind` and `.name`, `httpRoute.parentRefs` and `ingress.hosts`
-    are required while their block is enabled; an enabled ExternalSecret without a `data` entry and a main-container
+    are required while their block is enabled; an enabled ExternalSecret without a source (a `data` entry, or from 0.9.0
+    a `dataFrom` entry: decision 53) and a main-container
     probe whose `httpGet.port` or `tcpSocket.port` names no `ports` entry fail the render, with their remedies.
     *Rejected:* a schema `required` or `minProperties` for the source (no remedy in the message, and a different
     message per layer on Helm 4.3).
@@ -955,6 +1029,24 @@ code, official docs) and local renders.
     pod-wide `Resource` metrics otherwise: the percentage keeps meaning percent of the main container's requests.
     *Rejected:* pod-wide utilization with sidecars (the sidecar moves the threshold), a key to choose.
     [ADR-0052](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0052-hpa-targets-measure-the-main-container-with-sidecars.md)
+53. **The ExternalSecret takes `dataFrom`, a curated template and a file mount, and its injection is a switch.** Still
+    one ExternalSecret and one Secret per component. `dataFrom` is External Secrets' own list, limited to `extract` and
+    `rewrite` and closed at every level (its order is the precedence; `data` wins over it); `template.data` builds keys
+    from the others, with `mergePolicy` `Merge` by default (External Secrets' `Replace` would drop every other key) and
+    the chart's labels on the Secret; `mountPath`, `items` and `defaultMode` mount the Secret read-only as the volume
+    `external-secret`, which an init container or a sidecar can mount too; `envFrom: false` stops injecting the Secret
+    whole. In `data` and `template.data` a `null` entry is absent (and a `null` optional field of a `data` entry);
+    `dataFrom` is a list, where a `null` is a schema error. While the Secret is injected its keys must be variable names
+    and no source may decode content; a constant template, `Replace` without a templated key and `envFrom: false`
+    without a reader fail. *Rejected:* `dataFrom` as a map with an `order`, `find` and `sourceRef` now, a template
+    pass-through, `Replace` as the default, a nested mount block, the key rule in the schema.
+    [ADR-0053](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md)
+54. **`env` can reference the component's own ExternalSecret Secret.** `env.<NAME>.valueFrom.externalSecretKeyRef:
+    {key}` renders a `secretKeyRef` on `<fullname>-secrets`, a name the chart resolves for every release name and alias,
+    in the main container, an init container or a sidecar. It needs `externalSecret.enabled: true`, and with a key set
+    the chart knows the key must be one of the Secret's; no `name`, no `optional`. *Rejected:* hand-written
+    `secretKeyRef` names (they dangle under another release name or alias), a generated key list.
+    [ADR-0054](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0054-env-externalsecretkeyref-references-the-components-own-secret.md)
 
 ## Versioning and releases
 
@@ -989,6 +1081,8 @@ cosign verify ghcr.io/jellalshadows/charts/chart-base:X.Y.Z \
 - **Aliases are lowercase kebab-case** (`front-web`), and `<release>-<alias>` must fit in 63 characters
   (52 for CronJobs). Renaming an alias deletes and recreates its objects.
 - **Toggle components with a real boolean**: `sales.enabled: false`. A string `"false"` is not a boolean: Helm warns, keeps the component, and the schema rejects the value.
+- **`externalSecret` needs External Secrets Operator 0.16 or later** (the chart renders `external-secrets.io/v1`,
+  the only served version from 0.17.0), with its default template delimiters for `template.data`.
 - **Install [Stakater Reloader](https://github.com/stakater/Reloader)** with `reloadStrategy: annotations`
   so that Secret rotation and changes to referenced Secrets/ConfigMaps reach the pods.
 - **HTTPRoute** needs a Gateway whose listener allows routes from the application namespace

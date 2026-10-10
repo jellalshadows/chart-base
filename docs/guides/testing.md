@@ -53,7 +53,10 @@ A single required check, `ci-ok`, depends on all the jobs. chart-testing (`ct`) 
   type, the accessor, the Reloader feed), `volumes_guards` (the schema rules and guards of `volumes`, and the strategy
   guards), `containers` (init containers and sidecars: the start order and the security context on every workload type; `env`,
   ports, probes and mounts on a Deployment; and the Reloader feed), `containers_guards` (the schema rules and guards of
-  `initContainers` and `sidecars`)). Each suite names the templates it renders.
+  `initContainers` and `sidecars`), `externalsecret_pod` (the ExternalSecret in the pod: `envFrom`, the
+  `externalSecretKeyRef` source, the file mount, on every workload type), `externalsecret_guards` (the schema rules and
+  guards of `externalSecret` and of `externalSecretKeyRef`)). Each suite names the templates it renders, and only those
+  are rendered: a guard test lists `templates/validate.yaml`.
 - Shared values in `tests/values/`: `base.yaml` (the minimum valid values every suite starts from),
   `env-refs.yaml` (one reference of every kind plus `envFrom` sources, for the `env` suite),
   `pod-runtime.yaml` (every pod runtime knob, for the `pod` suite), `prometheus-rules.yaml` (a recording
@@ -66,7 +69,7 @@ A single required check, `ci-ok`, depends on all the jobs. chart-testing (`ct`) 
 - **Schema tests** use `failedTemplate` with an `errorPattern` that matches the schema error path, for
   example `"/image/repository': minLength"`. They go through `templates/validate.yaml`, because rendering
   any template makes Helm validate the values against the schema first.
-- **Guard tests** (`tests/validate_test.yaml`, `tests/volumes_guards_test.yaml` for `volumes` and `tests/containers_guards_test.yaml` for `initContainers` and `sidecars`) assert the `chart-base[<alias>]: ...` messages of the
+- **Guard tests** (`tests/validate_test.yaml`, `tests/volumes_guards_test.yaml` for `volumes`, `tests/containers_guards_test.yaml` for `initContainers` and `sidecars`, and `tests/externalsecret_guards_test.yaml` for `externalSecret`) assert the `chart-base[<alias>]: ...` messages of the
   guards, including the boundaries: a 63-character name passes and a 64-character one fails, and the same
   for 52 and 53 with a CronJob.
 - Every suite sets `capabilities` (Kubernetes 1.33) and a real `release.name`, because the defaults of
@@ -192,8 +195,16 @@ covered: a hyphen in the values key, the `condition` path and the resource names
   container; an `order` from `--set` (an integer) sorts with one of the umbrella's values; an autoscaled component's
   HPA has `ContainerResource` metrics of its main container with a sidecar and `Resource` ones once its only sidecar is
   `null` from F or S; a sidecar named like the alias fails; a `null` inside a sidecar's `env` `valueFrom` fails the
-  schema (F); and a `--set` below an entry that an override file sets to `null` fails in Helm itself. Paths go through
-  values files (Git Bash rewrites `--set a=/x`);
+  schema (F); and a `--set` below an entry that an override file sets to `null` fails in Helm itself. For
+  `externalSecret`: a `null` `data` entry, a `null` field of an entry and a `null` `template.data` entry are absent in
+  all four layers; a `null` `template.mergePolicy` fails in U1, F and S, and in U0 on Helm 3.22, while Helm 4.3 U0 keeps
+  the chart's `Merge`; a `null` `template` or `envFrom` fails from F and S naming the alias (Helm 4.3 U0 keeps the
+  defaults, Helm 3.22 U0 fails with both names in one line); a `null` `dataFrom`, `template.data`, `mountPath`, `items`
+  and `defaultMode` clear what the umbrella sets in all four, and `mountPath: null` alone fails with the remedy of
+  `items`; a mount whose `items` and `defaultMode` are the chart's `null` defaults renders the volume with `secretName`
+  alone in all four (Helm hands those defaults as present `null` keys in some layers); and an `externalSecretKeyRef`
+  renders a `secretKeyRef` on the ExternalSecret's target under the alias `api` for two release names, with no
+  `externalSecretKeyRef` in any manifest. Paths go through values files (Git Bash rewrites `--set a=/x`);
 - an uppercase alias is rejected by the guard.
 
 **Where it lives.** `.github/scripts/alias-contract.sh <chart-dir>`. The script copies the chart next to
@@ -239,8 +250,10 @@ The prerequisites the script installs:
    tag, and nothing else: no operator runs, so the e2e proves that the API server accepts the objects, not
    that anything scrapes them. The script waits until the three CRDs are `Established`.
 3. The **External Secrets Operator** chart (`ESO_CHART_VERSION`, 2.11.0), with a `ClusterSecretStore`
-   named `fake` that uses ESO's `fake` provider and one key, `/sales/db-password`. The script waits until
-   the store is `Ready`.
+   named `fake` that uses ESO's `fake` provider and three keys: `/sales/db-password`, `/sales/config` (a JSON object
+   with `DB_PASSWORD`, `LOG_LEVEL` and `api-key`, for an extract) and `/sales/certs` (a JSON object whose two members
+   are base64 text, decoded by `decodingStrategy: Base64`). The script waits until the store is `Ready`, and prints
+   the kind nodes' container runtime version (`containerRuntimeVersion`).
 4. A namespace `vending` labelled `pod-security.kubernetes.io/enforce=restricted`. Every pod of every
    scenario must therefore satisfy Pod Security `restricted`, which validates the secure defaults
    ([ADR-0013](../adr/0013-secure-by-default.md)).
@@ -263,10 +276,10 @@ Each scenario is installed with `helm upgrade --install ... --wait --timeout 5m`
 | Scenario | Assertions |
 |---|---|
 | `deployment` | The Deployment becomes Ready in the restricted namespace. A second upgrade with `--set config.APP_MODE=api-v2` creates a new ReplicaSet: a config change rolls the pods (the checksum annotation). Then two in-place upgrades on Helm 4.3's server-side apply, with values files the script writes (the scenario installs no `strategy`): the claim `e2e-data` as a `persistentVolumeClaim` volume with `strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}` (the Deployment is Ready with the claim mounted), then `strategy: {type: Recreate}` (`spec.strategy` is exactly `{"type":"Recreate"}`). The Helm 3.22 path is not in the e2e. Its init containers and sidecar: the stored `initContainers` are `setup`, `side`, `wait-side` in that order and only `side` carries `restartPolicy: Always`; `wait-side`, whose only process connects to the sidecar on `127.0.0.1:8081`, exited 0 at its first attempt (it reached a sidecar that `order` placed before it, the runtime proof of the start order); the main container reads `/work/marker`, which `setup` wrote on an `emptyDir`, and a write to `/work`, mounted read-only, fails with `Read-only file system`; `side` is started, no later than the main container. Every `kubectl exec` and `kubectl logs` names its container (`-c`). |
-| `worker` | The worker becomes Ready and there is no Service named for it. It has a PodMonitor labelled `release: e2e` whose endpoint port is the container port `metrics`, and no ServiceMonitor. |
+| `worker` | The worker becomes Ready and there is no Service named for it. It has a PodMonitor labelled `release: e2e` whose endpoint port is the container port `metrics`, and no ServiceMonitor. Its ExternalSecret has `envFrom: false` and one source, an extract of `/sales/certs` with `decodingStrategy: Base64`: once it is `Ready` the Secret holds exactly `tls.crt` and `tls.key`; the key `tls.crt`, mounted with `items` at `/etc/certs/tls/tls.crt`, holds the decoded text, and `tls.key` is not a file of the mount; the variable `TLS_KEY` (an `externalSecretKeyRef`) holds the decoded `tls.key`, no key of the Secret is a variable of the container (read from PID 1's environment), and the `secretKeyRef.name` stored in the pod names a Secret that exists. |
 | `cronjob` | A Job created manually from the CronJob (`kubectl create job --from=cronjob/...`) completes within 180 seconds: a restricted pod that reads its config from the ConfigMap, its `env` references (`fieldRef`, `resourceFieldRef`) and the `e2e-shared` Secret injected with `envFrom` and a prefix. Service links are off: `KUBERNETES_SERVICE_HOST` is set, `DEPLOYMENT_CHART_BASE_SERVICE_HOST` (the `deployment` scenario's Service, installed before; the script first checks that it has a ClusterIP) is not. Its volumes: each run fails if its marker is already on its `ephemeral` volume (a reused volume), writes to an `emptyDir`, appends its pod name to a file on the existing claim `e2e-runs` and prints the file. A second manual run must print the first run's pod name (the claim is the same volume for every run; a scheduled run in between changes nothing). The first run's ephemeral claim (`<pod>-scratch`) is owned by its pod and carries `app.kubernetes.io/instance`, and once the pod is deleted it is gone (polled every 2 seconds for up to 120). |
-| `job` | The `pre-deploy` hook Job succeeds and its log contains `migrations-ok`: it saw `APP_MODE`, `DB_PASSWORD` (from the ExternalSecret) and `/config/migrations.yaml`, all created as hooks before it ran. A second deploy with `--set-string podAnnotations.revision=2` succeeds, so the Job hook is recreated instead of hitting `field is immutable` ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)). The pod has a sidecar `side` that the main command reaches first (`/agnhost connect 127.0.0.1:8081`): the hook still completes, its pod is `Succeeded` and the sidecar is terminated. |
-| `full` | The ExternalSecret becomes Ready, the Secret it creates holds the value `s3cr3t` from the fake provider, the API server accepts the HTTPRoute, the Deployment's `secret.reloader.stakater.com/reload` annotation is exactly `e2e-files,e2e-shared,full-chart-base-secrets` and its `configmap.reloader.stakater.com/reload` exactly `e2e-rules` (nothing but the volumes references those two), and the HPA, PDB and Ingress are created. In a pod, `/agnhost mounttest --fs_type` reports `tmpfs` for the `medium: Memory` volume at `/tmp/cache` and not for `/tmp`; the Secret `e2e-files`, mounted as a directory at `/config/secrets` beneath the config-files mount, is readable and a write fails with `Read-only file system`; the key `alerts` of `e2e-rules`, mounted with `items`, `defaultMode`, `subPath` and `optional: false` at `/etc/rules/alerts.yaml`, holds what the script wrote. The Deployment carries `strategy` (`maxSurge: 1`, `maxUnavailable: 0`), `minReadySeconds` and `revisionHistoryLimit`; a pod carries `priorityClassName: e2e-high` resolved to priority 1000 by the API server, `enableServiceLinks: false`, the `dnsConfig` option and the `hostAliases` entry. The ServiceMonitor is labelled `release: e2e` and its endpoint targets the Service port `http` with a `30s` interval, there is no PodMonitor, and the PrometheusRule is labelled `release: e2e` and holds the alert `FullChartBaseDown`. The NetworkPolicy is accepted with both policy types, the `except` of its `ipBlock` and its `endPort`. The Role is accepted with its `resourceNames` and its subresource rule, and the RoleBindings `full-chart-base` (to the Role) and `full-chart-base.view` (to the ClusterRole `view`) bind the ServiceAccount `full-chart-base`. It has a sidecar `shipper` that references nothing (the Reloader annotations stay the same), so the API server stores the HPA's two metrics as `ContainerResource` of the main container `chart-base`. |
+| `job` | The `pre-deploy` hook Job succeeds and its log contains `migrations-ok`: it saw `APP_MODE`, `DB_PASSWORD` (from the ExternalSecret, as a variable and as the mounted file `/etc/app-secrets/DB_PASSWORD`) and `/config/migrations.yaml`, all created as hooks before it ran. A second deploy with `--set-string podAnnotations.revision=2` succeeds, so the Job hook is recreated instead of hitting `field is immutable` ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)). The pod has a sidecar `side` that the main command reaches first (`/agnhost connect 127.0.0.1:8081`): the hook still completes, its pod is `Succeeded` and the sidecar is terminated. |
+| `full` | The ExternalSecret becomes Ready, with `data`, an extract of `/sales/config`, a templated `DATABASE_URL` (`Merge`) and a mount at `/etc/app-secrets`: the Secret holds exactly `DATABASE_URL`, `DB_PASSWORD`, `LOG_LEVEL` and `api-key`; `DB_PASSWORD`, which both sources bring, is `s3cr3t` from `data`; `DATABASE_URL` is rendered from it; the Secret carries the chart's labels; in a pod the mounted `DATABASE_URL` holds the same value, and `api-key` (no variable name) is a variable of the main container (read from PID 1's environment). The API server accepts the HTTPRoute, the Deployment's `secret.reloader.stakater.com/reload` annotation is exactly `e2e-files,e2e-shared,full-chart-base-secrets` and its `configmap.reloader.stakater.com/reload` exactly `e2e-rules` (nothing but the volumes references those two), and the HPA, PDB and Ingress are created. In a pod, `/agnhost mounttest --fs_type` reports `tmpfs` for the `medium: Memory` volume at `/tmp/cache` and not for `/tmp`; the Secret `e2e-files`, mounted as a directory at `/config/secrets` beneath the config-files mount, is readable and a write fails with `Read-only file system`; the key `alerts` of `e2e-rules`, mounted with `items`, `defaultMode`, `subPath` and `optional: false` at `/etc/rules/alerts.yaml`, holds what the script wrote. The Deployment carries `strategy` (`maxSurge: 1`, `maxUnavailable: 0`), `minReadySeconds` and `revisionHistoryLimit`; a pod carries `priorityClassName: e2e-high` resolved to priority 1000 by the API server, `enableServiceLinks: false`, the `dnsConfig` option and the `hostAliases` entry. The ServiceMonitor is labelled `release: e2e` and its endpoint targets the Service port `http` with a `30s` interval, there is no PodMonitor, and the PrometheusRule is labelled `release: e2e` and holds the alert `FullChartBaseDown`. The NetworkPolicy is accepted with both policy types, the `except` of its `ipBlock` and its `endPort`. The Role is accepted with its `resourceNames` and its subresource rule, and the RoleBindings `full-chart-base` (to the Role) and `full-chart-base.view` (to the ClusterRole `view`) bind the ServiceAccount `full-chart-base`. It has a sidecar `shipper` that references nothing (the Reloader annotations stay the same), so the API server stores the HPA's two metrics as `ContainerResource` of the main container `chart-base`. |
 | `port-names` | The API server accepts the component whose only port is named `on`, and stores `on` as a string in the Service port name and `targetPort`, the container port name, the Ingress backend port name and the ServiceMonitor endpoint port. |
 
 What the e2e does not show about volumes (one node, one Helm version; covered by the unit tests, the prototype's
@@ -283,6 +296,11 @@ docs): a sidecar that never starts; HPA arithmetic and scaling (no metrics-serve
 only); the termination order and its 2-second floor; ResourceQuota and LimitRange effects; that a probe's port name
 declared on another container never resolves, and the kubelet refusing UID 0 with `runAsNonRoot: true`; CNIs other than
 kindnet; the Helm 3.22 path.
+
+What the e2e does not show about the ExternalSecret (covered by the unit tests, by the prototype's measurements recorded
+in [ADR-0053](../adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md), or only by the docs): restarts on rotation (Reloader is not installed); a failing sync
+seen through Helm; binary or oversized values behind `envFrom`; a template re-applied at every refresh; an install
+with Helm 3.22; External Secrets versions other than 2.11.0.
 
 After the scenarios, the **NetworkPolicy checks**. The script creates a namespace `netpol` (Pod Security
 `restricted`) with a default-deny NetworkPolicy (`podSelector: {}`, `policyTypes: [Ingress, Egress]`, no rule), and
@@ -364,7 +382,8 @@ ServiceAccount and resource type, so the binding is in effect when the "no" is c
 On failure the script prints
 `kubectl get all,persistentvolumeclaims,externalsecrets,servicemonitors,podmonitors,prometheusrules,networkpolicies,serviceaccounts,roles,rolebindings`
 for the namespace of the failing check (`vending` for the scenarios, which also run `kubectl describe` on its
-persistentvolumeclaims, pods and jobs (events show why a pod stays `Pending` or fails to start) and print the last 50
+persistentvolumeclaims, pods and jobs (events show why a pod stays `Pending` or fails to start) and on its
+externalsecrets (why one does not sync), and print the last 50
 lines of the logs of the two manual CronJob runs; `netpol` for the NetworkPolicy checks, which also
 list the pods and policies of `monitoring` and print the last 50 lines of the `migrate` Job's log and the last 200 of
 kindnet's; `rbac` for the RBAC checks, which also print the last 200 lines of the `migrate` Job's log, where each

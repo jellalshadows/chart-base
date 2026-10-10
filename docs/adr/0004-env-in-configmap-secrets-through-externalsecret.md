@@ -1,6 +1,6 @@
 # ADR-0004: Env vars in a ConfigMap, secrets through ExternalSecret
 
-- **Status:** Accepted — amended by [ADR-0030](0030-env-takes-references-only.md) and [ADR-0031](0031-existing-secrets-referenced-by-name.md) (0.2.0)
+- **Status:** Accepted — amended by [ADR-0030](0030-env-takes-references-only.md) and [ADR-0031](0031-existing-secrets-referenced-by-name.md) (0.2.0) and [ADR-0053](0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md) (0.9.0)
 - **Date:** 2026-09-27
 - **Since:** 0.1.0
 

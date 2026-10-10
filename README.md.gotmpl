@@ -121,6 +121,69 @@ and **overrides** it; it must arrive as an environment variable, and directories
 ([Spring Boot docs](https://docs.spring.io/spring-boot/reference/features/external-config.html)).
 Never put secret values in `configFiles`: use `${VAR}` placeholders fed by `externalSecret`.
 
+### Secrets from a secret manager: a JSON secret, a connection string, a certificate as a file
+
+A JSON secret whose members all become keys of the component's Secret, renamed into variable names by a `rewrite`
+(JSON member names are rarely variable names), and a connection string that External Secrets renders from them
+([ADR-0053](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md)):
+
+```yaml
+billing:
+  image: {repository: ghcr.io/acme/billing, tag: "3.0.0"}
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+  externalSecret:
+    enabled: true
+    secretStoreRef: {kind: ClusterSecretStore, name: gcp-sm}
+    data:
+      DB_PASSWORD: {key: billing-db, property: password}
+    dataFrom:                              # every member of the JSON secret billing-api is a key
+      - extract: {key: billing-api}
+        rewrite:
+          - transform: {template: '{{`{{ .value | upper | replace "-" "_" }}`}}'}   # api-key -> API_KEY
+    template:
+      data:                                # added to the keys above (mergePolicy: Merge, the default)
+        DATABASE_URL: '{{`postgres://billing:{{ .DB_PASSWORD }}@db:5432/billing`}}'
+```
+
+The order of `dataFrom` is the precedence, and `data` wins over it; a key that an extract brings replaces a `config` key
+of the same name in the container, and the chart cannot see it. A `regexp` rewrite adds a prefix instead
+(`{source: "^(.*)$", target: "BILLING_$1"}`); or keep the member names, set `externalSecret.envFrom: false` and
+reference the members you need one by one (`env.API_KEY.valueFrom.externalSecretKeyRef.key: api-key`). Write a template
+quoted (unquoted, a value that starts with an action is a YAML error), never with `--set`; in a helmfile `.gotmpl`
+values file escape it as the values table says for `externalSecret.template.data`. An overlay replaces the whole
+`dataFrom` list: vary a remote key per environment in one templated values file, not with `--set` by index, which
+drops the other entries silently.
+
+A certificate as files next to variables (the mixed case): the Secret is mounted, not injected, and each variable
+references one key, whatever the release name and the alias:
+
+```yaml
+gateway-client:
+  image: {repository: ghcr.io/acme/gateway-client, tag: "1.2.0"}
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+  externalSecret:
+    enabled: true
+    secretStoreRef: {kind: ClusterSecretStore, name: gcp-sm}
+    envFrom: false                         # not injected whole: tls.crt is no variable name
+    data:
+      tls.crt: {key: partner-mtls, property: cert}
+      tls.key: {key: partner-mtls, property: key}
+      API_TOKEN: {key: partner-api-token}
+    mountPath: /etc/partner                # read-only, the volume external-secret
+    items:
+      - {key: tls.crt, path: tls/tls.crt}
+      - {key: tls.key, path: tls/tls.key, mode: 0400}
+  env:
+    PARTNER_TOKEN: {valueFrom: {externalSecretKeyRef: {key: API_TOKEN}}}   # a secretKeyRef on <fullname>-secrets
+```
+
+`items` lists the files (the API_TOKEN key is not a file here); while the chart knows every key of the Secret, an
+`items` key or an `externalSecretKeyRef` key that the Secret does not have fails the render. A Secret mounted this way
+still restarts the Deployment on rotation through Reloader while `reloadOnChange` is true, although the kubelet
+updates the files in place.
+
 ### Operator-created Secrets and pod metadata (CloudNativePG, Strimzi, OpenTelemetry)
 
 ```yaml
@@ -551,7 +614,8 @@ code, official docs) and local renders.
    *Rejected:* an HTTP Helm repository on GitHub Pages.
    [ADR-0003](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0003-oci-on-ghcr.md)
 4. **Env vars in a ConfigMap, secrets through ExternalSecret into a Secret, both via `envFrom`.**
-   Kubernetes: *"ConfigMap does not provide secrecy or encryption"*; Secrets get stricter RBAC.
+   Kubernetes: *"ConfigMap does not provide secrecy or encryption"*; Secrets get stricter RBAC. From 0.9.0 the Secret
+   can also be mounted as files or read one key at a time instead (decisions 53 and 54).
    *Rejected:* secrets in a ConfigMap (possible with ESO only behind `--unsafe-allow-generic-targets`).
    [ADR-0004](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0004-env-in-configmap-secrets-through-externalsecret.md)
 5. **`configFiles` accepts a string or a map.** A map merges per environment, and chart-base removes from it every
@@ -661,7 +725,8 @@ code, official docs) and local renders.
     *Rejected:* "Re-run failed jobs" (it re-runs the old workflow with the same broken steps).
     [ADR-0029](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0029-publishing-built-for-recovery.md)
 30. **`env` takes references only.** `valueFrom` with `fieldRef`, `resourceFieldRef`, `secretKeyRef` or
-    `configMapKeyRef`; literal values keep a single home in `config`. `env.FOO: bar` and a Kubernetes-style
+    `configMapKeyRef`, and from 0.9.0 the chart's `externalSecretKeyRef` (decision 54); literal values keep a single
+    home in `config`. `env.FOO: bar` and a Kubernetes-style
     list (`- name: FOO` / `value: bar`) fail with a message that points to `config`; `FOO: {value: bar}` is
     a schema error (`missing property 'valueFrom'`). *Rejected:* literals in `env` (two places for the
     same setting).
@@ -673,7 +738,8 @@ code, official docs) and local renders.
     [ADR-0031](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0031-existing-secrets-referenced-by-name.md)
 32. **External `envFrom` sources come first; `env` wins over everything.** The component's explicit
     `config`/`externalSecret` values are never overridden by a bulk import, and an `env` key that
-    duplicates a `config` or `externalSecret.data` key fails. *Rejected:* external sources last (an
+    duplicates a `config` key, or a key of the component's Secret while it is injected, fails (a key that a
+    `dataFrom` extract brings is not visible to the chart: decision 53). *Rejected:* external sources last (an
     imported ConfigMap could silently override `config`).
     [ADR-0032](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0032-external-envfrom-first-env-wins.md)
 33. **`reloadOnChange` is per component and covers everything that changes outside the deploy.** The
@@ -798,7 +864,8 @@ code, official docs) and local renders.
     [ADR-0046](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0046-configfiles-mountpath-compared-normalized-rendered-as-written.md)
 47. **When-enabled keys are required, an ExternalSecret needs a source, and a probe port name must be declared.**
     `cronjob.schedule`, `externalSecret.secretStoreRef.kind` and `.name`, `httpRoute.parentRefs` and `ingress.hosts`
-    are required while their block is enabled; an enabled ExternalSecret without a `data` entry and a main-container
+    are required while their block is enabled; an enabled ExternalSecret without a source (a `data` entry, or from 0.9.0
+    a `dataFrom` entry: decision 53) and a main-container
     probe whose `httpGet.port` or `tcpSocket.port` names no `ports` entry fail the render, with their remedies.
     *Rejected:* a schema `required` or `minProperties` for the source (no remedy in the message, and a different
     message per layer on Helm 4.3).
@@ -845,6 +912,24 @@ code, official docs) and local renders.
     pod-wide `Resource` metrics otherwise: the percentage keeps meaning percent of the main container's requests.
     *Rejected:* pod-wide utilization with sidecars (the sidecar moves the threshold), a key to choose.
     [ADR-0052](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0052-hpa-targets-measure-the-main-container-with-sidecars.md)
+53. **The ExternalSecret takes `dataFrom`, a curated template and a file mount, and its injection is a switch.** Still
+    one ExternalSecret and one Secret per component. `dataFrom` is External Secrets' own list, limited to `extract` and
+    `rewrite` and closed at every level (its order is the precedence; `data` wins over it); `template.data` builds keys
+    from the others, with `mergePolicy` `Merge` by default (External Secrets' `Replace` would drop every other key) and
+    the chart's labels on the Secret; `mountPath`, `items` and `defaultMode` mount the Secret read-only as the volume
+    `external-secret`, which an init container or a sidecar can mount too; `envFrom: false` stops injecting the Secret
+    whole. In `data` and `template.data` a `null` entry is absent (and a `null` optional field of a `data` entry);
+    `dataFrom` is a list, where a `null` is a schema error. While the Secret is injected its keys must be variable names
+    and no source may decode content; a constant template, `Replace` without a templated key and `envFrom: false`
+    without a reader fail. *Rejected:* `dataFrom` as a map with an `order`, `find` and `sourceRef` now, a template
+    pass-through, `Replace` as the default, a nested mount block, the key rule in the schema.
+    [ADR-0053](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md)
+54. **`env` can reference the component's own ExternalSecret Secret.** `env.<NAME>.valueFrom.externalSecretKeyRef:
+    {key}` renders a `secretKeyRef` on `<fullname>-secrets`, a name the chart resolves for every release name and alias,
+    in the main container, an init container or a sidecar. It needs `externalSecret.enabled: true`, and with a key set
+    the chart knows the key must be one of the Secret's; no `name`, no `optional`. *Rejected:* hand-written
+    `secretKeyRef` names (they dangle under another release name or alias), a generated key list.
+    [ADR-0054](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0054-env-externalsecretkeyref-references-the-components-own-secret.md)
 
 ## Versioning and releases
 
@@ -879,6 +964,8 @@ cosign verify ghcr.io/jellalshadows/charts/chart-base:X.Y.Z \
 - **Aliases are lowercase kebab-case** (`front-web`), and `<release>-<alias>` must fit in 63 characters
   (52 for CronJobs). Renaming an alias deletes and recreates its objects.
 - **Toggle components with a real boolean**: `sales.enabled: false`. A string `"false"` is not a boolean: Helm warns, keeps the component, and the schema rejects the value.
+- **`externalSecret` needs External Secrets Operator 0.16 or later** (the chart renders `external-secrets.io/v1`,
+  the only served version from 0.17.0), with its default template delimiters for `template.data`.
 - **Install [Stakater Reloader](https://github.com/stakater/Reloader)** with `reloadStrategy: annotations`
   so that Secret rotation and changes to referenced Secrets/ConfigMaps reach the pods.
 - **HTTPRoute** needs a Gateway whose listener allows routes from the application namespace

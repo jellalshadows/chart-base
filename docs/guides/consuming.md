@@ -123,12 +123,19 @@ pinned by one check of the alias contract, on both Helm versions
 | any other chart default (`podSecurityContext.runAsUser`, `securityContext.readOnlyRootFilesystem`, `ingress.className`) | the default is gone | ignored: the default stays |
 | a whole map that the chart's `values.yaml` defines (`config`, `env`, `podLabels`, `podAnnotations`, `nodeSelector`, `configFiles.files`, `volumes`, `initContainers`, `sidecars`) | cleared | same result |
 | a whole map that the chart's `values.yaml` does not define (`resources.requests`) | schema error `got null, want object` | Helm drops it, and the required `requests` is then missing (`missing property 'requests'`) |
-| one entry of a typed map (`config.<KEY>`, `env.<NAME>`, `externalSecret.data.<KEY>`, labels, annotations, `nodeSelector.<key>`), or an optional member of a closed object (`lifecycle.postStart`, `strategy.rollingUpdate.maxSurge`, `dnsConfig.options`); a field inside an init container's or a sidecar's env `valueFrom` or probe `httpGet` or `exec` (definitions shared with the main container) | schema error `got null, want …` | Helm drops the entry (an ExternalSecret left without a `data` entry then fails the source guard) |
+| one entry of a typed map (`config.<KEY>`, `env.<NAME>`, labels, annotations, `nodeSelector.<key>`), or an optional member of a closed object (`lifecycle.postStart`, `strategy.rollingUpdate.maxSurge`, `dnsConfig.options`); a field inside an init container's or a sidecar's env `valueFrom` or probe `httpGet` or `exec` (definitions shared with the main container) | schema error `got null, want …` | Helm drops the entry |
 | a key inside a pass-through object (`affinity.<key>`, a key of a main-container probe) | rendered as `null` in the manifest | dropped |
-| a file of `configFiles.files` or a key of a map-form file (maps reached through maps); an entry of `resources.limits`, an entry of `resources.requests` other than `cpu` and `memory`, or `resources.limits` itself; an entry of `volumes` or a field of an entry; `strategy.rollingUpdate`; an entry of `initContainers` or `sidecars`, or an optional field of an entry at any depth, not inside a list (`env.<NAME>`, a mount, a probe, a `securityContext` field: the hardened default comes back) | removed by chart-base ([ADR-0045](../adr/0045-null-in-configfiles-and-resources-is-absent.md), [ADR-0049](../adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md), [ADR-0050](../adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md), [ADR-0051](../adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)) | removed |
+| a file of `configFiles.files` or a key of a map-form file (maps reached through maps); an entry of `resources.limits`, an entry of `resources.requests` other than `cpu` and `memory`, or `resources.limits` itself; an entry of `volumes` or a field of an entry; `strategy.rollingUpdate`; an entry of `initContainers` or `sidecars`, or an optional field of an entry at any depth, not inside a list (`env.<NAME>`, a mount, a probe, a `securityContext` field: the hardened default comes back); an entry of `externalSecret.data` or an optional field of one (`property`, `version`, `decodingStrategy`), and an entry of `externalSecret.template.data` | removed by chart-base ([ADR-0045](../adr/0045-null-in-configfiles-and-resources-is-absent.md), [ADR-0049](../adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md), [ADR-0050](../adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md), [ADR-0051](../adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md), [ADR-0053](../adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md)) | removed |
 
-`externalSecret.data: null` with `externalSecret.enabled: true` is cleared and then fails the source guard
-([ADR-0047](../adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md)). In `configFiles.files`, a `null` file is no file, and in a map-form
+`externalSecret.data: null` with `externalSecret.enabled: true` and no `dataFrom` entry is cleared and then fails the
+source guard ([ADR-0047](../adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md)). In `externalSecret.data` a `null` entry, and a `null`
+`property`, `version` or `decodingStrategy` of an entry, is absent (a `null` `key` stays a schema error), and in
+`externalSecret.template.data` a `null` entry is absent: an overlay removes one key of the Secret with
+`data.<KEY>: null` and a templated key with `template.data.<key>: null`. `externalSecret.dataFrom` is a list: an overlay
+replaces it whole, and a `null` item or a `null` field inside an item is a schema error. `externalSecret.template`,
+`template.mergePolicy` and `envFrom` are required: a `null` fails with `missing property`, except in the umbrella's own
+values on Helm 4.3 while nothing is passed for the alias, where Helm drops it and the default stays (`Merge`, `true`;
+measured by the alias contract) ([ADR-0053](../adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md)). In `configFiles.files`, a `null` file is no file, and in a map-form
 file a key whose value is `null` or empty (`key:`) is removed; a list inside it is rendered as written. In `volumes`, a
 `null` entry or field is absent: an entry can also be removed with `null` and re-added under another name, and an
 overlay changes a volume's type by setting the previous type's fields to `null`
@@ -142,7 +149,7 @@ interface {} is nil, not map[string]interface {}`, measured on Helm 4.3.0 and 3.
 
 An overlay can add entries to a map, and can clear with `null` a whole map that the chart's `values.yaml` defines; it
 cannot remove one entry, except where this guide says so per map (in 0.7.0: a file of `configFiles.files`, a key of a
-map-form file, an entry of `resources.limits` or `resources.requests`, other than `requests.cpu` and `requests.memory`, which stay required, and an entry of `volumes` or one of its fields; in 0.8.0 an entry of `initContainers` or `sidecars` or one of its fields): keep the entries that differ per
+map-form file, an entry of `resources.limits` or `resources.requests`, other than `requests.cpu` and `requests.memory`, which stay required, and an entry of `volumes` or one of its fields; in 0.8.0 an entry of `initContainers` or `sidecars` or one of its fields; in 0.9.0 an entry of `externalSecret.data` or one of its optional fields, and an entry of `externalSecret.template.data`): keep the entries that differ per
 environment in the overlays. On Helm 4, lint and template an umbrella with the same `-f`/`--set` values the deploy
 uses: a `null` in the umbrella's own values is ignored until a value is passed for that component.
 
@@ -356,6 +363,58 @@ A component's `initContainers` and `sidecars` ([ADR-0051](../adr/0051-init-conta
   `terminationGracePeriodSeconds` longer; its exit code does not count for the pod's phase, and a hook Job with a
   sidecar completes once the main container is done (source reading; the e2e checks the completion).
 
+## Secrets from External Secrets
+
+A component's `externalSecret` ([ADR-0053](../adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md), [ADR-0054](../adr/0054-env-externalsecretkeyref-references-the-components-own-secret.md)) renders one ExternalSecret and its
+Secret `<fullname>-secrets`. It needs External Secrets Operator 0.16 or later (`external-secrets.io/v1`; the e2e runs
+2.11.0 only) and its default template delimiters. What a consumer must know:
+
+- **The precedence.** Inside the Secret: the `dataFrom` entries in list order (a later entry wins), then `data`, then
+  `template.data` (under `mergePolicy: Merge`, the chart's default; under a templated `Replace` only the templated keys
+  exist). In the container: the imported `envFrom` sources, then `config`, then the Secret (while
+  `externalSecret.envFrom` is true), then `env`; each later one wins. A key that an extract brings replaces a `config`
+  key of the same name, the chart cannot see it, and the `env` duplicate check does not either; it can also set a
+  process-level variable such as `HTTPS_PROXY` or `JAVA_TOOL_OPTIONS`: extract only remote secrets whose members you
+  control.
+- **`envFrom: true` makes every key a variable**, whatever its name (kubelet source reading at v1.33.12 and v1.37.0;
+  the e2e checks a key named `api-key`), so the chart requires variable names for the keys it sees and rejects decoded
+  content (`decodingStrategy: Base64`): binary content in a variable keeps the container from starting on kubelets
+  1.34.0-1.34.8, 1.35.0-1.35.5 and 1.36.0-1.36.1 (kubernetes#139132), beyond 128 KiB, or on containerd 2.2.0-2.2.6 and
+  2.3.0-2.3.3 and CRI-O 1.34.0-1.34.10, 1.35.0-1.35.5 and 1.36.0-1.36.2 (earlier runtimes were not affected; source
+  reading, not run). Files, certificates and decoded content
+  go with `envFrom: false`, `mountPath` and one `env.<NAME>.valueFrom.externalSecretKeyRef` per variable. With
+  `envFrom` on, every key of the Secret is a variable, also the ones that `items` projects as files.
+- **The values.** A template is written quoted in a values file, never with `--set` (`--set-literal` or `--set-json`
+  carry it), and in a helmfile `.gotmpl` values file as ``{{ `{{ .password }}` }}`` (measured on helmfile 1.4.4 and 1.8.0).
+  `version` is a string: quote a numeric version. An overlay replaces the whole `dataFrom` list, and a `--set` by
+  index, or a helmfile `set:` (measured on helmfile 1.8.0), renders a list of that one entry without the others and
+  without its `rewrite`, and no error: vary a remote key per environment in one templated values file. Quote a key
+  that YAML 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`, `off`, lowercase, capitalized or uppercase): unquoted
+  it is renamed to `"true"` or `"false"`, and two of them collide silently (measured on Helm 4.3.0 and 3.22.0).
+- **Rollouts.** A template is not part of the deploy's rollout: editing it changes the ExternalSecret alone, Helm
+  returns without rolling a pod, and the change arrives later through Reloader (outside `--wait` and
+  `progressDeadlineSeconds`), and never for variables when Reloader is absent or `reloadOnChange` is false. For a file
+  the deploy must roll and wait for, use `configFiles` with `${VAR}` placeholders. A template that calls a
+  non-deterministic function (`bcrypt`, `htpasswd`, `randAlphaNum`, `randBytes`, `uuidv4`, `now`, `genPrivateKey`)
+  changes the Secret at every `refreshInterval`, a restart each time with `reloadOnChange: true` (source reading). A
+  mounted Secret's files are updated in place by the kubelet, except a `subPath` mount, which never follows a change
+  (source reading); the Deployment is still restarted through Reloader while `reloadOnChange` is true, because the
+  Secret is in the Reloader list whenever the block is enabled.
+- **A templated Secret** carries the chart's labels (`template.metadata.labels`) and none of the ExternalSecret's
+  annotations (External Secrets no longer copies them once a template exists: source reading; the e2e checks the
+  labels).
+- **While the Secret or a key is missing** (source reading at v1.33.12 and v1.37.0, not run): with `envFrom` the
+  container waits in `CreateContainerConfigError`; with a mount the pod stays `Pending` with `FailedMount` events; an
+  `env` reference to a key the Secret lacks keeps the container from being created (`couldn't find key`), and an
+  `items` key it lacks keeps the pod in `ContainerCreating`. A Deployment then fails at `progressDeadlineSeconds`, a
+  CronJob run hangs unless `job.activeDeadlineSeconds` is set, and a hook Job waits until Helm's `--timeout`.
+- **A failing sync and Helm.** Only Helm 4's `--wait` looks at the ExternalSecret, and only once External Secrets has
+  written `Ready=False`: it then waits the whole `--timeout`; an upgrade that changes the ExternalSecret alone can
+  return on its earlier `Ready=True`, and Helm 3.22 never waits for it (measured with a status patched by hand when
+  0.9.0 was designed). The errors of a template appear as `SecretSyncedError` and a Warning event on the
+  ExternalSecret, not in Helm. A source that returns nothing is reported `Ready=True` and creates no Secret (source
+  reading). Gate the pipeline on `helm template` with the deploy's real values, and watch the ExternalSecret's events.
+
 ## Failure behavior
 
 What fails **before the cluster is touched**, at `helm template` and at `helm install` / `helm upgrade` alike
@@ -381,7 +440,7 @@ release name and `--namespace`, not on `helm lint`
   `terminationGracePeriodSeconds`, a `metrics.port` that is not the name of an entry in `ports`, a probe
   `httpGet.port` or `tcpSocket.port` given by a name that no `ports` entry declares (or a probe handler that is not a
   map), a `configFiles.mountPath` that is `/tmp` or `/` once normalized (or the ServiceAccount token directory while
-  `serviceAccount.automountToken` is true), `externalSecret.enabled` with no entry in `externalSecret.data`, and with
+  `serviceAccount.automountToken` is true), `externalSecret.enabled` without a source (no non-null `data` entry and no `dataFrom` entry), and with
   `networkPolicy` on: `metrics` or a route (`httpRoute`, `ingress`) without a source in the policy (or without
   `routeTrafficAllowedElsewhere: true`), `routeTrafficAllowedElsewhere` without a route,
   `metricsFromNamespaces` without `metrics`, `fromComponents` or `fromNamespaces` with no `ports`, an `endPort`
@@ -409,6 +468,18 @@ release name and `--namespace`, not on `helm lint`
   `items`, and a `config-files` `subPath` that is not one of the files rendered (or `.`); a port name or number
   declared twice in the pod; a sidecar probe port name that is not one of its own ports, and a main-container probe
   port name that only a sidecar declares.
+
+- The guards of `externalSecret` ([ADR-0053](../adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md), [ADR-0054](../adr/0054-env-externalsecretkeyref-references-the-components-own-secret.md)), while the block is enabled:
+  `conversionStrategy` next to a non-empty `rewrite`; `mergePolicy: Replace` without a templated key; a `template.data`
+  value without a template action; while the Secret is injected, a key of `data` or `template.data` that is not an
+  environment variable name and a `decodingStrategy: Base64` or `Base64URL` (unless the block is templated with
+  `Replace`); `envFrom: false` with nothing that reads the Secret; a `mountPath` that is another mount's once
+  normalized, `/` or the token directory; an `items[].path` that is absolute, has a `..` element or repeats another;
+  while the chart knows every key of the Secret (`dataFrom` empty, or a templated `Replace`), an `items[].key` or an
+  `externalSecretKeyRef` key that is not one of them, and a `subPath` of `external-secret` that is not one of them or
+  `.`; `items` or `defaultMode` while nothing mounts the Secret; `readOnly: false` on an entry's mount of
+  `external-secret`. And, while the block is disabled too: an `externalSecretKeyRef`, and an entry's mount of
+  `external-secret`.
 
 What fails **at install or upgrade**, when Helm talks to the cluster (rendering does not need the CRD,
 so `helm template` and `helm lint` do not catch it):

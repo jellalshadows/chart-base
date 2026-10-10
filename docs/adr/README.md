@@ -14,7 +14,7 @@ not published; each record restates every fact it uses.
 | [0001](0001-application-chart-consumed-through-aliases.md) | Application chart consumed through aliases | Amended by 0044 | 0.1.0 |
 | [0002](0002-repository-is-the-chart.md) | The repository is the chart | Accepted | 0.1.0 |
 | [0003](0003-oci-on-ghcr.md) | OCI on GHCR, public and free | Accepted | 0.1.0 |
-| [0004](0004-env-in-configmap-secrets-through-externalsecret.md) | Env vars in a ConfigMap, secrets through ExternalSecret | Amended by 0030, 0031 | 0.1.0 |
+| [0004](0004-env-in-configmap-secrets-through-externalsecret.md) | Env vars in a ConfigMap, secrets through ExternalSecret | Amended by 0030, 0031, 0053 | 0.1.0 |
 | [0005](0005-configfiles-string-or-map.md) | `configFiles` accepts a string or a map | Amended by 0045, 0046 | 0.1.0 |
 | [0006](0006-checksum-for-config-reloader-for-secrets.md) | Checksums for config, Reloader for Secrets | Amended by 0033 | 0.1.0 |
 | [0007](0007-jobs-as-helm-hooks.md) | `workload.type: job` is a Helm hook | Amended by 0041, 0043 | 0.1.0 |
@@ -40,9 +40,9 @@ not published; each record restates every fact it uses.
 | [0027](0027-required-keys-in-the-schema.md) | Keys the templates rely on are `required` | Amended by 0044, 0047 | 0.1.0 |
 | [0028](0028-podlabels-cannot-override-selector-labels.md) | `podLabels` cannot override the selector labels | Accepted | 0.1.0 |
 | [0029](0029-publishing-built-for-recovery.md) | Publishing is built for recovery | Amended by 0034 | 0.1.0 |
-| [0030](0030-env-takes-references-only.md) | `env` takes references only | Accepted | 0.2.0 |
+| [0030](0030-env-takes-references-only.md) | `env` takes references only | Amended by 0054 | 0.2.0 |
 | [0031](0031-existing-secrets-referenced-by-name.md) | Existing Secrets are referenced by name | Accepted | 0.2.0 |
-| [0032](0032-external-envfrom-first-env-wins.md) | External `envFrom` sources first, `env` wins | Accepted | 0.2.0 |
+| [0032](0032-external-envfrom-first-env-wins.md) | External `envFrom` sources first, `env` wins | Amended by 0053 | 0.2.0 |
 | [0033](0033-component-level-reload-on-change.md) | Component-level `reloadOnChange` | Accepted | 0.2.0 |
 | [0034](0034-keyless-cosign-signatures.md) | Keyless cosign signatures by digest | Accepted | after 0.2.0 (ci) |
 | [0035](0035-service-links-off-by-default.md) | Service links are off by default | Accepted | 0.3.0 |
@@ -57,12 +57,14 @@ not published; each record restates every fact it uses.
 | [0044](0044-guards-fail-the-render-helm-lint-reports-them.md) | Guards fail the render; `helm lint` reports them without failing | Accepted | 0.6.0 |
 | [0045](0045-null-in-configfiles-and-resources-is-absent.md) | A `null` in `configFiles` removes the file or the key; a `null` resource quantity is absent | Accepted | 0.7.0 |
 | [0046](0046-configfiles-mountpath-compared-normalized-rendered-as-written.md) | `configFiles.mountPath` is compared normalized and rendered as written | Accepted | 0.7.0 |
-| [0047](0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md) | When-enabled keys are required, an ExternalSecret needs a source, and a probe port name must be declared | Amended by 0050 | 0.7.0 |
+| [0047](0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md) | When-enabled keys are required, an ExternalSecret needs a source, and a probe port name must be declared | Amended by 0050, 0053 | 0.7.0 |
 | [0048](0048-httproute-parentrefs-and-matches-are-closed.md) | The entries of `httpRoute.parentRefs` and `httpRoute.matches` are closed objects | Amended by 0050 | 0.7.0 |
 | [0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md) | Extra volumes are a map of typed entries, each mounted in the main container | Amended by 0051 | 0.7.0 |
 | [0050](0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md) | An existing claim on a Deployment declares its access mode; `strategy.rollingUpdate: null` is absent | Accepted | 0.7.0 |
-| [0051](0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md) | Init containers and sidecars are two maps in one start order, and nothing is inherited from the main container | Accepted | 0.8.0 |
+| [0051](0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md) | Init containers and sidecars are two maps in one start order, and nothing is inherited from the main container | Amended by 0053 | 0.8.0 |
 | [0052](0052-hpa-targets-measure-the-main-container-with-sidecars.md) | With a sidecar, the HPA's built-in targets measure the main container | Accepted | 0.8.0 |
+| [0053](0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md) | The ExternalSecret takes `dataFrom`, a curated template and a file mount, and its injection is a switch | Accepted | 0.9.0 |
+| [0054](0054-env-externalsecretkeyref-references-the-components-own-secret.md) | `env` can reference the component's own ExternalSecret Secret (`externalSecretKeyRef`) | Accepted | 0.9.0 |
 
 ## Adding a record
 

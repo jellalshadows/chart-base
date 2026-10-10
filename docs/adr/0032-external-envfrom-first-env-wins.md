@@ -1,6 +1,6 @@
 # ADR-0032: External `envFrom` sources first, `env` wins
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0053](0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md) (0.9.0)
 - **Date:** 2026-09-28
 - **Since:** 0.2.0
 - **Related:** [ADR-0004](0004-env-in-configmap-secrets-through-externalsecret.md),
