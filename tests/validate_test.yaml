@@ -135,7 +135,7 @@ tests:
       env.DB_PASSWORD.valueFrom.secretKeyRef.key: password
     asserts:
       - failedTemplate:
-          errorPattern: "env.DB_PASSWORD duplicates a key of config or externalSecret.data"
+          errorPattern: 'chart-base\[chart-base\]: env.DB_PASSWORD is also a key of the component''s Secret \(externalSecret.data or externalSecret.template.data\), which externalSecret.envFrom: true injects as the variable DB_PASSWORD: remove one of the two, rename the env entry, or set externalSecret.envFrom: false and reference the keys you need in env'
 
   - it: does not crash on env when config is null (null deletes the default map)
     set:
@@ -1004,7 +1004,7 @@ tests:
       externalSecret.data: {}
     asserts:
       - failedTemplate:
-          errorPattern: "externalSecret.enabled is true and externalSecret.data has no entry: list at least one key in externalSecret.data, or set externalSecret.enabled: false"
+          errorPattern: "externalSecret.enabled is true and the ExternalSecret has no source: list at least one key in externalSecret.data or one entry in externalSecret.dataFrom, or set externalSecret.enabled: false"
 
   - it: accepts externalSecret.data null while externalSecret is disabled
     set:

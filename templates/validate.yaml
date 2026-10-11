@@ -7,6 +7,9 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- /* initContainers and sidecars: every check reads chart-base.containers, so a null entry and a null field are absent before any check. */ -}}
 {{- $containers := dict -}}
 {{- include "chart-base.containers" (dict "ctx" . "out" $containers) -}}
+{{- /* externalSecret: every check reads chart-base.externalSecret, so a null data entry and a null field are absent before any check. */ -}}
+{{- $es := dict -}}
+{{- include "chart-base.externalSecret" (dict "ctx" . "out" $es) -}}
 {{- $dns1035 := "^[a-z]([-a-z0-9]*[a-z0-9])?$" -}}
 {{- if not (regexMatch $dns1035 $component) -}}
 {{- include "chart-base.fail" (list . (printf "alias %q must be lowercase kebab-case (%s)" $component $dns1035)) -}}
@@ -163,9 +166,40 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if has "cluster-admin" .Values.rbac.clusterRoles -}}
 {{- include "chart-base.fail" (list . "rbac.clusterRoles: cluster-admin is rejected: bound in the namespace, it allows every verb on every resource there, the * that rbac.rules rejects, and a deployer with only the namespace's admin rights cannot bind it: list the rules the component needs in rbac.rules, or bind a narrower ClusterRole such as view") -}}
 {{- end -}}
-{{- /* An ExternalSecret needs a source: externalSecret.data null (absent once Helm removes it), {} or empty fails here, with one message from every values layer. */ -}}
-{{- if and .Values.externalSecret.enabled (empty (.Values.externalSecret.data | default dict)) -}}
-{{- include "chart-base.fail" (list . "externalSecret.enabled is true and externalSecret.data has no entry: list at least one key in externalSecret.data, or set externalSecret.enabled: false (an override file cannot remove single keys that another values file defines, and data: {} removes nothing: maps are merged)") -}}
+{{- /* externalSecret, while enabled (a disabled block keeps its keys unchecked): a source, a non-null data entry or a dataFrom entry (data null, {} or only null entries is none, with one message from every values layer); and no extract.conversionStrategy next to a rewrite, which External Secrets ignores. */ -}}
+{{- if .Values.externalSecret.enabled -}}
+{{- if and (not $es.data) (not $es.dataFrom) -}}
+{{- include "chart-base.fail" (list . "externalSecret.enabled is true and the ExternalSecret has no source: list at least one key in externalSecret.data or one entry in externalSecret.dataFrom, or set externalSecret.enabled: false") -}}
+{{- end -}}
+{{- range $i, $entry := $es.dataFrom -}}
+{{- if and (hasKey $entry.extract "conversionStrategy") $entry.rewrite -}}
+{{- include "chart-base.fail" (list $ (printf "externalSecret.dataFrom[%d]: extract.conversionStrategy is ignored by External Secrets when rewrite is set: remove it and rename the keys in the rewrite" $i)) -}}
+{{- end -}}
+{{- end -}}
+{{- /* mergePolicy Replace needs a templated key (an overlay that nulls the last one would otherwise deliver every input); a template value needs a template action (a constant is plaintext in the values; heuristic: the default delimiters). */ -}}
+{{- if and (eq (toString $es.mergePolicy) "Replace") (not $es.templated) -}}
+{{- include "chart-base.fail" (list . "externalSecret.template.mergePolicy: Replace has no effect without a templated key (External Secrets then writes every data and dataFrom key to the Secret): add an externalSecret.template.data entry, or set mergePolicy: Merge") -}}
+{{- end -}}
+{{- range $key, $value := $es.templateData -}}
+{{- if not (contains "{{" $value) -}}
+{{- include "chart-base.fail" (list $ (printf "externalSecret.template.data.%s has no template action, so it is a constant written into the Secret: a constant belongs in config or configFiles, and a secret value belongs in the store (reference it as {{ .KEY }})" $key)) -}}
+{{- end -}}
+{{- end -}}
+{{- /* The file mount (decision 5): the main container's mountPath is not / or the token directory once normalized (its other path rules run with the main container's mounts, chart-base.mainMounts); items have relative, unique paths, and while the chart knows every key of the Secret each items[].key is one; items and defaultMode need a mount. */ -}}
+{{- if $es.mainMount -}}
+{{- include "chart-base.validateMountPath" (dict "ctx" $ "owner" "externalSecret.mountPath" "path" $.Values.externalSecret.mountPath) -}}
+{{- end -}}
+{{- include "chart-base.validateItems" (dict "ctx" $ "path" "externalSecret" "items" $.Values.externalSecret.items) -}}
+{{- if $es.closed -}}
+{{- range $i, $item := $.Values.externalSecret.items | default list -}}
+{{- if not (has $item.key $es.delivered) -}}
+{{- include "chart-base.fail" (list $ (include "chart-base.notDelivered" (dict "es" $es "what" (printf "externalSecret.items[%d].key" $i) "key" $item.key))) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if and (not $es.mounted) (or $.Values.externalSecret.items (not (kindIs "invalid" $.Values.externalSecret.defaultMode))) -}}
+{{- include "chart-base.fail" (list $ "externalSecret.items and externalSecret.defaultMode apply to the mount of the Secret, and nothing mounts it: set externalSecret.mountPath (or mount the volume external-secret in a sidecar or init container), or clear them with externalSecret.items: null and externalSecret.defaultMode: null") -}}
+{{- end -}}
 {{- end -}}
 
 {{- if kindIs "slice" .Values.env -}}
@@ -178,8 +212,59 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if not (kindIs "map" $ref) -}}
 {{- include "chart-base.fail" (list $ (printf "env.%s is a literal value: literal values belong in config; env only takes valueFrom references" $name)) -}}
 {{- end -}}
-{{- if has $name $chartEnv.names -}}
+{{- if has $name $chartEnv.config -}}
 {{- include "chart-base.fail" (list $ (printf "env.%s duplicates a key of config or externalSecret.data: literal values belong in config, secrets in externalSecret, references in env" $name)) -}}
+{{- end -}}
+{{- if has $name $chartEnv.secret -}}
+{{- include "chart-base.fail" (list $ (printf "env.%s is also a key of the component's Secret (externalSecret.data or externalSecret.template.data), which externalSecret.envFrom: true injects as the variable %s: remove one of the two, rename the env entry, or set externalSecret.envFrom: false and reference the keys you need in env" $name $name)) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* externalSecret and the containers (decisions 6 and 7), while enabled: with the Secret injected (envFrom), every key the chart sees is an environment variable name, and no source decodes content (unless the block is templated with Replace: the sources are then template inputs); with envFrom false, something of the component reads the Secret. */ -}}
+{{- if $es.injected -}}
+{{- range $key := $es.delivered -}}
+{{- if not (regexMatch "^[A-Za-z_][A-Za-z0-9_]*$" $key) -}}
+{{- include "chart-base.fail" (list $ (printf "%s key %q is not an environment variable name and externalSecret.envFrom is true (every key of the Secret becomes a variable): rename it, or set externalSecret.envFrom: false and read the keys as files (externalSecret.mountPath) or one by one (env.<NAME>.valueFrom.externalSecretKeyRef)" (ternary "externalSecret.template.data" "externalSecret.data" (hasKey $es.templateData $key)) $key)) -}}
+{{- end -}}
+{{- end -}}
+{{- if not $es.replace -}}
+{{- range $key, $ref := $es.data -}}
+{{- if has ($ref.decodingStrategy | default "None") (list "Base64" "Base64URL") -}}
+{{- include "chart-base.fail" (list $ (printf "%s: %s delivers decoded content, and externalSecret.envFrom is true (every key of the Secret becomes a variable, and binary content can keep the container from starting): set externalSecret.envFrom: false and reference the variables you need in env (valueFrom.externalSecretKeyRef), or decode a text value in externalSecret.template.data with b64dec" (printf "externalSecret.data.%s.decodingStrategy" $key) $ref.decodingStrategy)) -}}
+{{- end -}}
+{{- end -}}
+{{- range $i, $entry := $es.dataFrom -}}
+{{- if has ($entry.extract.decodingStrategy | default "None") (list "Base64" "Base64URL") -}}
+{{- include "chart-base.fail" (list $ (printf "%s: %s delivers decoded content, and externalSecret.envFrom is true (every key of the Secret becomes a variable, and binary content can keep the container from starting): set externalSecret.envFrom: false and reference the variables you need in env (valueFrom.externalSecretKeyRef), or decode a text value in externalSecret.template.data with b64dec" (printf "externalSecret.dataFrom[%d].extract.decodingStrategy" $i) $entry.extract.decodingStrategy)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if and $.Values.externalSecret.enabled (not $es.injected) -}}
+{{- /* A reader: a container that mounts the Secret (chart-base.externalSecret: mounted), or an env variable of the main container or of an init container or sidecar with an externalSecretKeyRef, or whose secretKeyRef names <fullname>-secrets. */ -}}
+{{- $secretName := printf "%s-secrets" $fullname -}}
+{{- $read := $es.mounted -}}
+{{- $envs := list ($.Values.env | default dict) -}}
+{{- range $c := $containers.ordered }}{{ $envs = append $envs ($c.entry.env | default dict) }}{{ end -}}
+{{- range $env := $envs -}}
+{{- range $_, $ref := $env -}}
+{{- if kindIs "map" $ref }}{{ with ($ref.valueFrom | default dict).secretKeyRef }}{{ if eq .name $secretName }}{{ $read = true }}{{ end }}{{ end }}{{ end -}}
+{{- if kindIs "map" $ref }}{{ if hasKey ($ref.valueFrom | default dict) "externalSecretKeyRef" }}{{ $read = true }}{{ end }}{{ end -}}
+{{- end -}}
+{{- end -}}
+{{- if not $read -}}
+{{- include "chart-base.fail" (list $ "externalSecret.envFrom is false and nothing reads the Secret: mount it (externalSecret.mountPath), reference its keys in env (env.<NAME>.valueFrom.externalSecretKeyRef), or set externalSecret.envFrom: true") -}}
+{{- end -}}
+{{- end -}}
+{{- /* env.<NAME>.valueFrom.externalSecretKeyRef (decision 14), in the main container's env and in the own env of every non-null init container and sidecar: the block is enabled (its Secret is not rendered otherwise; this check also runs while the block is disabled), and while the chart knows every key of the Secret (chart-base.externalSecret: closed) the key is one of them. */ -}}
+{{- $refs := list -}}
+{{- range $name, $ref := $.Values.env | default dict }}{{ if kindIs "map" $ref }}{{ with ($ref.valueFrom | default dict).externalSecretKeyRef }}{{ $refs = append $refs (dict "path" (printf "env.%s" $name) "key" .key "entry" false) }}{{ end }}{{ end }}{{ end -}}
+{{- range $c := $containers.ordered }}{{ if kindIs "map" $c.entry.env }}{{ range $name, $ref := $c.entry.env }}{{ if kindIs "map" $ref }}{{ with ($ref.valueFrom | default dict).externalSecretKeyRef }}{{ $refs = append $refs (dict "path" (printf "%s.%s.env.%s" $c.kind $c.name $name) "key" .key "entry" true) }}{{ end }}{{ end }}{{ end }}{{ end }}{{ end -}}
+{{- range $r := $refs -}}
+{{- if not $.Values.externalSecret.enabled -}}
+{{- include "chart-base.fail" (list $ (printf "%s.valueFrom.externalSecretKeyRef references the Secret of the component's ExternalSecret, and externalSecret.enabled is false, so that Secret is not rendered: set externalSecret.enabled: true, or remove %s (%s)" $r.path $r.path (ternary (printf "an overlay removes it with %s: null" $r.path) "an override file cannot remove one env entry that another values file defines: keep the entry in the values files of the environments that enable the ExternalSecret" $r.entry))) -}}
+{{- else if and $es.closed (not (has $r.key $es.delivered)) -}}
+{{- include "chart-base.fail" (list $ (include "chart-base.notDelivered" (dict "es" $es "what" (printf "%s.valueFrom.externalSecretKeyRef.key" $r.path) "key" $r.key))) -}}
 {{- end -}}
 {{- end -}}
 
@@ -194,7 +279,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list $ (printf "volumes.%s: a volume name is a lowercase DNS-1123 label (a-z, 0-9, \"-\", at most 63 characters), e.g. app-data" $name)) -}}
 {{- end -}}
 {{- if has $name (list "tmp" "config-files" "external-secret") -}}
-{{- include "chart-base.fail" (list $ (printf "volumes.%s: tmp, config-files and external-secret are the names of volumes chart-base mounts itself (external-secret from 0.9.0): choose another name" $name)) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s: tmp, config-files and external-secret are the names of volumes chart-base mounts itself (external-secret: the Secret of externalSecret, mounted with externalSecret.mountPath): choose another name" $name)) -}}
 {{- end -}}
 {{- if or (hasPrefix "kube-api-access-" $name) (hasPrefix "chart-base-" $name) -}}
 {{- include "chart-base.fail" (list $ (printf "volumes.%s: a name that starts with kube-api-access- (Kubernetes takes such a volume for the ServiceAccount token volume) or chart-base- (reserved for volumes chart-base adds) is not allowed: choose another name" $name)) -}}
@@ -230,29 +315,11 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- $mounts := dict -}}
 {{- include "chart-base.mainMounts" (dict "ctx" . "volumes" $volumes "out" $mounts) -}}
 {{- range $name, $v := $volumes -}}
-{{- $clean := "" }}{{ if hasKey $v "mountPath" }}{{ $clean = include "chart-base.cleanPath" $v.mountPath }}{{ end -}}
-{{- if eq $clean "/" -}}
-{{- include "chart-base.fail" (list $ (printf "volumes.%s.mountPath %q is / once normalized: a volume cannot be mounted at the container's root; choose a directory" $name $v.mountPath)) -}}
-{{- end -}}
-{{- if eq $clean "/var/run/secrets/kubernetes.io/serviceaccount" -}}
-{{- include "chart-base.fail" (list $ (printf "volumes.%s.mountPath %q is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized: a volume there replaces the token, whether or not serviceAccount.automountToken is true now; choose another directory" $name $v.mountPath)) -}}
-{{- end -}}
+{{- if hasKey $v "mountPath" }}{{ include "chart-base.validateMountPath" (dict "ctx" $ "owner" (printf "volumes.%s.mountPath" $name) "path" $v.mountPath) }}{{ end -}}
 {{- if and (hasKey $v "subPath") (or (hasPrefix "/" $v.subPath) (has ".." (splitList "/" $v.subPath))) -}}
 {{- include "chart-base.fail" (list $ (printf "volumes.%s.subPath %q must be a relative path without a .. element: a path inside the volume, such as tls.crt" $name $v.subPath)) -}}
 {{- end -}}
-{{- $itemPaths := list -}}
-{{- range $i, $item := $v.items | default list -}}
-{{- if or (hasPrefix "/" $item.path) (has ".." (splitList "/" $item.path)) -}}
-{{- include "chart-base.fail" (list $ (printf "volumes.%s.items[%d].path %q must be a relative path without a .. element: a file inside the volume, such as tls.crt" $name $i $item.path)) -}}
-{{- end -}}
-{{- $itemClean := include "chart-base.cleanPath" $item.path -}}
-{{- range $seen := $itemPaths -}}
-{{- if eq $seen.clean $itemClean -}}
-{{- include "chart-base.fail" (list $ (printf "volumes.%s.items[%d].path %q names the same file as items[%d].path %q (%s within the volume, once normalized): the kubelet keeps only one of them; give each item a path of its own" $name $i $item.path $seen.index $seen.path $itemClean)) -}}
-{{- end -}}
-{{- end -}}
-{{- $itemPaths = append $itemPaths (dict "index" $i "path" $item.path "clean" $itemClean) -}}
-{{- end -}}
+{{- include "chart-base.validateItems" (dict "ctx" $ "path" (printf "volumes.%s" $name) "items" $v.items) -}}
 {{- end -}}
 {{- range $i, $a := $mounts.rows -}}
 {{- range $j, $b := $mounts.rows -}}
@@ -296,7 +363,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list $ (printf "volumes.%s.name %q is a ConfigMap of this component, which chart-base renders and rolls the pods on (or deletes when nothing fills it): mount the component's files with configFiles (at configFiles.mountPath) instead" $name $v.name)) -}}
 {{- end -}}
 {{- if and (eq $v.type "secret") (eq $v.secretName (printf "%s-secrets" $fullname)) -}}
-{{- include "chart-base.fail" (list $ (printf "volumes.%s.secretName %q is the Secret of this component's ExternalSecret: its keys already reach the container as environment variables, env can reference one under another name with secretKeyRef, and mounting it as files comes with externalSecret.mountPath (0.9.0)" $name $v.secretName)) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.secretName %q is the Secret of this component's ExternalSecret: mount it with externalSecret.mountPath (an init container or a sidecar mounts the volume external-secret), or read one of its keys in env with valueFrom.externalSecretKeyRef" $name $v.secretName)) -}}
 {{- end -}}
 {{- if eq $v.type "persistentVolumeClaim" -}}
 {{- if hasKey $claims $v.claimName -}}
@@ -412,10 +479,15 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- range $vol, $m := $c.entry.volumeMounts | default dict -}}
 {{- $at := printf "%s.volumeMounts.%s" $path $vol -}}
 {{- $v := index $volumes $vol | default dict -}}
+{{- if eq $vol "external-secret" }}{{ $v = $es.volume }}{{ end -}}
 {{- $source := "" -}}
-{{- if eq $vol "tmp" }}{{ $source = "emptyDir" }}{{ else if and (eq $vol "config-files") $hasConfigFiles }}{{ $source = "configMap" }}{{ else if hasKey $volumes $vol }}{{ $source = $v.type }}{{ end -}}
+{{- if eq $vol "tmp" }}{{ $source = "emptyDir" }}{{ else if and (eq $vol "config-files") $hasConfigFiles }}{{ $source = "configMap" }}{{ else if and (eq $vol "external-secret") $.Values.externalSecret.enabled }}{{ $source = "secret" }}{{ else if hasKey $volumes $vol }}{{ $source = $v.type }}{{ end -}}
+{{- /* external-secret while the block is disabled: the volume is not rendered (this check runs while the block is disabled). */ -}}
+{{- if and (eq $vol "external-secret") (not $.Values.externalSecret.enabled) -}}
+{{- include "chart-base.fail" (list $ (printf "%s mounts the Secret of the component's ExternalSecret, and externalSecret.enabled is false, so the volume is not rendered: set externalSecret.enabled: true, or remove the mount (an overlay removes it with volumeMounts.external-secret: null)" $at)) -}}
+{{- end -}}
 {{- if not $source -}}
-{{- include "chart-base.fail" (list $ (printf "%s names no volume of the component: mount tmp, config-files (while configFiles.files has a file) or a non-null entry of volumes" $at)) -}}
+{{- include "chart-base.fail" (list $ (printf "%s names no volume of the component: mount tmp, config-files (while configFiles.files has a file), external-secret (while externalSecret.enabled is true) or a non-null entry of volumes" $at)) -}}
 {{- end -}}
 {{- if and (include "chart-base.readOnlyMount" (dict "volumes" $volumes "name" $vol)) (hasKey $m "readOnly") (not $m.readOnly) -}}
 {{- $why := ternary "config-files is a ConfigMap mount, always read-only (the kubelet forces it)" (printf "a %s mount is always read-only (the kubelet forces it)" $source) (eq $vol "config-files") -}}
@@ -432,7 +504,16 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- $paths := list -}}
 {{- range $item := $v.items }}{{ $p := include "chart-base.cleanPath" $item.path }}{{ $paths = append $paths $item.path }}{{ if or (eq $p $sub) (hasPrefix (printf "%s/" $sub) $p) }}{{ $named = true }}{{ end }}{{ end -}}
 {{- if not $named -}}
-{{- include "chart-base.fail" (list $ (printf "%s.subPath %q names no file of volumes.%s.items (%s): with items, the volume holds only those paths, and the kubelet would mount an empty directory there; name one of them, or a directory that holds one" $at $m.subPath $vol (join ", " $paths))) -}}
+{{- include "chart-base.fail" (list $ (printf "%s.subPath %q names no file of %s (%s): with items, the volume holds only those paths, and the kubelet would mount an empty directory there; name one of them, or a directory that holds one" $at $m.subPath (ternary "externalSecret.items" (printf "volumes.%s.items" $vol) (eq $vol "external-secret")) (join ", " $paths))) -}}
+{{- end -}}
+{{- end -}}
+{{- /* A subPath of external-secret without items, while the chart knows every key of the Secret: . (the whole directory) or one of its keys (flat file names). */ -}}
+{{- if and (hasKey $m "subPath") (eq $vol "external-secret") (not (hasKey $v "items")) $es.closed -}}
+{{- $sub := include "chart-base.cleanPath" $m.subPath -}}
+{{- $named := eq $sub "/" -}}
+{{- range $key := $es.delivered }}{{ if eq (printf "/%s" $key) $sub }}{{ $named = true }}{{ end }}{{ end -}}
+{{- if not $named -}}
+{{- include "chart-base.fail" (list $ (include "chart-base.notDelivered" (dict "es" $es "what" (printf "%s.subPath" $at) "key" (trimPrefix "/" $sub) "written" $m.subPath "subject" "names no key of the Secret" "remedy" "external-secret holds one file per key; name one of them, or . for the whole directory" "correct" "external-secret holds one file per key; name one of them, or . for the whole directory"))) -}}
 {{- end -}}
 {{- end -}}
 {{- /* A subPath of config-files is . (the whole directory) or one of the files rendered: the keys of configFiles.files are flat file names, and a null one is no file. */ -}}
@@ -450,12 +531,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- $rows = append $rows (dict "name" $vol "path" $m.mountPath "clean" (include "chart-base.cleanPath" $m.mountPath) "source" $source "file" (hasKey $m "subPath") "owner" (printf "%s.mountPath" $at) "mount" $at) -}}
 {{- end -}}
 {{- range $r := $rows -}}
-{{- if eq $r.clean "/" -}}
-{{- include "chart-base.fail" (list $ (printf "%s %q is / once normalized: a volume cannot be mounted at the container's root; choose a directory" $r.owner $r.path)) -}}
-{{- end -}}
-{{- if eq $r.clean "/var/run/secrets/kubernetes.io/serviceaccount" -}}
-{{- include "chart-base.fail" (list $ (printf "%s %q is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized: a volume there replaces the token, whether or not serviceAccount.automountToken is true now; choose another directory" $r.owner $r.path)) -}}
-{{- end -}}
+{{- include "chart-base.validateMountPath" (dict "ctx" $ "owner" $r.owner "path" $r.path) -}}
 {{- end -}}
 {{- range $i, $x := $rows -}}
 {{- range $j, $y := $rows -}}

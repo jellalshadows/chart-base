@@ -1,6 +1,6 @@
 # ADR-0030: `env` takes references only
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0054](0054-env-externalsecretkeyref-references-the-components-own-secret.md) (0.9.0)
 - **Date:** 2026-09-28
 - **Since:** 0.2.0
 - **Related:** [ADR-0004](0004-env-in-configmap-secrets-through-externalsecret.md) (amended),

@@ -108,7 +108,7 @@ Usage: include "chart-base.entryContainer" (dict "ctx" $ "container" <an item of
   {{- if kindIs "map" $e.env }}
   {{- range $name, $ref := $e.env }}{{ $_ := set $env $name $ref }}{{ end }}
   {{- end }}
-  {{- with include "chart-base.env" $env | trim }}
+  {{- with include "chart-base.env" (dict "ctx" $ "env" $env) | trim }}
   env:
     {{- . | nindent 4 }}
   {{- end }}

@@ -25,3 +25,25 @@ metrics:
   port: metrics
   labels:
     release: e2e
+# Not injected (envFrom: false): the Secret's only source is a dataFrom extract whose members are base64 text that
+# External Secrets decodes; one key mounted as a file through items, the other read as a variable through
+# externalSecretKeyRef (rendered as a secretKeyRef on worker-chart-base-secrets).
+externalSecret:
+  enabled: true
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: fake
+  envFrom: false
+  dataFrom:
+    - extract:
+        key: /sales/certs
+        decodingStrategy: Base64
+  mountPath: /etc/certs
+  items:
+    - key: tls.crt
+      path: tls/tls.crt
+env:
+  TLS_KEY:
+    valueFrom:
+      externalSecretKeyRef:
+        key: tls.key

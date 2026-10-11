@@ -15,6 +15,7 @@ command:
     /agnhost connect 127.0.0.1:8081 --timeout=2s &&
     test "$APP_MODE" = migrate &&
     test "$DB_PASSWORD" = s3cr3t &&
+    test "$(cat /etc/app-secrets/DB_PASSWORD)" = s3cr3t &&
     test -f /config/migrations.yaml &&
     echo migrations-ok
 ports: []
@@ -36,6 +37,8 @@ externalSecret:
   data:
     DB_PASSWORD:
       key: /sales/db-password
+  # The hook's command reads the mounted file: the hook ExternalSecret synced and the volume was mounted before it ran.
+  mountPath: /etc/app-secrets
 job:
   phase: pre-deploy
   backoffLimit: 0

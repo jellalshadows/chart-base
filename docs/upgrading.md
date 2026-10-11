@@ -8,8 +8,8 @@ no change to your values; the [changelog](../CHANGELOG.md) has every release.
 ## Every upgrade: a direct install must not use `--reuse-values`
 
 A release that installs chart-base directly (not through an umbrella) and is upgraded with
-`helm upgrade --reuse-values` fails validation when the new version adds required keys, as 0.3.0, 0.4.0, 0.5.0
-and 0.6.0 do: Helm renders the new chart with the previous release's values, the old chart's defaults included,
+`helm upgrade --reuse-values` fails validation when the new version adds required keys, as 0.3.0, 0.4.0, 0.5.0,
+0.6.0 and 0.9.0 do: Helm renders the new chart with the previous release's values, the old chart's defaults included,
 instead of the new chart's defaults, so the new keys are missing. An upgrade to 0.3.0 fails with
 `missing property 'enableServiceLinks'` and `'/cronjob': missing property 'suspend'`; an upgrade to 0.4.0
 with an error that contains:
@@ -24,10 +24,18 @@ an upgrade from 0.4.x to 0.5.0 with an error that contains:
 missing property 'networkPolicy'
 ```
 
-and an upgrade from 0.5.x to 0.6.0 with an error that contains:
+an upgrade from 0.5.x to 0.6.0 with an error that contains:
 
 ```text
 missing property 'rbac'
+```
+
+and an upgrade from 0.8.x to 0.9.0 with an error that contains (one line, both keys, for every direct install, whether
+or not it uses `externalSecret`; measured with a real `helm upgrade --reuse-values` from the published 0.8.0 on
+kube-apiserver 1.37.0, Helm 4.3.0 and 3.22.0: the upgrade writes no revision):
+
+```text
+at '/externalSecret': missing properties 'envFrom', 'template'
 ```
 
 The errors add up when versions are skipped: from 0.3.x straight to 0.5.0,
@@ -37,7 +45,11 @@ The errors add up when versions are skipped: from 0.3.x straight to 0.5.0,
 `missing properties 'rbac', 'networkPolicy'`; from 0.3.x,
 `missing properties 'rbac', 'metrics', 'prometheusRule', 'networkPolicy'`; from 0.2.x,
 `missing properties 'rbac', 'enableServiceLinks', 'metrics', 'prometheusRule', 'networkPolicy'` and
-`'/cronjob': missing property 'suspend'`.
+`'/cronjob': missing property 'suspend'`. Straight to 0.9.0, the `externalSecret` line is one more line, the lines
+in any order: from 0.4.x, `missing properties 'rbac', 'networkPolicy'` and `'/externalSecret': missing properties
+'envFrom', 'template'`; from 0.5.x, `missing property 'rbac'` and that line; from 0.6.x and 0.7.x, that line alone
+(measured with `helm upgrade --reuse-values` from the release commits on kube-apiserver 1.37.0, and by rendering the
+0.9.0 chart with each release's `values.yaml` as its defaults, Helm 4.3.0 and 3.22.0).
 Use `--reset-then-reuse-values` (available in Helm 3.22 and 4.3), which starts from the new chart's
 defaults and applies your previous values on top, or pass your values files again. Umbrellas are not
 affected.
@@ -371,7 +383,8 @@ Nothing to change: 0.8.0 adds `initContainers` and `sidecars` and no required ke
 renders the same manifests as 0.7.0 (measured on the six `ci/` scenarios of 0.7.0, on Helm 4.3.0 and 3.22.0). A direct
 install upgraded with `--reuse-values` renders too: the new keys are absent from the reused values, and the chart reads
 that as no init container and no sidecar (measured: the 0.8.0 chart with 0.7.0's `values.yaml` renders 0.7.0's bytes
-for the same six scenarios).
+for the same six scenarios). 0.9.0 is different: every direct install upgraded with `--reuse-values` to 0.9.0, from
+0.8.x or straight from 0.7.x, fails (see `0.8.x → 0.9.0`).
 
 - **`initContainers` and `sidecars` are new and optional** ([ADR-0051](adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)). In these two maps a `null`
   entry or optional field is absent at any depth (a list is kept as written, and a required field such as a mount's `mountPath` stays a schema error), except inside an env variable's `valueFrom` and a probe's `httpGet` or `exec`.
@@ -394,3 +407,42 @@ for the same six scenarios).
   `helm template` with those values as well.
 - A main-container probe on a port name that only a sidecar declares fails, as in 0.7.0 (the name is not in `ports`);
   the message now says where the name is declared.
+
+## 0.8.x → 0.9.0
+
+Nothing to change in a values file: 0.9.0 adds `externalSecret.dataFrom`, `externalSecret.template`, `externalSecret.envFrom`,
+`externalSecret.mountPath`, `items` and `defaultMode`, `version` and `decodingStrategy` in `externalSecret.data`, and
+the `env` source `externalSecretKeyRef` ([ADR-0053](adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md), [ADR-0054](adr/0054-env-externalsecretkeyref-references-the-components-own-secret.md)). A values file
+without them renders the same manifests as 0.8.0 (measured on the six `ci/` scenarios of 0.8.0, its shared test values
+and its README recipes, on Helm 4.3.0 and 3.22.0; one recipe block, an overlay that needs the block before it, renders
+nothing alone and fails the same way with both charts). `externalSecret.template`, `template.mergePolicy` and
+`externalSecret.envFrom` are new required keys with defaults (`Merge`, `true`), so every direct install upgraded with
+`--reuse-values` fails with the line above, whether or not it uses `externalSecret`: the reused values hold 0.8.0's
+`externalSecret` defaults, which lack the two keys, and the upgrade writes no revision (measured with a real upgrade
+from the published 0.8.0 on kube-apiserver 1.37.0, Helm 4.3.0 and 3.22.0), unlike the upgrade to 0.8.0 (its section
+above). Use `--reset-then-reuse-values`, which upgrades (measured the same way); an umbrella is not affected (measured
+the same way: its revision 2 renders 0.8.0's manifests byte for byte).
+
+- **Two relaxations.** A key of `externalSecret.data` that is not an environment variable name (`tls.crt`) is accepted
+  while the Secret is not injected (`envFrom: false`, or a disabled block) and in a block templated with
+  `mergePolicy: Replace`, where the `data` keys are template inputs only (measured on Helm 4.3.0 and 3.22.0), and the
+  schema now takes any Secret key (`^[-._a-zA-Z0-9]+$`): while the Secret is injected, a guard rejects a key that
+  reaches the Secret and is not a variable name, with a
+  message that names `envFrom` and the remedies (it was a schema error in 0.8.0: `helm lint` of chart-base itself no
+  longer fails on it, `helm template` does). And the `env` duplicate check looks at the Secret's keys only while the
+  Secret is injected, and then at the keys that reach it: an `env` name equal to a `data` key no longer fails in a
+  disabled block, with `envFrom: false`, or when the block is templated with `mergePolicy: Replace` (a development
+  overlay can switch the block off and feed the same variable through `env`).
+- **Messages of values that already fail.** An enabled ExternalSecret without a source fails with
+  `externalSecret.enabled is true and the ExternalSecret has no source: list at least one key in externalSecret.data
+  or one entry in externalSecret.dataFrom, or set externalSecret.enabled: false`; an `env` name that is a key of the
+  injected Secret with `env.<NAME> is also a key of the component's Secret (...)`; a `volumes` entry named
+  `external-secret` or naming `<fullname>-secrets`, with reworded messages that name `externalSecret.mountPath`; and an
+  init container's or a sidecar's mount of an unknown volume, with a message that lists `external-secret`
+  (`sidecars.<name>.volumeMounts.<volume> names no volume of the component: mount tmp, config-files (while
+  configFiles.files has a file), external-secret (while externalSecret.enabled is true) or a non-null entry of
+  volumes`).
+- **`externalSecret.data.<KEY>: null` removes the key** (0.8.0 rejected it: `got null, want object`), and so does a
+  `null` `property`, `version` or `decodingStrategy` of an entry.
+- `secretStoreRef.kind: null` still fails while the block is enabled, as in 0.7.0; what External Secrets would do
+  with a missing kind was never verified.

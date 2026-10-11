@@ -1,6 +1,6 @@
 # ADR-0051: Init containers and sidecars are two maps in one start order, and nothing is inherited from the main container
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0053](0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md) (0.9.0)
 - **Date:** 2026-10-08
 - **Since:** 0.8.0
 - **Related:** [ADR-0011](0011-strict-draft-07-schema.md), [ADR-0013](0013-secure-by-default.md), [ADR-0014](0014-resource-requests-required.md), [ADR-0030](0030-env-takes-references-only.md), [ADR-0033](0033-component-level-reload-on-change.md), [ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md), [ADR-0047](0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md), [ADR-0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md) (amended), [ADR-0052](0052-hpa-targets-measure-the-main-container-with-sidecars.md)

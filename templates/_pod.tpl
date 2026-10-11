@@ -9,27 +9,39 @@
 
 {{/*
 chart-base.env: the items of a container's env from a map NAME -> {valueFrom: ...}, in key order: the one renderer of
-the env of every container (the main container's, an init container's, a sidecar's), so that a later source of the
-shared definition is rendered once for all. A literal (not a map) is never rendered: templates/validate.yaml rejects it.
-Usage: {{- with include "chart-base.env" <map> | trim }} env: {{- . | nindent <n> }} {{- end }}
+the env of every container (the main container's, an init container's, a sidecar's). The Kubernetes sources are copied
+as written; externalSecretKeyRef, the chart's own source, is rendered as a secretKeyRef on <fullname>-secrets, so that
+no manifest carries it and the name follows the release and the alias. A literal (not a map) is never rendered:
+templates/validate.yaml rejects it.
+Usage: {{- with include "chart-base.env" (dict "ctx" $ "env" <map>) | trim }} env: {{- . | nindent <n> }} {{- end }}
 */}}
 {{- define "chart-base.env" -}}
-{{- range $name, $ref := . }}
+{{- $secret := printf "%s-secrets" (include "chart-base.fullname" .ctx) -}}
+{{- range $name, $ref := .env }}
 {{- if kindIs "map" $ref }}
 - name: {{ $name | quote }}
   valueFrom:
+    {{- if hasKey $ref.valueFrom "externalSecretKeyRef" }}
+    secretKeyRef:
+      name: {{ $secret }}
+      key: {{ $ref.valueFrom.externalSecretKeyRef.key | quote }}
+    {{- else }}
     {{- toYaml $ref.valueFrom | nindent 4 }}
+    {{- end }}
 {{- end }}
 {{- end }}
 {{- end -}}
 
 {{/*
 chart-base.envFrom: the items of the main container's envFrom: the imported sources (envFrom) first, then <fullname>-env
-(config) and <fullname>-secrets (externalSecret), so that the component's own keys win on a duplicate. An init container
-or a sidecar with inheritEnv: true gets exactly these.
+(config) and <fullname>-secrets (externalSecret, while chart-base.externalSecret says it is injected: enabled and
+externalSecret.envFrom true), so that the component's own keys win on a duplicate. An init container or a sidecar with
+inheritEnv: true gets exactly these.
 Usage: {{- with include "chart-base.envFrom" $ | trim }} envFrom: {{- . | nindent <n> }} {{- end }}
 */}}
 {{- define "chart-base.envFrom" -}}
+{{- $es := dict -}}
+{{- include "chart-base.externalSecret" (dict "ctx" . "out" $es) -}}
 {{- with .Values.envFrom }}
 {{ toYaml . }}
 {{- end }}
@@ -37,7 +49,7 @@ Usage: {{- with include "chart-base.envFrom" $ | trim }} envFrom: {{- . | ninden
 - configMapRef:
     name: {{ include "chart-base.fullname" . }}-env
 {{- end }}
-{{- if .Values.externalSecret.enabled }}
+{{- if $es.injected }}
 - secretRef:
     name: {{ include "chart-base.fullname" . }}-secrets
 {{- end }}
@@ -65,6 +77,8 @@ Deployment-only parts (the built-in preStop sleep, topology spread) are rendered
 {{- include "chart-base.volumes" (dict "ctx" $ "out" $volumes) -}}
 {{- $containers := dict -}}
 {{- include "chart-base.containers" (dict "ctx" $ "out" $containers) -}}
+{{- $es := dict -}}
+{{- include "chart-base.externalSecret" (dict "ctx" $ "out" $es) -}}
 {{- /* An existing ServiceAccount's name comes from values: quoted, so that a name such as `on` stays a string. */ -}}
 {{- $serviceAccountName := include "chart-base.serviceAccountName" $ -}}
 {{- if and (not $.Values.serviceAccount.create) $.Values.serviceAccount.name }}{{ $serviceAccountName = quote $serviceAccountName }}{{ end -}}
@@ -108,7 +122,7 @@ containers:
         protocol: TCP
       {{- end }}
     {{- end }}
-    {{- with include "chart-base.env" ($.Values.env | default dict) | trim }}
+    {{- with include "chart-base.env" (dict "ctx" $ "env" ($.Values.env | default dict)) | trim }}
     env:
       {{- . | nindent 6 }}
     {{- end }}
@@ -161,6 +175,12 @@ containers:
         mountPath: {{ $.Values.configFiles.mountPath | quote }}
         readOnly: true
       {{- end }}
+      {{- /* The Secret of the ExternalSecret as files (chart-base.externalSecret: mainMount), read-only, without subPath. */}}
+      {{- if $es.mainMount }}
+      - name: external-secret
+        mountPath: {{ $.Values.externalSecret.mountPath | quote }}
+        readOnly: true
+      {{- end }}
       {{- range $name, $v := $volumes }}
       {{- /* A volume without mountPath has no mount in the main container: an init container or a sidecar mounts it. */}}
       {{- if hasKey $v "mountPath" }}
@@ -184,6 +204,11 @@ volumes:
   - name: config-files
     configMap:
       name: {{ $fullname }}-files
+  {{- end }}
+  {{- /* Rendered when a container mounts it (chart-base.externalSecret: mounted), with the helper of a secret entry of volumes. */}}
+  {{- if $es.mounted }}
+  - name: external-secret
+    {{- include "chart-base.volumeSource" (dict "ctx" $ "volume" $es.volume) | nindent 4 }}
   {{- end }}
   {{- range $volumeName, $v := $volumes }}
   - name: {{ $volumeName | quote }}
