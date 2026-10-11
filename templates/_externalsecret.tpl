@@ -32,8 +32,9 @@ chart-base.externalSecret: fills the dict `out` with what the templates and guar
   only then.
 - out.volume: the volume's source as an entry of chart-base.volumes (type secret, secretName <fullname>-secrets, items
   and defaultMode when set), rendered by chart-base.volumeSource and read by the entries' subPath guard.
-The one reader of externalSecret.data and externalSecret.dataFrom: never read them from .Values elsewhere, test a field
-with hasKey on the pruned entry, never with its truthiness.
+The one reader of externalSecret.data and externalSecret.dataFrom: never read them from .Values elsewhere, and test a
+field of a pruned entry with hasKey, never with its truthiness. One exception: data.<KEY>.property keeps its
+truthiness test in templates/externalsecret.yaml (an empty property renders nothing, as before 0.9.0).
 Usage: {{- $es := dict }}{{- include "chart-base.externalSecret" (dict "ctx" $ "out" $es) }}, then $es.data, $es.dataFrom
 */}}
 {{- define "chart-base.externalSecret" -}}
@@ -74,14 +75,24 @@ Usage: {{- $es := dict }}{{- include "chart-base.externalSecret" (dict "ctx" $ "
 
 {{/*
 chart-base.notDelivered: the message for a key named in the values that is not a key of the Secret, shared by
-env.<NAME>.valueFrom.externalSecretKeyRef.key and externalSecret.items[].key: one wording, and one variant for a data
-key that a templated Replace keeps out of the Secret. Renders the message (the caller fails with it).
+env.<NAME>.valueFrom.externalSecretKeyRef.key, externalSecret.items[].key and the subPath of a mount of the volume
+external-secret: one wording, with two variants under a templated Replace (only the keys of template.data reach the
+Secret): one for a data key, which Replace keeps out of the Secret, and one for any other key. Renders the message
+(the caller fails with it).
 Usage: include "chart-base.notDelivered" (dict "es" <chart-base.externalSecret's dict> "what" "<values path>" "key" <key>)
+Optional, for a caller with its own wording (the subPath): "written" (the value as written, quoted in the message;
+default: key), "subject" (default: "is not a key of the Secret") and "remedy" (the remedy outside a templated Replace;
+default: "correct it, or add it to externalSecret.data or externalSecret.template.data").
 */}}
 {{- define "chart-base.notDelivered" -}}
+{{- $written := .key }}{{ if hasKey . "written" }}{{ $written = .written }}{{ end -}}
+{{- $subject := "is not a key of the Secret" }}{{ if hasKey . "subject" }}{{ $subject = .subject }}{{ end -}}
+{{- $remedy := "correct it, or add it to externalSecret.data or externalSecret.template.data" }}{{ if hasKey . "remedy" }}{{ $remedy = .remedy }}{{ end -}}
 {{- if and .es.replace (hasKey .es.data .key) -}}
-{{- printf "%s %q is not a key of the Secret (its keys: %s): externalSecret.data.%s is only an input of the template, because externalSecret.template.mergePolicy is Replace; add the key to externalSecret.template.data, or set externalSecret.template.mergePolicy: Merge" .what .key (join ", " .es.delivered) .key -}}
+{{- printf "%s %q %s (its keys: %s): externalSecret.data.%s is only an input of the template, because externalSecret.template.mergePolicy is Replace; add the key to externalSecret.template.data, or set externalSecret.template.mergePolicy: Merge" .what $written $subject (join ", " .es.delivered) .key -}}
+{{- else if .es.replace -}}
+{{- printf "%s %q %s (its keys: %s): correct it, or add it to externalSecret.template.data (externalSecret.template.mergePolicy is Replace: only the keys of externalSecret.template.data reach the Secret)" .what $written $subject (join ", " .es.delivered) -}}
 {{- else -}}
-{{- printf "%s %q is not a key of the Secret (its keys: %s): correct it, or add it to externalSecret.data or externalSecret.template.data" .what .key (join ", " .es.delivered) -}}
+{{- printf "%s %q %s (its keys: %s): %s" .what $written $subject (join ", " .es.delivered) $remedy -}}
 {{- end -}}
 {{- end -}}

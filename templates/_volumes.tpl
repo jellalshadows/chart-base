@@ -162,3 +162,21 @@ Usage: include "chart-base.validateItems" (dict "ctx" $ "path" "volumes.certs" "
 {{- $itemPaths = append $itemPaths (dict "index" $i "path" $item.path "clean" $itemClean) -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+chart-base.validateMountPath: the two rules of every mount path the chart checks, compared normalized
+(chart-base.cleanPath): not / (a volume cannot be mounted at the container's root) and not the ServiceAccount token
+directory (a volume there replaces the token, whether or not serviceAccount.automountToken is true). The callers:
+externalSecret.mountPath, volumes.<name>.mountPath, and each mount of an init container or a sidecar.
+Renders nothing; fails through chart-base.fail. `owner` names the path in the messages; `path` is the value as written.
+Usage: include "chart-base.validateMountPath" (dict "ctx" $ "owner" "volumes.certs.mountPath" "path" <the path>)
+*/}}
+{{- define "chart-base.validateMountPath" -}}
+{{- $clean := include "chart-base.cleanPath" .path -}}
+{{- if eq $clean "/" -}}
+{{- include "chart-base.fail" (list .ctx (printf "%s %q is / once normalized: a volume cannot be mounted at the container's root; choose a directory" .owner .path)) -}}
+{{- end -}}
+{{- if eq $clean "/var/run/secrets/kubernetes.io/serviceaccount" -}}
+{{- include "chart-base.fail" (list .ctx (printf "%s %q is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized: a volume there replaces the token, whether or not serviceAccount.automountToken is true now; choose another directory" .owner .path)) -}}
+{{- end -}}
+{{- end -}}

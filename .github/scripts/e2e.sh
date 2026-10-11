@@ -207,8 +207,11 @@ other="$(kubectl exec -n "$ns" "$wpod" -c chart-base -- sh -c 'if [ -e /etc/cert
 kubectl exec -n "$ns" "$wpod" -c chart-base -- cat /proc/1/environ > "$work/worker.environ" \
   || fail "could not read the environment of the worker's main container"
 tr '\0' '\n' < "$work/worker.environ" > "$work/worker.env" || fail "could not convert the environment of the worker's main container"
-grep -qxF 'TLS_KEY=key-text' "$work/worker.env" || fail "TLS_KEY (externalSecretKeyRef on tls.key) must hold the decoded key-text"
-if grep -qE '^(tls\.crt|tls\.key)=' "$work/worker.env"; then fail "with envFrom false the Secret's keys must not be variables of the container"; fi
+grep -qxF 'TLS_KEY=key-text' "$work/worker.env" \
+  || fail "TLS_KEY (externalSecretKeyRef on tls.key) must hold the decoded key-text, got '$(grep '^TLS_KEY=' "$work/worker.env" || echo 'no TLS_KEY')'; the container's variables: $(cut -d= -f1 "$work/worker.env" | tr '\n' ' ')"
+if grep -qE '^(tls\.crt|tls\.key)=' "$work/worker.env"; then
+  fail "with envFrom false the Secret's keys must not be variables of the container, found: $(grep -oE '^(tls\.crt|tls\.key)=' "$work/worker.env" | tr -d '=' | tr '\n' ' ')"
+fi
 ref="$(kubectl get pod -n "$ns" "$wpod" -o jsonpath='{.spec.containers[0].env[?(@.name=="TLS_KEY")].valueFrom.secretKeyRef.name}' || true)"
 [ "$ref" = worker-chart-base-secrets ] || fail "TLS_KEY must reference the Secret worker-chart-base-secrets, got '$ref'"
 kubectl get secret -n "$ns" "$ref" > /dev/null || fail "the Secret $ref that TLS_KEY references must exist"
@@ -273,13 +276,13 @@ echo "== full"
 install full || fail "full scenario failed"
 kubectl wait -n "$ns" externalsecret/full-chart-base-secrets --for=condition=Ready --timeout=120s \
   || fail "ExternalSecret did not sync"
-[ "$(kubectl get secret -n "$ns" full-chart-base-secrets -o jsonpath='{.data.DB_PASSWORD}' | base64 -d)" = s3cr3t ] \
-  || fail "DB_PASSWORD must be the value of data (s3cr3t), which wins over the dataFrom extract's from-extract"
+dbp="$(kubectl get secret -n "$ns" full-chart-base-secrets -o jsonpath='{.data.DB_PASSWORD}' | base64 -d || true)"
+[ "$dbp" = s3cr3t ] || fail "DB_PASSWORD must be the value of data (s3cr3t), which wins over the dataFrom extract's from-extract, got '$dbp'"
 # The Secret's exact key set pins the merge policy (Merge: data, the extract and the templated key).
 keys="$(kubectl get secret -n "$ns" full-chart-base-secrets -o go-template="{{range \$k, \$v := .data}}{{\$k}} {{end}}" || true)"
 [ "$keys" = "DATABASE_URL DB_PASSWORD LOG_LEVEL api-key " ] || fail "full's Secret must hold DATABASE_URL, DB_PASSWORD, LOG_LEVEL and api-key (Merge), got '$keys'"
-[ "$(kubectl get secret -n "$ns" full-chart-base-secrets -o jsonpath='{.data.DATABASE_URL}' | base64 -d)" = "postgres://sales:s3cr3t@db:5432/sales" ] \
-  || fail "the templated DATABASE_URL must be rendered from DB_PASSWORD"
+dburl="$(kubectl get secret -n "$ns" full-chart-base-secrets -o jsonpath='{.data.DATABASE_URL}' | base64 -d || true)"
+[ "$dburl" = "postgres://sales:s3cr3t@db:5432/sales" ] || fail "the templated DATABASE_URL must be rendered from DB_PASSWORD, got '$dburl'"
 labels="$(kubectl get secret -n "$ns" full-chart-base-secrets -o jsonpath='{.metadata.labels.app\.kubernetes\.io/name} {.metadata.labels.app\.kubernetes\.io/instance}' || true)"
 [ "$labels" = "chart-base full" ] || fail "the templated Secret must carry the chart's labels (template.metadata.labels), got '$labels'"
 kubectl get httproute -n "$ns" full-chart-base > /dev/null || fail "HTTPRoute not accepted by the API"
@@ -313,12 +316,15 @@ rules="$(kubectl exec -n "$ns" "$pod" -c chart-base -- cat /etc/rules/alerts.yam
 pass "full: a tmpfs emptyDir beneath /tmp, a read-only Secret directory beneath the config-files mount, one ConfigMap key as one file"
 url="$(kubectl exec -n "$ns" "$pod" -c chart-base -- cat /etc/app-secrets/DATABASE_URL 2>&1 || true)"
 [ "$url" = "postgres://sales:s3cr3t@db:5432/sales" ] || fail "the mounted Secret must hold the templated DATABASE_URL at /etc/app-secrets/DATABASE_URL, got '$url'"
-# Every key of an injected Secret is a variable, whatever its name (decision 7's premise): PID 1's environment, as a file.
+# A key that is no shell identifier (api-key) is a variable of the injected container too (decision 7's premise), read
+# from PID 1's environment, as a file. The kubelet of 1.29 already let api-key through (its name check accepts - and .:
+# source reading), so this check cannot show that the kubelet no longer skips invalid names (source reading only).
 kubectl exec -n "$ns" "$pod" -c chart-base -- cat /proc/1/environ > "$work/full.environ" \
   || fail "could not read the environment of full's main container"
 tr '\0' '\n' < "$work/full.environ" > "$work/full.env" || fail "could not convert the environment of full's main container"
-grep -qxF 'api-key=k-123' "$work/full.env" || fail "the extracted key api-key (no variable name) must be a variable of the injected container"
-pass "full: the mounted Secret holds the templated key, and a key that is no variable name is a variable of the container"
+grep -qxF 'api-key=k-123' "$work/full.env" \
+  || fail "the extracted key api-key (no shell identifier) must be a variable of the injected container, got '$(grep '^api-key=' "$work/full.env" || echo 'no api-key')'; the container's variables: $(cut -d= -f1 "$work/full.env" | tr '\n' ' ')"
+pass "full: the mounted Secret holds the templated key, and a key that is no shell identifier (api-key) is a variable of the container"
 sm="$(kubectl get servicemonitor -n "$ns" full-chart-base -o jsonpath='{.metadata.labels.release} {.spec.endpoints[0].port} {.spec.endpoints[0].interval}' || true)"
 [ "$sm" = "e2e http 30s" ] || fail "full must have a ServiceMonitor labelled release=e2e whose endpoint targets the Service port 'http' with a 30s interval, got '$sm'"
 kubectl get podmonitor -n "$ns" full-chart-base > /dev/null 2>&1 && fail "full has a Service: it must not have a PodMonitor"

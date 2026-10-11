@@ -512,8 +512,13 @@
       }
     },
     "externalSecretDecoding": {
-      "description": "How External Secrets decodes a remote value: None, Base64 or Base64URL (Auto is not offered: External Secrets itself warns about it). null = absent.",
-      "enum": ["None", "Base64", "Base64URL", null]
+      "description": "How External Secrets decodes a remote value: None, Base64 or Base64URL (Auto is not offered: External Secrets itself warns about it). The one definition of the enum: externalSecret.data (where null is absent) and externalSecret.dataFrom[].extract (where null is an error) reference it.",
+      "enum": ["None", "Base64", "Base64URL"]
+    },
+    "secretKey": {
+      "description": "A key of a Secret: [-._a-zA-Z0-9]+, at most 253 characters. The one definition for the keys of externalSecret.data and externalSecret.template.data; env.<NAME>.valueFrom.externalSecretKeyRef.key states the same rule inline (draft-07 ignores the keywords next to a $ref, and an allOf would add a line to its messages).",
+      "maxLength": 253,
+      "pattern": "^[-._a-zA-Z0-9]+$"
     },
     "externalSecretDataFrom": {
       "description": "An entry of externalSecret.dataFrom, External Secrets' own shape limited to extract and rewrite: closed at every level, and a null field is an error (a list is replaced whole by an overlay, so nothing inside it is an overlay's deletion).",
@@ -526,7 +531,7 @@
             "property": { "type": "string", "minLength": 1 },
             "version": { "type": "string", "minLength": 1 },
             "conversionStrategy": { "enum": ["Default", "Unicode"] },
-            "decodingStrategy": { "enum": ["None", "Base64", "Base64URL"] }
+            "decodingStrategy": { "$ref": "#/definitions/externalSecretDecoding" }
           }
         },
         "rewrite": {
@@ -671,7 +676,7 @@
         "data": {
           "description": "The keys of the Secret, each from one remote value. A null entry or field is absent (chart-base.externalSecret). A Secret key; templates/validate.yaml requires an environment variable name while the Secret is injected.",
           "type": "object",
-          "propertyNames": { "maxLength": 253, "pattern": "^[-._a-zA-Z0-9]+$" },
+          "propertyNames": { "$ref": "#/definitions/secretKey" },
           "additionalProperties": {
             "type": ["object", "null"], "description": "One key of the Secret; null = no such key.",
             "additionalProperties": false,
@@ -680,7 +685,7 @@
               "key": { "type": "string", "minLength": 1 },
               "property": { "type": ["string", "null"] },
               "version": { "type": ["string", "null"], "minLength": 1, "description": "A string: quote a numeric version (External Secrets' field is a string)." },
-              "decodingStrategy": { "$ref": "#/definitions/externalSecretDecoding" }
+              "decodingStrategy": { "description": "null = absent.", "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/externalSecretDecoding" } }
             }
           }
         },
@@ -696,7 +701,7 @@
             "data": {
               "description": "Secret key -> External Secrets template string; a null entry is absent.",
               "type": ["object", "null"],
-              "propertyNames": { "pattern": "^[-._a-zA-Z0-9]+$", "maxLength": 253 },
+              "propertyNames": { "$ref": "#/definitions/secretKey" },
               "additionalProperties": { "type": ["string", "null"] }
             },
             "mergePolicy": { "enum": ["Merge", "Replace"] }

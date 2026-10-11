@@ -447,6 +447,9 @@ pass "--set below an entry that an override file sets to null fails in Helm itse
 # items, defaultMode) read the same absent or null; and externalSecretKeyRef follows the release name and the alias.
 es_data() { echo "$1" | yq -N -o=json -I=0 'select(.kind == "ExternalSecret") | .spec.data' - 2>/dev/null || true; }
 es_spec() { echo "$1" | yq -N -o=json -I=0 "select(.kind == \"ExternalSecret\") | .spec$2" - 2>/dev/null || true; }
+seen() { # <rendered output> <what a check read>: what a FAIL line prints, the render's error when it failed (Helm 4 prints it on several lines)
+  case "$1" in *"Error:"*) echo "$1" | grep -m1 -A2 'Error:' | grep -v 'Use --debug' | tr -s ' \n' ' ' || true ;; *) echo "$2" ;; esac
+}
 es_full='  externalSecret:
     enabled: true
     secretStoreRef: {name: vault}
@@ -465,9 +468,10 @@ for layer in U0 U1 F S; do
     F) out="$(lrender "$es_full" -f "$(over '  externalSecret: {data: {DB: {property: null}, OLD: null}, template: {data: {GONE: null}}}')")" ;;
     S) out="$(lrender "$es_full" --set api.externalSecret.data.DB.property=null --set api.externalSecret.data.OLD=null --set api.externalSecret.template.data.GONE=null)" ;;
   esac
-  [ "$(es_data "$out")" = '[{"secretKey":"DB","remoteRef":{"key":"db"}}]' ] && [ "$(es_spec "$out" '.target.template.data')" = '{"URL":"postgres://{{ .DB }}@db"}' ] || bad_layers="$bad_layers $layer"
+  got="$(es_data "$out") $(es_spec "$out" '.target.template.data')"
+  [ "$got" = '[{"secretKey":"DB","remoteRef":{"key":"db"}}] {"URL":"postgres://{{ .DB }}@db"}' ] || bad_layers="$bad_layers $layer (got: $(seen "$out" "$got"))"
 done
-[ -z "$bad_layers" ] || fail "externalSecret: a null data entry, a null field of an entry and a null template.data entry must be absent, the same in every layer; differs in:$bad_layers"
+[ -z "$bad_layers" ] || fail "externalSecret: a null data entry, a null field of an entry and a null template.data entry must be absent (spec.data and target.template.data '[{\"secretKey\":\"DB\",\"remoteRef\":{\"key\":\"db\"}}] {\"URL\":\"postgres://{{ .DB }}@db\"}'), the same in every layer; differs in:$bad_layers"
 pass "externalSecret: a null data entry (OLD), a null field of an entry (property) and a null template.data entry (GONE) are absent in U0, U1, F and S (null table row 8)"
 
 mp='  externalSecret:
@@ -490,15 +494,23 @@ pass "externalSecret: a null template.mergePolicy fails (U1, F, S$($helm4 || ech
 
 es_db='  externalSecret: {enabled: true, secretStoreRef: {name: vault}, data: {DB: {key: db}}}'
 for k in template envFrom; do
-  out="$(lrender "$es_db" --set "api.externalSecret.$k=null")"
-  expect_fail "$out" "missing property '$k'" "externalSecret.$k null, S"
-  case "$out" in *"api:"*) ;; *) fail "the schema error for externalSecret.$k null must name the alias, got: $(echo "$out" | head -3)" ;; esac
-  expect_fail "$(lrender "$es_db" -f "$(over "  externalSecret: {$k: null}")")" "missing property '$k'" "externalSecret.$k null, F"
+  for layer in S F; do
+    case $layer in
+      S) out="$(lrender "$es_db" --set "api.externalSecret.$k=null")" ;;
+      F) out="$(lrender "$es_db" -f "$(over "  externalSecret: {$k: null}")")" ;;
+    esac
+    expect_fail "$out" "missing property '$k'" "externalSecret.$k null, $layer"
+    case "$out" in *"api:"*) ;; *) fail "the schema error for externalSecret.$k null ($layer) must name the alias, got: $(echo "$out" | head -3)" ;; esac
+  done
 done
-out="$(lrender '  externalSecret: {enabled: true, secretStoreRef: {name: vault}, data: {DB: {key: db}}, template: null, envFrom: null}')"
-if $helm4; then [ "$(pod "$out" '.spec.containers[0].envFrom[0].secretRef.name')" = '"vending-api-secrets"' ] || fail "template and envFrom null in U0: Helm 4.3 must keep the chart's defaults (the Secret injected)"
+es_nulls='  externalSecret: {enabled: true, secretStoreRef: {name: vault}, data: {DB: {key: db}}, template: null, envFrom: null}'
+out="$(lrender "$es_nulls")"
+if $helm4; then [ "$(pod "$out" '.spec.containers[0].envFrom[0].secretRef.name')" = '"vending-api-secrets"' ] || fail "template and envFrom null in U0: Helm 4.3 must keep the chart's defaults (the Secret injected), got envFrom $(seen "$out" "$(pod "$out" '.spec.containers[0].envFrom')")"
 else expect_fail "$out" "missing properties 'envFrom', 'template'" "template and envFrom null, Helm 3 U0"; fi
-pass "externalSecret: a null template or envFrom fails (F, S$($helm4 || echo ', U0'), naming the alias); Helm 4.3 U0 keeps the chart's defaults"
+out="$(lrender "$es_nulls" --set api.replicas=2)"
+expect_fail "$out" "missing properties 'envFrom', 'template'" "template and envFrom null, U1"
+case "$out" in *"api:"*) ;; *) fail "the schema error for template and envFrom null (U1) must name the alias, got: $(echo "$out" | head -3)" ;; esac
+pass "externalSecret: a null template or envFrom fails (U1, F, S$($helm4 || echo ', U0'), naming the alias); Helm 4.3 U0 keeps the chart's defaults"
 
 es_files='  externalSecret:
     enabled: true
@@ -526,13 +538,23 @@ for layer in U0 U1 F S; do
     F) out="$(lrender "$es_files" -f "$(over '  externalSecret: {dataFrom: null, template: {data: null}, mountPath: null, items: null, defaultMode: null}')")" ;;
     S) out="$(lrender "$es_files" --set api.externalSecret.dataFrom=null --set api.externalSecret.template.data=null --set api.externalSecret.mountPath=null --set api.externalSecret.items=null --set api.externalSecret.defaultMode=null)" ;;
   esac
-  [ "$(es_spec "$out" '.dataFrom')" = null ] && [ "$(es_spec "$out" '.target.template')" = null ] && [ "$(vols "$out")" = '"tmp"' ] \
-    && [ "$(pod "$out" '.spec.containers[0].volumeMounts | map(.name) | join(",")')" = '"tmp"' ] || bad_layers="$bad_layers $layer"
+  got="$(es_spec "$out" '.dataFrom') $(es_spec "$out" '.target.template') $(vols "$out") $(pod "$out" '.spec.containers[0].volumeMounts | map(.name) | join(",")')"
+  [ "$got" = 'null null "tmp" "tmp"' ] || bad_layers="$bad_layers $layer (got: $(seen "$out" "$got"))"
 done
-[ -z "$bad_layers" ] || fail "externalSecret: dataFrom, template.data, mountPath, items and defaultMode null must leave no dataFrom, no template and no mount, the same in every layer; differs in:$bad_layers"
-expect_fail "$(lrender "$es_files" -f "$(over '  externalSecret: {mountPath: null}')")" \
-  'chart-base[api]: externalSecret.items and externalSecret.defaultMode apply to the mount of the Secret, and nothing mounts it' "mountPath null that keeps the umbrella's items, F"
-pass "externalSecret: a null dataFrom, template.data, mountPath, items and defaultMode clear what the umbrella sets (U0, U1, F, S); mountPath null alone keeps items and fails with the remedy"
+[ -z "$bad_layers" ] || fail "externalSecret: dataFrom, template.data, mountPath, items and defaultMode null must leave no dataFrom, no template and no mount (dataFrom, target.template, volumes, main mounts 'null null \"tmp\" \"tmp\"'), the same in every layer; differs in:$bad_layers"
+msg='chart-base[api]: externalSecret.items and externalSecret.defaultMode apply to the mount of the Secret, and nothing mounts it'
+es_nomount='  externalSecret:
+    enabled: true
+    secretStoreRef: {name: vault}
+    data: {DB: {key: db}}
+    mountPath: null
+    items: [{key: DB, path: db}]
+    defaultMode: 0440'
+expect_fail "$(lrender "$es_nomount")" "$msg" "mountPath null next to items, U0"
+expect_fail "$(lrender "$es_nomount" --set api.replicas=2)" "$msg" "mountPath null next to items, U1"
+expect_fail "$(lrender "$es_files" -f "$(over '  externalSecret: {mountPath: null}')")" "$msg" "mountPath null that keeps the umbrella's items, F"
+expect_fail "$(lrender "$es_files" --set api.externalSecret.mountPath=null)" "$msg" "mountPath null that keeps the umbrella's items, S"
+pass "externalSecret: a null dataFrom, template.data, mountPath, items and defaultMode clear what the umbrella sets (U0, U1, F, S); mountPath null alone keeps items and fails with the remedy (U0, U1, F, S)"
 
 mnt='  externalSecret: {enabled: true, secretStoreRef: {name: vault}, data: {DB: {key: db}}, mountPath: /etc/secrets}'
 want_vol='{"name":"external-secret","secret":{"secretName":"vending-api-secrets"}}'
@@ -544,9 +566,10 @@ for layer in U0 U1 F S; do
     F) out="$(lrender "$es_db" -f "$(over '  externalSecret: {mountPath: /etc/secrets}')")" ;;
     S) out="$(lrender "$mnt" --set api.externalSecret.defaultMode=null --set api.externalSecret.items=null)" ;;
   esac
-  [ "$(pod "$out" '.spec.volumes[1]')" = "$want_vol" ] || bad_layers="$bad_layers $layer"
+  got="$(pod "$out" '.spec.volumes[1]')"
+  [ "$got" = "$want_vol" ] || bad_layers="$bad_layers $layer (got: $(seen "$out" "$got"))"
 done
-[ -z "$bad_layers" ] || fail "externalSecret: a mount whose items and defaultMode are the chart's null defaults must render the volume with secretName alone, the same in every layer; differs in:$bad_layers"
+[ -z "$bad_layers" ] || fail "externalSecret: a mount whose items and defaultMode are the chart's null defaults must render the volume with secretName alone ($want_vol), the same in every layer; differs in:$bad_layers"
 pass "externalSecret: the chart's own null defaults of items and defaultMode, absent or null, render the volume with secretName alone (U0, U1, F, S)"
 
 ref='  externalSecret: {enabled: true, secretStoreRef: {name: vault}, data: {DB_PASSWORD: {key: db}}, envFrom: false}
@@ -556,11 +579,13 @@ for rel in vending vending-staging; do
   out="$(helm template "$rel" "$layers" --namespace platform --kube-version 1.33.0 2>&1 || true)"
   target="$(echo "$out" | yq -N 'select(.kind == "ExternalSecret") | .spec.target.name' - 2>/dev/null || true)"
   name="$(pod "$out" '.spec.containers[0].env[0].valueFrom.secretKeyRef.name')"
-  [ "$target" = "$rel-api-secrets" ] && [ "$name" = "\"$rel-api-secrets\"" ] \
-    || fail "externalSecretKeyRef under alias api and release $rel must name the ExternalSecret's target $rel-api-secrets, got target '$target', secretKeyRef.name $name"
+  key="$(pod "$out" '.spec.containers[0].env[0].valueFrom.secretKeyRef.key')"
+  failed=""; case "$out" in *"Error:"*) failed="; the render failed: $(seen "$out" "")" ;; esac
+  [ "$target" = "$rel-api-secrets" ] && [ "$name" = "\"$rel-api-secrets\"" ] && [ "$key" = '"DB_PASSWORD"' ] \
+    || fail "externalSecretKeyRef under alias api and release $rel must render a secretKeyRef on the ExternalSecret's target $rel-api-secrets with the key DB_PASSWORD, got target '$target', secretKeyRef.name $name, secretKeyRef.key $key$failed"
   case "$out" in *externalSecretKeyRef*) fail "no rendered manifest may contain externalSecretKeyRef (release $rel)" ;; esac
 done
-pass "externalSecretKeyRef renders a secretKeyRef on the ExternalSecret's target under alias api for the releases vending and vending-staging, and no manifest contains externalSecretKeyRef"
+pass "externalSecretKeyRef renders a secretKeyRef on the ExternalSecret's target, with its key, under alias api for the releases vending and vending-staging, and no manifest contains externalSecretKeyRef"
 
 bad="$work/bad"
 make_umbrella "$bad" Sales

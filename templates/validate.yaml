@@ -187,13 +187,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- end -}}
 {{- /* The file mount (decision 5): the main container's mountPath is not / or the token directory once normalized (its other path rules run with the main container's mounts, chart-base.mainMounts); items have relative, unique paths, and while the chart knows every key of the Secret each items[].key is one; items and defaultMode need a mount. */ -}}
 {{- if $es.mainMount -}}
-{{- $esClean := include "chart-base.cleanPath" $.Values.externalSecret.mountPath -}}
-{{- if eq $esClean "/" -}}
-{{- include "chart-base.fail" (list $ (printf "externalSecret.mountPath %q is / once normalized: a volume cannot be mounted at the container's root; choose a directory" $.Values.externalSecret.mountPath)) -}}
-{{- end -}}
-{{- if eq $esClean "/var/run/secrets/kubernetes.io/serviceaccount" -}}
-{{- include "chart-base.fail" (list $ (printf "externalSecret.mountPath %q is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized: a volume there replaces the token, whether or not serviceAccount.automountToken is true now; choose another directory" $.Values.externalSecret.mountPath)) -}}
-{{- end -}}
+{{- include "chart-base.validateMountPath" (dict "ctx" $ "owner" "externalSecret.mountPath" "path" $.Values.externalSecret.mountPath) -}}
 {{- end -}}
 {{- include "chart-base.validateItems" (dict "ctx" $ "path" "externalSecret" "items" $.Values.externalSecret.items) -}}
 {{- if $es.closed -}}
@@ -321,13 +315,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- $mounts := dict -}}
 {{- include "chart-base.mainMounts" (dict "ctx" . "volumes" $volumes "out" $mounts) -}}
 {{- range $name, $v := $volumes -}}
-{{- $clean := "" }}{{ if hasKey $v "mountPath" }}{{ $clean = include "chart-base.cleanPath" $v.mountPath }}{{ end -}}
-{{- if eq $clean "/" -}}
-{{- include "chart-base.fail" (list $ (printf "volumes.%s.mountPath %q is / once normalized: a volume cannot be mounted at the container's root; choose a directory" $name $v.mountPath)) -}}
-{{- end -}}
-{{- if eq $clean "/var/run/secrets/kubernetes.io/serviceaccount" -}}
-{{- include "chart-base.fail" (list $ (printf "volumes.%s.mountPath %q is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized: a volume there replaces the token, whether or not serviceAccount.automountToken is true now; choose another directory" $name $v.mountPath)) -}}
-{{- end -}}
+{{- if hasKey $v "mountPath" }}{{ include "chart-base.validateMountPath" (dict "ctx" $ "owner" (printf "volumes.%s.mountPath" $name) "path" $v.mountPath) }}{{ end -}}
 {{- if and (hasKey $v "subPath") (or (hasPrefix "/" $v.subPath) (has ".." (splitList "/" $v.subPath))) -}}
 {{- include "chart-base.fail" (list $ (printf "volumes.%s.subPath %q must be a relative path without a .. element: a path inside the volume, such as tls.crt" $name $v.subPath)) -}}
 {{- end -}}
@@ -375,7 +363,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list $ (printf "volumes.%s.name %q is a ConfigMap of this component, which chart-base renders and rolls the pods on (or deletes when nothing fills it): mount the component's files with configFiles (at configFiles.mountPath) instead" $name $v.name)) -}}
 {{- end -}}
 {{- if and (eq $v.type "secret") (eq $v.secretName (printf "%s-secrets" $fullname)) -}}
-{{- include "chart-base.fail" (list $ (printf "volumes.%s.secretName %q is the Secret of this component's ExternalSecret: mount it with externalSecret.mountPath (an init container or a sidecar mounts the volume external-secret), and read one of its keys in env with valueFrom.externalSecretKeyRef" $name $v.secretName)) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.secretName %q is the Secret of this component's ExternalSecret: mount it with externalSecret.mountPath (an init container or a sidecar mounts the volume external-secret), or read one of its keys in env with valueFrom.externalSecretKeyRef" $name $v.secretName)) -}}
 {{- end -}}
 {{- if eq $v.type "persistentVolumeClaim" -}}
 {{- if hasKey $claims $v.claimName -}}
@@ -525,12 +513,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- $named := eq $sub "/" -}}
 {{- range $key := $es.delivered }}{{ if eq (printf "/%s" $key) $sub }}{{ $named = true }}{{ end }}{{ end -}}
 {{- if not $named -}}
-{{- $key := trimPrefix "/" $sub -}}
-{{- if and $es.replace (hasKey $es.data $key) -}}
-{{- include "chart-base.fail" (list $ (printf "%s.subPath %q names no key of the Secret (its keys: %s): externalSecret.data.%s is only an input of the template, because externalSecret.template.mergePolicy is Replace; add the key to externalSecret.template.data, or set externalSecret.template.mergePolicy: Merge" $at $m.subPath (join ", " $es.delivered) $key)) -}}
-{{- else -}}
-{{- include "chart-base.fail" (list $ (printf "%s.subPath %q names no key of the Secret (its keys: %s): external-secret holds one file per key; name one of them, or . for the whole directory" $at $m.subPath (join ", " $es.delivered))) -}}
-{{- end -}}
+{{- include "chart-base.fail" (list $ (include "chart-base.notDelivered" (dict "es" $es "what" (printf "%s.subPath" $at) "key" (trimPrefix "/" $sub) "written" $m.subPath "subject" "names no key of the Secret" "remedy" "external-secret holds one file per key; name one of them, or . for the whole directory"))) -}}
 {{- end -}}
 {{- end -}}
 {{- /* A subPath of config-files is . (the whole directory) or one of the files rendered: the keys of configFiles.files are flat file names, and a null one is no file. */ -}}
@@ -548,12 +531,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- $rows = append $rows (dict "name" $vol "path" $m.mountPath "clean" (include "chart-base.cleanPath" $m.mountPath) "source" $source "file" (hasKey $m "subPath") "owner" (printf "%s.mountPath" $at) "mount" $at) -}}
 {{- end -}}
 {{- range $r := $rows -}}
-{{- if eq $r.clean "/" -}}
-{{- include "chart-base.fail" (list $ (printf "%s %q is / once normalized: a volume cannot be mounted at the container's root; choose a directory" $r.owner $r.path)) -}}
-{{- end -}}
-{{- if eq $r.clean "/var/run/secrets/kubernetes.io/serviceaccount" -}}
-{{- include "chart-base.fail" (list $ (printf "%s %q is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized: a volume there replaces the token, whether or not serviceAccount.automountToken is true now; choose another directory" $r.owner $r.path)) -}}
-{{- end -}}
+{{- include "chart-base.validateMountPath" (dict "ctx" $ "owner" $r.owner "path" $r.path) -}}
 {{- end -}}
 {{- range $i, $x := $rows -}}
 {{- range $j, $y := $rows -}}
