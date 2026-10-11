@@ -146,14 +146,16 @@ billing:
         DATABASE_URL: '{{`postgres://billing:{{ .DB_PASSWORD }}@db:5432/billing`}}'
 ```
 
-The order of `dataFrom` is the precedence, and `data` wins over it; a key that an extract brings replaces a `config` key
-of the same name in the container, and the chart cannot see it. A `regexp` rewrite adds a prefix instead
+The order of `dataFrom` is the precedence, and `data` wins over it (External Secrets 2.11.0 source reading, and its code
+run in a harness); a key that an extract brings replaces a `config` key of the same name in the container, and the
+chart cannot see it. A `regexp` rewrite adds a prefix instead
 (`{source: "^(.*)$", target: "BILLING_$1"}`); or keep the member names, set `externalSecret.envFrom: false` and
 reference the members you need one by one (`env.API_KEY.valueFrom.externalSecretKeyRef.key: api-key`). Write a template
 quoted (unquoted, a value that starts with an action is a YAML error), never with `--set`; in a helmfile `.gotmpl`
 values file escape it as the values table says for `externalSecret.template.data`. An overlay replaces the whole
 `dataFrom` list: vary a remote key per environment in one templated values file, not with `--set` by index, which
-drops the other entries silently.
+drops the other entries silently when the list comes from the umbrella's own `values.yaml` and edits one entry in
+place when it comes from a `-f` file (measured on Helm 4.3.0 and 3.22.0).
 
 A certificate as files next to variables (the mixed case): the Secret is mounted, not injected, and each variable
 references one key, whatever the release name and the alias:
@@ -182,7 +184,7 @@ gateway-client:
 `items` lists the files (the API_TOKEN key is not a file here); while the chart knows every key of the Secret, an
 `items` key or an `externalSecretKeyRef` key that the Secret does not have fails the render. A Secret mounted this way
 still restarts the Deployment on rotation through Reloader while `reloadOnChange` is true, although the kubelet
-updates the files in place.
+updates the files in place (kubelet source reading).
 
 ### Operator-created Secrets and pod metadata (CloudNativePG, Strimzi, OpenTelemetry)
 
@@ -920,15 +922,17 @@ code, official docs) and local renders.
     `external-secret`, which an init container or a sidecar can mount too; `envFrom: false` stops injecting the Secret
     whole. In `data` and `template.data` a `null` entry is absent (and a `null` optional field of a `data` entry);
     `dataFrom` is a list, where a `null` is a schema error. While the Secret is injected its keys must be variable names
-    and no source may decode content; a constant template, `Replace` without a templated key and `envFrom: false`
-    without a reader fail. *Rejected:* `dataFrom` as a map with an `order`, `find` and `sourceRef` now, a template
-    pass-through, `Replace` as the default, a nested mount block, the key rule in the schema.
+    and no source may decode content (unless the block is templated with `Replace`: the sources are then template
+    inputs); a constant template, `Replace` without a templated key and `envFrom: false` without a reader fail.
+    *Rejected:* `dataFrom` as a map with an `order`, `find` and `sourceRef` now, a template pass-through, `Replace` as
+    the default, a nested mount block, the key rule in the schema.
     [ADR-0053](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md)
 54. **`env` can reference the component's own ExternalSecret Secret.** `env.<NAME>.valueFrom.externalSecretKeyRef:
     {key}` renders a `secretKeyRef` on `<fullname>-secrets`, a name the chart resolves for every release name and alias,
-    in the main container, an init container or a sidecar. It needs `externalSecret.enabled: true`, and with a key set
-    the chart knows the key must be one of the Secret's; no `name`, no `optional`. *Rejected:* hand-written
-    `secretKeyRef` names (they dangle under another release name or alias), a generated key list.
+    in the main container, an init container or a sidecar. It needs `externalSecret.enabled: true`, and while the chart
+    knows every key of the Secret (no `dataFrom`, or a templated `Replace`) the key must be one of them; no `name`, no
+    `optional`. *Rejected:* hand-written `secretKeyRef` names (they dangle under another release name or alias), a
+    generated key list.
     [ADR-0054](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0054-env-externalsecretkeyref-references-the-components-own-secret.md)
 
 ## Versioning and releases

@@ -198,13 +198,15 @@ covered: a hyphen in the values key, the `condition` path and the resource names
   schema (F); and a `--set` below an entry that an override file sets to `null` fails in Helm itself. For
   `externalSecret`: a `null` `data` entry, a `null` field of an entry and a `null` `template.data` entry are absent in
   all four layers; a `null` `template.mergePolicy` fails in U1, F and S, and in U0 on Helm 3.22, while Helm 4.3 U0 keeps
-  the chart's `Merge`; a `null` `template` or `envFrom` fails from F and S naming the alias (Helm 4.3 U0 keeps the
-  defaults, Helm 3.22 U0 fails with both names in one line); a `null` `dataFrom`, `template.data`, `mountPath`, `items`
-  and `defaultMode` clear what the umbrella sets in all four, and `mountPath: null` alone fails with the remedy of
-  `items`; a mount whose `items` and `defaultMode` are the chart's `null` defaults renders the volume with `secretName`
-  alone in all four (Helm hands those defaults as present `null` keys in some layers); and an `externalSecretKeyRef`
-  renders a `secretKeyRef` on the ExternalSecret's target under the alias `api` for two release names, with no
-  `externalSecretKeyRef` in any manifest. Paths go through values files (Git Bash rewrites `--set a=/x`);
+  the chart's `Merge`; a `null` `template` or `envFrom` fails in U1, F and S, each error naming the alias (Helm 4.3 U0
+  keeps the defaults, Helm 3.22 U0 fails with both names in one line); a `null` `dataFrom`, `template.data`,
+  `mountPath`, `items` and `defaultMode` clear what the umbrella sets in all four, and `mountPath: null` next to
+  `items` fails with the remedy of `items` in all four; a mount whose `items` and `defaultMode` are the chart's `null`
+  defaults renders the volume with `secretName` alone in all four (Helm hands those defaults as present `null` keys in
+  some layers); and an `externalSecretKeyRef` renders a `secretKeyRef` on the ExternalSecret's target, with its key,
+  under the alias `api` for two release names, with no `externalSecretKeyRef` in any manifest. A layer check that
+  fails prints each layer that differs with what it rendered, or the render's error. Paths go through values files
+  (Git Bash rewrites `--set a=/x`);
 - an uppercase alias is rejected by the guard.
 
 **Where it lives.** `.github/scripts/alias-contract.sh <chart-dir>`. The script copies the chart next to
@@ -300,7 +302,10 @@ kindnet; the Helm 3.22 path.
 What the e2e does not show about the ExternalSecret (covered by the unit tests, by the prototype's measurements recorded
 in [ADR-0053](../adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md), or only by the docs): restarts on rotation (Reloader is not installed); a failing sync
 seen through Helm; binary or oversized values behind `envFrom`; a template re-applied at every refresh; an install
-with Helm 3.22; External Secrets versions other than 2.11.0.
+with Helm 3.22; External Secrets versions other than 2.11.0; `mergePolicy: Replace`; a `rewrite`; `version` and
+`conversionStrategy`; an init container's or a sidecar's mount of `external-secret` (and its `subPath`);
+`defaultMode`; `inheritEnv` with the Secret; that the kubelet no longer skips a key that kubelet v1.29.0 skipped (the
+key the e2e checks, `api-key`, passes both: source reading only).
 
 After the scenarios, the **NetworkPolicy checks**. The script creates a namespace `netpol` (Pod Security
 `restricted`) with a default-deny NetworkPolicy (`podSelector: {}`, `policyTypes: [Ingress, Egress]`, no rule), and

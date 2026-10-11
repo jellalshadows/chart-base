@@ -3,8 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-10-09
 - **Since:** 0.9.0
-- **Related:** amends [ADR-0030](0030-env-takes-references-only.md); [ADR-0053](0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md), [ADR-0031](0031-existing-secrets-referenced-by-name.md),
-  [ADR-0033](0033-component-level-reload-on-change.md)
+- **Related:** [ADR-0030](0030-env-takes-references-only.md) (amended), [ADR-0031](0031-existing-secrets-referenced-by-name.md),
+  [ADR-0033](0033-component-level-reload-on-change.md), [ADR-0053](0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md)
 
 ## Context
 

@@ -3,9 +3,10 @@
 - **Status:** Accepted
 - **Date:** 2026-10-09
 - **Since:** 0.9.0
-- **Related:** amends [ADR-0004](0004-env-in-configmap-secrets-through-externalsecret.md), [ADR-0032](0032-external-envfrom-first-env-wins.md),
-  [ADR-0047](0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md) and [ADR-0051](0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md); [ADR-0054](0054-env-externalsecretkeyref-references-the-components-own-secret.md),
-  [ADR-0027](0027-required-keys-in-the-schema.md), [ADR-0033](0033-component-level-reload-on-change.md), [ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md)
+- **Related:** [ADR-0004](0004-env-in-configmap-secrets-through-externalsecret.md) (amended), [ADR-0027](0027-required-keys-in-the-schema.md),
+  [ADR-0032](0032-external-envfrom-first-env-wins.md) (amended), [ADR-0033](0033-component-level-reload-on-change.md), [ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md),
+  [ADR-0047](0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md) (amended), [ADR-0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md),
+  [ADR-0051](0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md) (amended), [ADR-0054](0054-env-externalsecretkeyref-references-the-components-own-secret.md)
 
 ## Context
 
@@ -32,8 +33,10 @@ The facts this record relies on, with what backs them:
   the chart renders (`data`, `dataFrom` with a decoding strategy, a template) is stored as rendered, with the CRD's
   defaults `target.deletionPolicy: Retain` and `target.template.engineVersion: v2` added, with Helm 3.22.0
   (client-side) and Helm 4.3.0 (server-side apply) (measured).
-- **The kubelet** turns every key of an `envFrom` Secret into a variable, whatever its name: it no longer skips a name
-  that is not an identifier (kubelet source at v1.33.12 and v1.37.0; checked at runtime by the e2e). Binary content in
+- **The kubelet** turns every key of an `envFrom` Secret into a variable, whatever its name: v1.33.12 and v1.37.0 check
+  no name, while v1.29.0 skipped a key outside `[-._a-zA-Z][-._a-zA-Z0-9]*`, one that starts with a digit for example
+  (kubelet source reading only). The e2e checks that a key that is no shell identifier (`api-key`) reaches the
+  container's environment; v1.29.0 let that key through too, so the e2e does not show the change. Binary content in
   such a variable keeps the container from starting on kubelets 1.34.0-1.34.8, 1.35.0-1.35.5 and 1.36.0-1.36.1
   (kubernetes#139132) and beyond 128 KiB; the container runtime needs its own fix (containerd 2.2.7 and 2.3.4, CRI-O
   1.34.11, 1.35.6 and 1.36.3: affected are containerd 2.2.0-2.2.6 and 2.3.0-2.3.3 and CRI-O 1.34.0-1.34.10,
@@ -42,9 +45,13 @@ The facts this record relies on, with what backs them:
   drops a `null` of the umbrella's own values while nothing is passed for that alias, while Helm 3.22 keeps it
   (measured on Helm 4.3.0 and 3.22.0). The chart's own `null` defaults reach the templates as present `null` keys (Helm
   3.22 in every layer; Helm 4.3 once a values file or `--set` names the alias) or as absent keys (Helm 4.3 otherwise)
-  (measured by the alias contract). A `--set` by index on a list (`dataFrom[0].extract.key`), and a helmfile `set:` of
-  the same path, render a list of that one entry, without the other entries and without entry 0's `rewrite`, and no
-  error (measured on Helm 4.3.0 and 3.22.0, and on helmfile 1.8.0).
+  (measured on Helm 4.3.0 and 3.22.0 by rendering through an umbrella when 0.9.0 was prototyped; the alias contract
+  checks that both forms render the same). A `--set` by index on a list (`dataFrom[0].extract.key`), and a helmfile
+  `set:` of the same path, depend on where the list comes from: from the chart's own values (an umbrella's
+  `values.yaml`) they render a list of that one entry, without the other entries and without entry 0's `rewrite`, and
+  no error, while `--set` by index `[1]` fails the schema (`at '/externalSecret/dataFrom/0': got null, want object`);
+  from a values file of the same command (`-f`, or a helmfile release's `values:` file) they edit that entry in place
+  and keep the rest (measured on Helm 4.3.0 and 3.22.0, and on helmfile 1.8.0).
 
 ## Decision
 
@@ -106,8 +113,9 @@ ADR-0044), run while `enabled` is true, so that an umbrella can keep the block's
 - the mount: `mountPath` unique once normalized among the main container's mounts, not `/` and not the ServiceAccount
   token directory (reserved whatever `automountToken` says), and a possible parent of the nested single-file rule;
   `items[].path` relative, without `..`, unique once normalized; with a closed key set, every `items[].key` a delivered
-  key (one message, shared with ADR-0054, with a variant for a `data` key that a templated `Replace` keeps out); `items`
-  or `defaultMode` while nothing mounts the Secret.
+  key (one message, shared with ADR-0054 and with the `subPath` of an entry's mount, with two variants under a
+  templated `Replace`: a `data` key, which `Replace` keeps out, and any other key, whose remedy names
+  `template.data` only); `items` or `defaultMode` while nothing mounts the Secret.
 
 Two guards look at the block from outside and run while it is disabled: a mount of `external-secret` in an init
 container or a sidecar, and an `externalSecretKeyRef` (ADR-0054).
@@ -133,15 +141,18 @@ in place (source reading).
   templates of the umbrella; the mixed case (variables and files from one Secret) is `envFrom: false`, `mountPath` and
   one `externalSecretKeyRef` per variable.
 - A values file without the new keys renders the same manifests (measured on the six `ci/` scenarios of 0.8.0, the
-  shared test values and every README recipe of 0.8.0, on Helm 4.3.0 and 3.22.0). Every direct install upgraded with
+  shared test values and the README recipes of 0.8.0, on Helm 4.3.0 and 3.22.0; one recipe block, an overlay that
+  needs the block before it, renders nothing alone and fails the same way with both charts). Every direct install upgraded with
   `--reuse-values` fails with `missing properties 'envFrom', 'template'`, whether or not it uses `externalSecret`, and
   the upgrade writes no revision (measured with a real upgrade from the published 0.8.0 on kube-apiserver 1.37.0, Helm
   4.3.0 and 3.22.0); `--reset-then-reuse-values` upgrades, and umbrellas are not affected (measured the same way).
 - Relaxations: a `data` key that is not an environment variable name is accepted while the Secret is not injected,
   and the `env` duplicate guard no longer fires on the `data` keys of a disabled block or of a templated `Replace`
   block. Schema-only tooling (an IDE) no longer flags `tls.crt` under `envFrom: true`.
-- Costs of the list: an overlay restates the whole `dataFrom`, and `--set` by index truncates it silently; vary a
-  remote key per environment in one templated values file (helmfile: `key: "/{{ .Environment.Name }}/sales/db"`).
+- Costs of the list: an overlay restates the whole `dataFrom`, and `--set` by index truncates it silently when the
+  list comes from the chart's own values (an umbrella's `values.yaml`), or edits one entry in place when it comes from
+  a values file of the same command (measured, see Context); vary a remote key per environment in one templated values
+  file (helmfile: `key: "/{{ .Environment.Name }}/sales/db"`).
 - Costs of the template: a cluster whose External Secrets runs with other delimiters cannot use `template.data`; an
   edited template changes the ExternalSecret alone (the pod template's checksums cover `config` and `configFiles`), so
   Helm returns without rolling a pod and the change reaches the pods later through Reloader, never for variables
@@ -208,9 +219,10 @@ New pods could start before External Secrets has re-synced the Secret they would
 
 - `templates/_externalsecret.tpl` (`chart-base.externalSecret`, `chart-base.notDelivered`), `templates/externalsecret.yaml`,
   `templates/_pod.tpl` (`chart-base.envFrom`, the volume and the main container's mount), `templates/_volumes.tpl`
-  (`chart-base.mainMounts`, `chart-base.readOnlyMount`, `chart-base.validateItems`), `templates/_values.tpl`
-  (`chart-base.chartEnvNames`), `templates/validate.yaml`; `values.yaml` and `values.schema.json` (`externalSecret`,
-  `definitions.externalSecretDataFrom`, `definitions.externalSecretDecoding`).
+  (`chart-base.mainMounts`, `chart-base.readOnlyMount`, `chart-base.validateItems`, `chart-base.validateMountPath`),
+  `templates/_values.tpl` (`chart-base.chartEnvNames`), `templates/validate.yaml`; `values.yaml` and
+  `values.schema.json` (`externalSecret`, `definitions.externalSecretDataFrom`, `definitions.externalSecretDecoding`,
+  `definitions.secretKey`).
 - `tests/externalsecret_test.yaml`, `tests/externalsecret_guards_test.yaml`, `tests/externalsecret_pod_test.yaml`;
   `.github/scripts/alias-contract.sh`; `.github/scripts/e2e.sh` (the `full`, `job` and `worker` scenarios).
 - External Secrets Operator v2.11.0: `pkg/controllers/externalsecret/externalsecret_controller_secret.go`,

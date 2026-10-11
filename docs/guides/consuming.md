@@ -191,6 +191,14 @@ Helm do not fight over it. On an existing release, Kubernetes treats the removed
 of 1 replica, and then the HPA scales the Deployment back up. Expect a single dip when you enable it on a
 component that is already serving traffic.
 
+**`externalSecret` needs External Secrets Operator 0.16 or later, with its default template delimiters.**
+The chart renders `external-secrets.io/v1`, which External Secrets serves from 0.16.0 and alone from 0.17.0 (source
+reading; the e2e runs 2.11.0 only). `template.data` assumes the default delimiters `{{` and `}}`, a flag of External
+Secrets' controller (source reading), and the guard that rejects a constant looks for `{{`: a cluster whose External
+Secrets runs with other delimiters cannot use `template.data`
+([ADR-0053](../adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md); more in
+[Secrets from External Secrets](#secrets-from-external-secrets)).
+
 **Install [Stakater Reloader](https://github.com/stakater/Reloader) with
 `reloadStrategy: annotations`.**
 Config changes roll the pods through a checksum annotation, inside the deploy. Secret rotation cannot
@@ -371,26 +379,31 @@ Secret `<fullname>-secrets`. It needs External Secrets Operator 0.16 or later (`
 
 - **The precedence.** Inside the Secret: the `dataFrom` entries in list order (a later entry wins), then `data`, then
   `template.data` (under `mergePolicy: Merge`, the chart's default; under a templated `Replace` only the templated keys
-  exist). In the container: the imported `envFrom` sources, then `config`, then the Secret (while
-  `externalSecret.envFrom` is true), then `env`; each later one wins. A key that an extract brings replaces a `config`
-  key of the same name, the chart cannot see it, and the `env` duplicate check does not either; it can also set a
-  process-level variable such as `HTTPS_PROXY` or `JAVA_TOOL_OPTIONS`: extract only remote secrets whose members you
-  control.
+  exist) (External Secrets 2.11.0 source reading, and its code run in a harness). In the container: the imported
+  `envFrom` sources, then `config`, then the Secret (while `externalSecret.envFrom` is true), then `env`; each later
+  one wins. A key that an extract brings replaces a `config` key of the same name, the chart cannot see it, and the
+  `env` duplicate check does not either; it can also set a process-level variable such as `HTTPS_PROXY` or
+  `JAVA_TOOL_OPTIONS`: extract only remote secrets whose members you control.
 - **`envFrom: true` makes every key a variable**, whatever its name (kubelet source reading at v1.33.12 and v1.37.0;
-  the e2e checks a key named `api-key`), so the chart requires variable names for the keys it sees and rejects decoded
-  content (`decodingStrategy: Base64`): binary content in a variable keeps the container from starting on kubelets
-  1.34.0-1.34.8, 1.35.0-1.35.5 and 1.36.0-1.36.1 (kubernetes#139132), beyond 128 KiB, or on containerd 2.2.0-2.2.6 and
-  2.3.0-2.3.3 and CRI-O 1.34.0-1.34.10, 1.35.0-1.35.5 and 1.36.0-1.36.2 (earlier runtimes were not affected; source
-  reading, not run). Files, certificates and decoded content
-  go with `envFrom: false`, `mountPath` and one `env.<NAME>.valueFrom.externalSecretKeyRef` per variable. With
-  `envFrom` on, every key of the Secret is a variable, also the ones that `items` projects as files.
+  the e2e shows that a key that is no shell identifier, `api-key`, becomes one, which kubelet v1.29.0 did too), so the
+  chart requires variable names for the keys that reach the Secret and rejects decoded content (`decodingStrategy:
+  Base64`), unless the block is templated with `Replace` (the sources are then template inputs only): binary content
+  in a variable keeps the container from starting on kubelets 1.34.0-1.34.8, 1.35.0-1.35.5 and 1.36.0-1.36.1
+  (kubernetes#139132), beyond 128 KiB, or on containerd 2.2.0-2.2.6 and 2.3.0-2.3.3 and CRI-O 1.34.0-1.34.10,
+  1.35.0-1.35.5 and 1.36.0-1.36.2 (earlier runtimes were not affected; source reading, not run). Files, certificates
+  and decoded content go with `envFrom: false`, `mountPath` and one `env.<NAME>.valueFrom.externalSecretKeyRef` per
+  variable. With `envFrom` on, every key of the Secret is a variable, also the ones that `items` projects as files.
 - **The values.** A template is written quoted in a values file, never with `--set` (`--set-literal` or `--set-json`
-  carry it), and in a helmfile `.gotmpl` values file as ``{{ `{{ .password }}` }}`` (measured on helmfile 1.4.4 and 1.8.0).
-  `version` is a string: quote a numeric version. An overlay replaces the whole `dataFrom` list, and a `--set` by
-  index, or a helmfile `set:` (measured on helmfile 1.8.0), renders a list of that one entry without the others and
-  without its `rewrite`, and no error: vary a remote key per environment in one templated values file. Quote a key
-  that YAML 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`, `off`, lowercase, capitalized or uppercase): unquoted
-  it is renamed to `"true"` or `"false"`, and two of them collide silently (measured on Helm 4.3.0 and 3.22.0).
+  carry it), and in a helmfile `.gotmpl` values file as ``{{ `{{ .password }}` }}`` (measured on helmfile 1.4.4 and
+  1.8.0). `version` is a string: quote a numeric version. An overlay replaces the whole `dataFrom` list. A `--set` by
+  index (`dataFrom[0].extract.key=...`), or a helmfile `set:` of that path, depends on where the list comes from: from
+  the umbrella's own `values.yaml` it renders a list of that one entry, without the others and without its
+  `rewrite`, and no error (with `--set`, index `[1]` fails the schema:
+  `at '/externalSecret/dataFrom/0': got null, want object`); from a values file of the same command (`-f`, or a
+  helmfile release's `values:` file) it edits that entry in place and keeps the rest (measured on Helm 4.3.0 and
+  3.22.0, and on helmfile 1.8.0). Vary a remote key per environment in one templated values file. Quote a key that
+  YAML 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`, `off`, lowercase, capitalized or uppercase): unquoted it
+  is renamed to `"true"` or `"false"`, and two of them collide silently (measured on Helm 4.3.0 and 3.22.0).
 - **Rollouts.** A template is not part of the deploy's rollout: editing it changes the ExternalSecret alone, Helm
   returns without rolling a pod, and the change arrives later through Reloader (outside `--wait` and
   `progressDeadlineSeconds`), and never for variables when Reloader is absent or `reloadOnChange` is false. For a file
@@ -475,9 +488,10 @@ release name and `--namespace`, not on `helm lint`
   environment variable name and a `decodingStrategy: Base64` or `Base64URL` (unless the block is templated with
   `Replace`); `envFrom: false` with nothing that reads the Secret; a `mountPath` that is another mount's once
   normalized, `/` or the token directory; an `items[].path` that is absolute, has a `..` element or repeats another;
+  with `items`, a `subPath` of `external-secret` that is not one of their paths, a directory that holds one, or `.`;
   while the chart knows every key of the Secret (`dataFrom` empty, or a templated `Replace`), an `items[].key` or an
-  `externalSecretKeyRef` key that is not one of them, and a `subPath` of `external-secret` that is not one of them or
-  `.`; `items` or `defaultMode` while nothing mounts the Secret; `readOnly: false` on an entry's mount of
+  `externalSecretKeyRef` key that is not one of them, and without `items` a `subPath` of `external-secret` that is not
+  one of them or `.`; `items` or `defaultMode` while nothing mounts the Secret; `readOnly: false` on an entry's mount of
   `external-secret`. And, while the block is disabled too: an `externalSecretKeyRef`, and an entry's mount of
   `external-secret`.
 

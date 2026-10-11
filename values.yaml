@@ -180,7 +180,8 @@ externalSecret:
   # -- Render an ExternalSecret (`external-secrets.io/v1`: External Secrets Operator 0.16 or later) whose Secret
   # `<fullname>-secrets` the containers read: injected whole with `envFrom` (see `externalSecret.envFrom`), mounted as
   # files (`externalSecret.mountPath`), or one key at a time (`env.<NAME>.valueFrom.externalSecretKeyRef`). While
-  # `false`, the block's keys are kept and not checked, so an umbrella can switch the block per environment.
+  # `false`, the block's keys are kept and not checked by the chart's guards (the schema still applies), so an umbrella
+  # can switch the block per environment.
   enabled: false
   secretStoreRef:
     # -- `ClusterSecretStore` or `SecretStore`. Required when enabled (a `null` fails the render).
@@ -192,10 +193,11 @@ externalSecret:
   # -- The remote values of the Secret, one key each: a map of `<KEY>: {key: <remote key>, property, version,
   # decodingStrategy}` (`property`: a field of a JSON value; `version`: a string, quote a numeric version;
   # `decodingStrategy`: `None`, `Base64` or `Base64URL`). In `data` a `null` entry or field is absent: an overlay removes
-  # one key with `data.<KEY>: null`. A key that `dataFrom` brings too gets the value of `data`. An enabled ExternalSecret
-  # needs a source: a non-null entry here or an entry in `dataFrom` (the render fails otherwise). A key is a Secret key
-  # (`[-._a-zA-Z0-9]+`, at most 253 characters, such as `tls.crt`); while `envFrom` is true a key that reaches the
-  # Secret must be an environment variable name (`[A-Za-z_][A-Za-z0-9_]*`), and `decodingStrategy: Base64` or
+  # one key with `data.<KEY>: null`. A key that `dataFrom` brings too gets the value of `data` (External Secrets 2.11.0
+  # source reading, and its code run in a harness). An enabled ExternalSecret needs a source: a non-null entry here or
+  # an entry in `dataFrom` (the render fails otherwise). A key is a Secret key (`[-._a-zA-Z0-9]+`, at most 253
+  # characters, such as `tls.crt`); while the Secret is injected (`enabled` and `envFrom` both true) a key that reaches
+  # the Secret must be an environment variable name (`[A-Za-z_][A-Za-z0-9_]*`), and `decodingStrategy: Base64` or
   # `Base64URL` fails (decoded content would become a variable), unless the block is templated with `mergePolicy:
   # Replace`. Quote a key that YAML 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`, `off`, lowercase, capitalized
   # or uppercase): unquoted it is renamed to `"true"` or `"false"`, and two such keys collide silently (measured).
@@ -204,58 +206,65 @@ externalSecret:
   # property, version, conversionStrategy, decodingStrategy}, rewrite: [...]}` (`conversionStrategy`: `Default` or
   # `Unicode`; `decodingStrategy`: `None`, `Base64` or `Base64URL`; each `rewrite` item holds one of `regexp: {source,
   # target}` or `transform: {template}`). The list order is the precedence: a later entry wins on a key that two entries
-  # bring, and `data` wins over every entry. `conversionStrategy` next to a non-empty `rewrite` fails the render: External
-  # Secrets skips the conversion once a rewrite is present (source reading). Not offered: `find`, `sourceRef`,
+  # bring, and `data` wins over every entry (External Secrets 2.11.0 source reading, and its code run in a harness).
+  # While the block is enabled, `conversionStrategy` next to a non-empty `rewrite` fails the render: External Secrets
+  # skips the conversion once a rewrite is present (source reading). Not offered: `find`, `sourceRef`,
   # `metadataPolicy`. The chart cannot see the keys an `extract` brings: such a key replaces a `config` key of the same
   # name in the container, the `env` duplicate check cannot see it, and it can set a process-level variable such as
   # `HTTPS_PROXY`, `NODE_OPTIONS` or `JAVA_TOOL_OPTIONS`. A list: an overlay replaces it whole, a `null` item or field
-  # fails the schema, and `null` or `[]` is none. `--set 'externalSecret.dataFrom[0].extract.key=...'` (or a helmfile
-  # `set:`) renders a list of that one entry, without the other entries and without entry 0's `rewrite`, and no error
-  # (measured): vary a remote key per environment in one templated values file (helmfile: `key: "/{{
-  # .Environment.Name }}/sales/db"`), not in a copy of the list per environment.
+  # fails the schema, and `null` or `[]` is none. What `--set 'externalSecret.dataFrom[0].extract.key=...'` (or a
+  # helmfile `set:` of that path) does depends on where the list comes from: from the chart's own values (an umbrella's
+  # `values.yaml`) it renders a list of that one entry, without the other entries and without entry 0's `rewrite`, and
+  # no error; from a values file of the same command (`-f`, or a helmfile release's `values:` file) it edits entry 0 in
+  # place and keeps the rest (both measured on Helm 4.3.0 and 3.22.0, and on helmfile 1.8.0). Vary a remote key per
+  # environment in one templated values file (helmfile: `key: "/{{ .Environment.Name }}/sales/db"`), not in a copy of
+  # the list per environment.
   dataFrom: []
   template:
     # -- Keys of the Secret that External Secrets renders from the keys `data` and `dataFrom` bring: a map of `<secret
     # key>: <template>`, each value an External Secrets template string with at least one action, e.g. `DATABASE_URL:
-    # "postgres://{{ .DB_USER }}:{{ .DB_PASSWORD }}@db/sales"` (a key with a dash or a dot is read with `index`). A value
-    # without `{{` fails the render: it would be a constant written into the Secret (put a constant in `config` or
-    # `configFiles`; a non-secret constant that must be a key of this Secret is written as an action, `'{{ "value" }}'`).
-    # Write a template quoted in a values file (unquoted, a value that starts with `{{` is a YAML error), never with
-    # `--set` (`--set-literal` and `--set-json` carry it), and in a helmfile `.gotmpl` values file as ``{{ `{{
-    # .DB_PASSWORD }}` }}`` (unescaped, helmfile fails before the chart runs: measured on helmfile 1.4.4 and 1.8.0). Only
-    # External Secrets' default delimiters `{{` and `}}` are supported. In `template.data` a `null` entry is absent; with
-    # `null` or only `null` entries no template is rendered. A template is not part of the deploy's rollout (the pod
-    # template's checksums cover `config` and `configFiles` only): editing one changes the ExternalSecret alone, Helm
-    # returns without rolling a pod, and the change reaches the pods later through Reloader (never for variables
-    # without Reloader or with `reloadOnChange: false`); for a file the deploy must roll and wait for, prefer
-    # `configFiles` with `${VAR}` placeholders. A template that calls a non-deterministic function (`bcrypt`,
-    # `htpasswd`, `randAlphaNum`, `randBytes`, `uuidv4`, `now`, `genPrivateKey`) changes the Secret at every
+    # "postgres://{{ .DB_USER }}:{{ .DB_PASSWORD }}@db/sales"` (a key with a dash or a dot is read with `index`). While
+    # the block is enabled, a value without `{{` fails the render: it would be a constant written into the Secret (put a
+    # constant in `config` or `configFiles`; a non-secret constant that must be a key of this Secret is written as an
+    # action, `'{{ "value" }}'`). Write a template quoted in a values file (unquoted, a value that starts with `{{` is a
+    # YAML error), never with `--set` (`--set-literal` and `--set-json` carry it), and in a helmfile `.gotmpl` values
+    # file as ``{{ `{{ .DB_PASSWORD }}` }}`` (unescaped, helmfile fails before the chart runs: measured on helmfile 1.4.4
+    # and 1.8.0). Only External Secrets' default delimiters `{{` and `}}` are supported. In `template.data` a `null`
+    # entry is absent; with `null` or only `null` entries no template is rendered. A template is not part of the
+    # deploy's rollout (the pod template's checksums cover `config` and `configFiles` only): editing one changes the
+    # ExternalSecret alone, Helm returns without rolling a pod, and the change reaches the pods later through Reloader
+    # (never for variables without Reloader or with `reloadOnChange: false`); for a file the deploy must roll and wait
+    # for, prefer `configFiles` with `${VAR}` placeholders. A template that calls a non-deterministic function
+    # (`bcrypt`, `htpasswd`, `randAlphaNum`, `randBytes`, `uuidv4`, `now`, `genPrivateKey`) changes the Secret at every
     # `refreshInterval`, which restarts a Deployment through Reloader each time (source reading). Quote a key that YAML
     # 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`, `off`, lowercase, capitalized or uppercase): unquoted it is
     # renamed to `"true"` or `"false"` (measured).
     data: {}
     # -- `Merge` (the chart's default) or `Replace`. With `Merge` the templated keys join the keys of `data` and
     # `dataFrom` and win on a key of the same name; with `Replace` only the templated keys reach the Secret, and the
-    # keys of `data` and `dataFrom` are the template's inputs only. External Secrets' own default is `Replace`, which the
-    # chart never leaves to it: whenever a template is rendered, `mergePolicy` is rendered from this value. `Replace`
-    # without a templated key fails the render. Required: `template: null` and `template.mergePolicy: null` fail the
-    # schema (on Helm 4.3 a `null` in an umbrella's own values, with nothing passed for the alias, keeps the default:
-    # see the consuming guide).
+    # keys of `data` and `dataFrom` are the template's inputs only (External Secrets 2.11.0 source reading, and its code
+    # run in a harness). External Secrets' own default is `Replace`, which the chart never leaves to it: whenever a
+    # template is rendered, `mergePolicy` is rendered from this value. While the block is enabled, `Replace` without a
+    # templated key fails the render. Required: `template: null` and `template.mergePolicy: null` fail the schema (on
+    # Helm 4.3 a `null` in an umbrella's own values, with nothing passed for the alias, keeps the default: see the
+    # consuming guide).
     mergePolicy: Merge
   # -- `true` (the default): the Secret is injected whole with `envFrom` into the main container (and into an init
-  # container or a sidecar with `inheritEnv: true`), so every key the chart sees (`data`, `template.data`) must be an
-  # environment variable name: the kubelet makes every key a variable, whatever its name (kubelet source reading), and
-  # with it every key of a `dataFrom` entry. `false`: the Secret is not injected whole; it is read as files
-  # (`mountPath`), one key at a time (`env.<NAME>.valueFrom.externalSecretKeyRef`), or both, and one reader is required
-  # (the render fails otherwise; a Secret read only by another component keeps `true`). The mixed case, variables and
-  # a file from one Secret, is `false` with `mountPath` and one `externalSecretKeyRef` per variable. Required (`null`
-  # fails the schema; on Helm 4.3 a `null` in an umbrella's own values, with nothing passed for the alias, keeps the
-  # default: see the consuming guide). A switch, unlike the component's `envFrom` list.
+  # container or a sidecar with `inheritEnv: true`), so every key that reaches the Secret (`template.data`, and `data`
+  # unless the block is templated with `mergePolicy: Replace`) must be an environment variable name: the kubelet makes
+  # every key a variable, whatever its name (kubelet source reading), and with it every key of a `dataFrom` entry.
+  # `false`: the Secret is not injected whole; it is read as files (`mountPath`), one key at a time
+  # (`env.<NAME>.valueFrom.externalSecretKeyRef`), or both, and while the block is enabled one reader is required (the
+  # render fails otherwise; a Secret read only by another component keeps `true`). The mixed case, variables and a file
+  # from one Secret, is `false` with `mountPath` and one `externalSecretKeyRef` per variable. Required (`null` fails the
+  # schema; on Helm 4.3 a `null` in an umbrella's own values, with nothing passed for the alias, keeps the default: see
+  # the consuming guide). A switch, unlike the component's `envFrom` list.
   envFrom: true
   # -- (string) Mount the Secret as files in the main container: an absolute directory, one file per key (or the keys
   # of `items`), the volume `external-secret`, always read-only. `null` (the default): the main container does not mount
-  # it; an init container or a sidecar mounts it with `volumeMounts.external-secret` (read-only; while the chart knows
-  # every key of the Secret, a `subPath` is `.` or one of its keys, and a `subPath` mount never follows a change of the
+  # it; an init container or a sidecar mounts it with `volumeMounts.external-secret` (read-only; with `items`, a
+  # `subPath` is one of their paths, a directory that holds one, or `.`; without `items` and while the chart knows
+  # every key of the Secret, a `subPath` is `.` or one of its keys; a `subPath` mount never follows a change of the
   # Secret). The path is compared normalized with the main container's other mounts (the chart's `/tmp`,
   # `configFiles.mountPath`, the `volumes` entries) and must not be `/` or the ServiceAccount token directory; a
   # `configMap` or `secret` file (`subPath`) of `volumes` must not lie beneath it. One mount in the main container: for
@@ -268,11 +277,12 @@ externalSecret:
   # paths are relative, without `..`, and unique once normalized; while the chart knows every key of the Secret
   # (`dataFrom` empty, or a templated `mergePolicy: Replace`) each `key` must be one of them; with a `dataFrom` entry
   # under `Merge` it is not checked, and a key the Secret lacks keeps the pod in `ContainerCreating` (kubelet source
-  # reading). A list: an overlay replaces it whole, and clears an umbrella's with `items: null`. Without a mount of the
-  # Secret it fails the render.
+  # reading). A list: an overlay replaces it whole, and clears an umbrella's with `items: null`. While the block is
+  # enabled, it fails the render without a mount of the Secret.
   items: null
   # -- (int) The mode of the mounted files, 0 to 0777: write it in octal with a leading zero, unquoted (`0440`); `440`
-  # is decimal. `null` (the default): Kubernetes' 0644. Without a mount of the Secret it fails the render.
+  # is decimal. `null` (the default): Kubernetes' 0644. While the block is enabled, it fails the render without a
+  # mount of the Secret.
   defaultMode: null
 
 # -- Restart Deployments (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is

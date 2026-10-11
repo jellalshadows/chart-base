@@ -414,7 +414,8 @@ Nothing to change in a values file: 0.9.0 adds `externalSecret.dataFrom`, `exter
 `externalSecret.mountPath`, `items` and `defaultMode`, `version` and `decodingStrategy` in `externalSecret.data`, and
 the `env` source `externalSecretKeyRef` ([ADR-0053](adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md), [ADR-0054](adr/0054-env-externalsecretkeyref-references-the-components-own-secret.md)). A values file
 without them renders the same manifests as 0.8.0 (measured on the six `ci/` scenarios of 0.8.0, its shared test values
-and every README recipe of 0.8.0, on Helm 4.3.0 and 3.22.0). `externalSecret.template`, `template.mergePolicy` and
+and its README recipes, on Helm 4.3.0 and 3.22.0; one recipe block, an overlay that needs the block before it, renders
+nothing alone and fails the same way with both charts). `externalSecret.template`, `template.mergePolicy` and
 `externalSecret.envFrom` are new required keys with defaults (`Merge`, `true`), so every direct install upgraded with
 `--reuse-values` fails with the line above, whether or not it uses `externalSecret`: the reused values hold 0.8.0's
 `externalSecret` defaults, which lack the two keys, and the upgrade writes no revision (measured with a real upgrade
@@ -434,8 +435,11 @@ the same way: its revision 2 renders 0.8.0's manifests byte for byte).
   `externalSecret.enabled is true and the ExternalSecret has no source: list at least one key in externalSecret.data
   or one entry in externalSecret.dataFrom, or set externalSecret.enabled: false`; an `env` name that is a key of the
   injected Secret with `env.<NAME> is also a key of the component's Secret (...)`; a `volumes` entry named
-  `external-secret` or naming `<fullname>-secrets`, and an init container's or a sidecar's mount of an unknown volume,
-  with reworded messages that name `externalSecret.mountPath`.
+  `external-secret` or naming `<fullname>-secrets`, with reworded messages that name `externalSecret.mountPath`; and an
+  init container's or a sidecar's mount of an unknown volume, with a message that lists `external-secret`
+  (`sidecars.<name>.volumeMounts.<volume> names no volume of the component: mount tmp, config-files (while
+  configFiles.files has a file), external-secret (while externalSecret.enabled is true) or a non-null entry of
+  volumes`).
 - **`externalSecret.data.<KEY>: null` removes the key** (0.8.0 rejected it: `got null, want object`), and so does a
   `null` `property`, `version` or `decodingStrategy` of an entry.
 - `secretStoreRef.kind: null` still fails while the block is enabled, as in 0.7.0; what External Secrets would do
