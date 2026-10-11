@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.0](https://github.com/jellalshadows/chart-base/compare/v0.8.0...v0.9.0) (2026-10-11)
+
+
+### Features
+
+* env can reference the component's own ExternalSecret Secret (externalSecretKeyRef) ([#23](https://github.com/jellalshadows/chart-base/issues/23)) ([064d2d1](https://github.com/jellalshadows/chart-base/commit/064d2d142a1954598d7410130abc9f49cd7207e4))
+* ExternalSecret dataFrom, templates and file mounts ([#23](https://github.com/jellalshadows/chart-base/issues/23)) ([064d2d1](https://github.com/jellalshadows/chart-base/commit/064d2d142a1954598d7410130abc9f49cd7207e4))
+
 ## [0.8.0](https://github.com/jellalshadows/chart-base/compare/v0.7.0...v0.8.0) (2026-10-09)
 
 
