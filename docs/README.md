@@ -19,6 +19,11 @@ the features that were rejected, with the reason.
 [`upgrading.md`](upgrading.md): what to change in your values for every breaking release, and which objects
 a fix release changes.
 
+## Release records
+
+[`releases/`](releases/README.md): one execution record per release, with its rulings, deviations, review findings
+and the measurements behind them.
+
 ## Guides
 
 | Guide | For |
