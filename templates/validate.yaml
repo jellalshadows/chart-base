@@ -513,7 +513,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- $named := eq $sub "/" -}}
 {{- range $key := $es.delivered }}{{ if eq (printf "/%s" $key) $sub }}{{ $named = true }}{{ end }}{{ end -}}
 {{- if not $named -}}
-{{- include "chart-base.fail" (list $ (include "chart-base.notDelivered" (dict "es" $es "what" (printf "%s.subPath" $at) "key" (trimPrefix "/" $sub) "written" $m.subPath "subject" "names no key of the Secret" "remedy" "external-secret holds one file per key; name one of them, or . for the whole directory"))) -}}
+{{- include "chart-base.fail" (list $ (include "chart-base.notDelivered" (dict "es" $es "what" (printf "%s.subPath" $at) "key" (trimPrefix "/" $sub) "written" $m.subPath "subject" "names no key of the Secret" "remedy" "external-secret holds one file per key; name one of them, or . for the whole directory" "correct" "external-secret holds one file per key; name one of them, or . for the whole directory"))) -}}
 {{- end -}}
 {{- end -}}
 {{- /* A subPath of config-files is . (the whole directory) or one of the files rendered: the keys of configFiles.files are flat file names, and a null one is no file. */ -}}

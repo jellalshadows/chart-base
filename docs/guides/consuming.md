@@ -484,9 +484,9 @@ release name and `--namespace`, not on `helm lint`
 
 - The guards of `externalSecret` ([ADR-0053](../adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md), [ADR-0054](../adr/0054-env-externalsecretkeyref-references-the-components-own-secret.md)), while the block is enabled:
   `conversionStrategy` next to a non-empty `rewrite`; `mergePolicy: Replace` without a templated key; a `template.data`
-  value without a template action; while the Secret is injected, a key of `data` or `template.data` that is not an
-  environment variable name and a `decodingStrategy: Base64` or `Base64URL` (unless the block is templated with
-  `Replace`); `envFrom: false` with nothing that reads the Secret; a `mountPath` that is another mount's once
+  value without a template action; while the Secret is injected, a key of `template.data`, or of `data` unless the
+  block is templated with `Replace`, that is not an environment variable name, and, unless the block is templated
+  with `Replace`, a `decodingStrategy: Base64` or `Base64URL`; `envFrom: false` with nothing that reads the Secret; a `mountPath` that is another mount's once
   normalized, `/` or the token directory; an `items[].path` that is absolute, has a `..` element or repeats another;
   with `items`, a `subPath` of `external-secret` that is not one of their paths, a directory that holds one, or `.`;
   while the chart knows every key of the Secret (`dataFrom` empty, or a templated `Replace`), an `items[].key` or an

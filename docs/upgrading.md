@@ -424,8 +424,10 @@ above). Use `--reset-then-reuse-values`, which upgrades (measured the same way);
 the same way: its revision 2 renders 0.8.0's manifests byte for byte).
 
 - **Two relaxations.** A key of `externalSecret.data` that is not an environment variable name (`tls.crt`) is accepted
-  while the Secret is not injected (`envFrom: false`, or a disabled block), and the schema now takes any Secret key
-  (`^[-._a-zA-Z0-9]+$`): while the Secret is injected, a guard rejects a key that is not a variable name, with a
+  while the Secret is not injected (`envFrom: false`, or a disabled block) and in a block templated with
+  `mergePolicy: Replace`, where the `data` keys are template inputs only (measured on Helm 4.3.0 and 3.22.0), and the
+  schema now takes any Secret key (`^[-._a-zA-Z0-9]+$`): while the Secret is injected, a guard rejects a key that
+  reaches the Secret and is not a variable name, with a
   message that names `envFrom` and the remedies (it was a schema error in 0.8.0: `helm lint` of chart-base itself no
   longer fails on it, `helm template` does). And the `env` duplicate check looks at the Secret's keys only while the
   Secret is injected, and then at the keys that reach it: an `env` name equal to a `data` key no longer fails in a

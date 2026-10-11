@@ -81,17 +81,19 @@ Secret): one for a data key, which Replace keeps out of the Secret, and one for 
 (the caller fails with it).
 Usage: include "chart-base.notDelivered" (dict "es" <chart-base.externalSecret's dict> "what" "<values path>" "key" <key>)
 Optional, for a caller with its own wording (the subPath): "written" (the value as written, quoted in the message;
-default: key), "subject" (default: "is not a key of the Secret") and "remedy" (the remedy outside a templated Replace;
-default: "correct it, or add it to externalSecret.data or externalSecret.template.data").
+default: key), "subject" (default: "is not a key of the Secret"), "remedy" (the remedy outside a templated Replace;
+default: "correct it, or add it to externalSecret.data or externalSecret.template.data") and "correct" (how to correct
+the value, the first remedy of the variant for any other key under a templated Replace; default: "correct it").
 */}}
 {{- define "chart-base.notDelivered" -}}
 {{- $written := .key }}{{ if hasKey . "written" }}{{ $written = .written }}{{ end -}}
 {{- $subject := "is not a key of the Secret" }}{{ if hasKey . "subject" }}{{ $subject = .subject }}{{ end -}}
 {{- $remedy := "correct it, or add it to externalSecret.data or externalSecret.template.data" }}{{ if hasKey . "remedy" }}{{ $remedy = .remedy }}{{ end -}}
+{{- $correct := "correct it" }}{{ if hasKey . "correct" }}{{ $correct = .correct }}{{ end -}}
 {{- if and .es.replace (hasKey .es.data .key) -}}
 {{- printf "%s %q %s (its keys: %s): externalSecret.data.%s is only an input of the template, because externalSecret.template.mergePolicy is Replace; add the key to externalSecret.template.data, or set externalSecret.template.mergePolicy: Merge" .what $written $subject (join ", " .es.delivered) .key -}}
 {{- else if .es.replace -}}
-{{- printf "%s %q %s (its keys: %s): correct it, or add it to externalSecret.template.data (externalSecret.template.mergePolicy is Replace: only the keys of externalSecret.template.data reach the Secret)" .what $written $subject (join ", " .es.delivered) -}}
+{{- printf "%s %q %s (its keys: %s): %s, or add it to externalSecret.template.data (externalSecret.template.mergePolicy is Replace: only the keys of externalSecret.template.data reach the Secret)" .what $written $subject (join ", " .es.delivered) $correct -}}
 {{- else -}}
 {{- printf "%s %q %s (its keys: %s): %s" .what $written $subject (join ", " .es.delivered) $remedy -}}
 {{- end -}}

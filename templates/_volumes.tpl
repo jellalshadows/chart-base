@@ -164,10 +164,11 @@ Usage: include "chart-base.validateItems" (dict "ctx" $ "path" "volumes.certs" "
 {{- end -}}
 
 {{/*
-chart-base.validateMountPath: the two rules of every mount path the chart checks, compared normalized
-(chart-base.cleanPath): not / (a volume cannot be mounted at the container's root) and not the ServiceAccount token
-directory (a volume there replaces the token, whether or not serviceAccount.automountToken is true). The callers:
-externalSecret.mountPath, volumes.<name>.mountPath, and each mount of an init container or a sidecar.
+chart-base.validateMountPath: the two rules of the mount paths of externalSecret.mountPath, volumes.<name>.mountPath
+and each mount of an init container or a sidecar, compared normalized (chart-base.cleanPath): not / (a volume cannot
+be mounted at the container's root) and not the ServiceAccount token directory (a volume there replaces the token,
+whether or not serviceAccount.automountToken is true). configFiles.mountPath keeps its own rules in
+templates/validate.yaml (/tmp and / always, the token directory only while serviceAccount.automountToken is true).
 Renders nothing; fails through chart-base.fail. `owner` names the path in the messages; `path` is the value as written.
 Usage: include "chart-base.validateMountPath" (dict "ctx" $ "owner" "volumes.certs.mountPath" "path" <the path>)
 */}}
