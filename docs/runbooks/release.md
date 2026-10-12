@@ -77,7 +77,10 @@ Conventional commits, squash-merged with the PR title as the commit message, dec
    gh attestation verify oci://ghcr.io/jellalshadows/charts/chart-base:X.Y.Z --repo jellalshadows/chart-base \
      --signer-workflow jellalshadows/chart-base/.github/workflows/release.yaml
    ```
-   Expected: the verification succeeds and names `release.yaml` as the signer workflow.
+   Expected: exit code 0. On a terminal it prints the verification and names `release.yaml` as the signer workflow;
+   with its output redirected it prints nothing (measured for 0.9.0), so check the exit code. It fetches the image
+   through the Docker configuration too: on a machine whose `credsStore` cannot be used, run it with `DOCKER_CONFIG`
+   pointed at an empty directory, as for the pull above (measured for 0.8.0 and 0.9.0).
 3. **Verify the signature** (the command from the [README](../../README.md#versioning-and-releases)):
    ```bash
    cosign verify ghcr.io/jellalshadows/charts/chart-base:X.Y.Z \
