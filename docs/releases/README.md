@@ -8,3 +8,6 @@ digest. The [changelog](../../CHANGELOG.md) lists what each release changed; a r
 | Release | Record |
 |---|---|
 | 0.9.0 | [ExternalSecret `dataFrom`, templates and file mounts](0.9.0.md) |
+| 0.8.0 | [Native sidecars and init containers](0.8.0.md) |
+| 0.7.0 | [Fixes of released defects (D1-D6) and extra volumes](0.7.0.md) |
+| 0.6.0 | [Existing ServiceAccount and namespaced RBAC](0.6.0.md) |
