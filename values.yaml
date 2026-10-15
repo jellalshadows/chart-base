@@ -296,7 +296,7 @@ externalSecret:
 # template changes).
 reloadOnChange: true
 
-# -- Deployment replicas. Ignored when `autoscaling.enabled`.
+# -- Deployment replicas. Ignored when `autoscaling.enabled` or `keda.enabled` (an autoscaler owns the count).
 replicas: 1
 
 # -- Seconds without rollout progress before the Deployment is marked Failed (lower than Helm's default 300s timeout).
@@ -374,6 +374,41 @@ autoscaling:
   # after the alias) or a non-null `sidecars` key (the render fails otherwise; an init container has exited before the
   # metric is read). A list: an override file replaces it whole, and a `null` item or field fails the schema.
   metrics: []
+
+# KEDA (a `keda.sh/v1alpha1` ScaledObject for the Deployment): an event-driven autoscaler in place of the HPA of
+# `autoscaling`. Off unless `keda.enabled`; `keda: null` from any values layer, or no `keda` key at all, means off.
+keda:
+  # -- Render a ScaledObject named `<fullname>` (deployments only); KEDA then creates and owns the HPA
+  # `keda-hpa-<fullname>`. The cluster needs KEDA's CRDs, or the whole release fails at install.
+  enabled: false
+  # -- Lowest replica count. `0` scales to zero, written on purpose (KEDA's own default is 0, the chart's 1). Required:
+  # a `null` fails the schema (it would hand the component KEDA's 0).
+  minReplicaCount: 1
+  # -- Highest replica count (KEDA's own default is 100). Required: a `null` fails the schema.
+  maxReplicaCount: 10
+  # -- (int) Seconds between two polls of the triggers. `null` = KEDA's default (30).
+  pollingInterval: null
+  # -- (int) Seconds after the last active trigger before KEDA scales to zero. `null` = KEDA's default (300).
+  cooldownPeriod: null
+  # -- (int) Seconds after the ScaledObject is created before KEDA may scale to zero. `null` = KEDA's default (0).
+  initialCooldownPeriod: null
+  # -- (object) `{failureThreshold, replicas}`, both required: after `failureThreshold` failed polls of a trigger KEDA
+  # scales to `replicas`. `null` = none.
+  fallback: null
+  # -- (object) The `behavior` of the HPA KEDA creates (`advanced.horizontalPodAutoscalerConfig.behavior`), with the
+  # shape and the rules of `autoscaling.behavior` (closed, no `tolerance`, a `null` inside fails). `null` = not rendered.
+  behavior: null
+  # -- The triggers: a map keyed by the trigger's name (rendered as its `name`, in key order) of `{type, metadata,
+  # metricType, authenticationRef: {name, kind}, useCachedMetrics}`. `type` (the scaler: `rabbitmq`, `cron`, `cpu`...)
+  # and `metadata` (its parameters: strings, numbers or booleans, rendered as strings) are required; `metricType` is
+  # `AverageValue`, `Value` or `Utilization`; `authenticationRef` names an existing TriggerAuthentication or (`kind:
+  # ClusterTriggerAuthentication`) ClusterTriggerAuthentication. In `keda.triggers` a `null` entry, a `null` optional
+  # field (`metricType`, `authenticationRef` or its `kind`, `useCachedMetrics`) and a `null` metadata key are absent (a
+  # `null` `type` or `metadata` fails the schema): an override file removes a trigger with `<name>: null` and one
+  # parameter with `metadata.<key>: null`. `useCachedMetrics: false` (KEDA's default) is not rendered. Quote a trigger
+  # name that YAML 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`, `off`, lowercase, capitalized or uppercase):
+  # unquoted it becomes `true` or `false`.
+  triggers: {}
 
 pdb:
   # -- Render a PodDisruptionBudget (policy/v1). Deployments only.

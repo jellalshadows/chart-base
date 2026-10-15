@@ -629,3 +629,34 @@ tests:
           path: spec.strategy
           value:
             type: RollingUpdate
+
+  - it: omits replicas when keda is enabled (KEDA owns them)
+    template: templates/deployment.yaml
+    set:
+      replicas: 3
+      keda.enabled: true
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - notExists:
+          path: spec.replicas
+
+  - it: renders replicas for keda null (KEDA off)
+    template: templates/deployment.yaml
+    set:
+      replicas: 3
+      keda: null
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+
+  - it: renders replicas again when keda.enabled is false next to its triggers (KEDA turned off)
+    template: templates/deployment.yaml
+    set:
+      replicas: 3
+      keda.enabled: false
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3

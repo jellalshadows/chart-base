@@ -1,0 +1,255 @@
+suite: keda (the ScaledObject), schema rules and guards
+templates:
+  - templates/validate.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+values:
+  - values/base.yaml
+tests:
+  - it: accepts keda null (KEDA off)
+    set:
+      keda: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects keda.minReplicaCount null (required, KEDA's own default would scale to zero)
+    set:
+      keda.minReplicaCount: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda': missing property 'minReplicaCount'"
+
+  - it: rejects keda.maxReplicaCount null (required, also while keda is enabled)
+    set:
+      keda.enabled: true
+      keda.maxReplicaCount: null
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda': missing property 'maxReplicaCount'"
+
+  - it: rejects keda.enabled null
+    set:
+      keda.enabled: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda': missing property 'enabled'"
+
+  - it: rejects a misspelt key of keda (minReplicas)
+    set:
+      keda.minReplicas: 2
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda': additional properties 'minReplicas' not allowed"
+
+  - it: rejects minReplicaCount -1
+    set:
+      keda.minReplicaCount: -1
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/minReplicaCount': minimum: got -1, want 0"
+
+  - it: rejects maxReplicaCount 0
+    set:
+      keda.maxReplicaCount: 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/maxReplicaCount': minimum: got 0, want 1"
+
+  - it: rejects pollingInterval 0
+    set:
+      keda.pollingInterval: 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/pollingInterval': minimum: got 0, want 1"
+
+  - it: rejects cooldownPeriod -1
+    set:
+      keda.cooldownPeriod: -1
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/cooldownPeriod': minimum: got -1, want 0"
+
+  - it: rejects initialCooldownPeriod -1
+    set:
+      keda.initialCooldownPeriod: -1
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/initialCooldownPeriod': minimum: got -1, want 0"
+
+  - it: rejects fallback.replicas -1
+    set:
+      keda.fallback: {failureThreshold: 3, replicas: -1}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/fallback/replicas': minimum: got -1, want 0"
+
+  - it: rejects fallback.failureThreshold -1
+    set:
+      keda.fallback: {failureThreshold: -1, replicas: 2}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/fallback/failureThreshold': minimum: got -1, want 0"
+
+  - it: rejects a fallback without failureThreshold
+    set:
+      keda.fallback: {replicas: 2}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/fallback': missing property 'failureThreshold'"
+
+  - it: rejects a fallback without replicas
+    set:
+      keda.fallback: {failureThreshold: 3}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/fallback': missing property 'replicas'"
+
+  - it: rejects a trigger without type
+    set:
+      keda.triggers.queue: {metadata: {queueName: orders}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue': missing property 'type'"
+
+  - it: rejects a trigger with type ""
+    set:
+      keda.triggers.queue: {type: "", metadata: {queueName: orders}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue/type': minLength: got 0, want 1"
+
+  - it: rejects a trigger with type null (type stays required in a non-null entry)
+    set:
+      keda.triggers.queue: {type: null, metadata: {queueName: orders}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue/type': got null, want string"
+
+  - it: rejects a trigger without metadata
+    set:
+      keda.triggers.queue: {type: rabbitmq}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue': missing property 'metadata'"
+
+  - it: rejects a trigger with metadata null
+    set:
+      keda.triggers.queue: {type: rabbitmq, metadata: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue/metadata': got null, want object"
+
+  - it: rejects a name field in a trigger (the key is the name)
+    set:
+      keda.triggers.queue: {name: orders, type: rabbitmq, metadata: {queueName: orders}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue': additional properties 'name' not allowed"
+
+  - it: rejects an authenticationRef without name
+    set:
+      keda.triggers.queue: {type: rabbitmq, authenticationRef: {kind: TriggerAuthentication}, metadata: {queueName: orders}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue/authenticationRef': missing property 'name'"
+
+  - it: rejects an authenticationRef of kind Secret
+    set:
+      keda.triggers.queue: {type: rabbitmq, authenticationRef: {name: a, kind: Secret}, metadata: {queueName: orders}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue/authenticationRef/kind': value must be one of 'TriggerAuthentication', 'ClusterTriggerAuthentication', <nil>"
+
+  - it: rejects metricType average
+    set:
+      keda.triggers.queue: {type: rabbitmq, metricType: average, metadata: {queueName: orders}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue/metricType': value must be one of 'AverageValue', 'Value', 'Utilization', <nil>"
+
+  - it: rejects a metadata value that is a list
+    set:
+      keda.triggers.queue: {type: rabbitmq, metadata: {queueName: [orders]}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue/metadata/queueName': got array, want null or boolean or number or string"
+
+  - it: rejects a metadata value that is a map
+    set:
+      keda.triggers.queue: {type: rabbitmq, metadata: {queueName: {name: orders}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue/metadata/queueName': got object, want null or boolean or number or string"
+
+  - it: accepts metadata numbers, booleans and null, a null trigger, and a null optional field
+    set:
+      keda.triggers:
+        queue: {type: rabbitmq, metricType: null, useCachedMetrics: null, authenticationRef: null, metadata: {value: 20, unsafeSsl: true, host: null}}
+        gone: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects keda.enabled on a cronjob
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      keda.enabled: true
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/enabled': value must be false"
+
+  - it: rejects keda.enabled on a job
+    set:
+      workload.type: job
+      keda.enabled: true
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/enabled': value must be false"
+
+  - it: accepts keda null on a cronjob
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      keda: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a keda.behavior window of 3601 (the definition of autoscaling.behavior)
+    set:
+      keda.behavior.scaleDown.stabilizationWindowSeconds: 3601
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/behavior/scaleDown/stabilizationWindowSeconds': maximum: got 3,601, want 3,600"
+
+  - it: rejects keda.behavior {}
+    set:
+      keda.behavior: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/behavior': minProperties: got 0, want 1"
+
+  - it: rejects tolerance in keda.behavior
+    set:
+      keda.behavior.scaleUp.tolerance: "0.05"
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/behavior/scaleUp': additional properties 'tolerance' not allowed"
+
+  - it: rejects keda.behavior.scaleUp null
+    set:
+      keda.behavior:
+        scaleUp: null
+        scaleDown: {selectPolicy: Max}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/behavior/scaleUp': got null, want object"

@@ -265,6 +265,24 @@
         { "if": { "required": ["type"], "properties": { "type": { "const": "AverageValue" } } }, "then": { "required": ["averageValue"], "properties": { "value": false } } }
       ]
     },
+    "kedaTrigger": {
+      "description": "An entry of keda.triggers (the key is its name, so no name field); null = no such trigger; a null optional field is absent (chart-base.keda prunes it).",
+      "type": ["object", "null"], "additionalProperties": false, "required": ["type", "metadata"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1 },
+        "metadata": {
+          "description": "The scaler's parameters, rendered as strings; a null value is absent.",
+          "type": "object",
+          "additionalProperties": { "type": ["string", "number", "boolean", "null"] }
+        },
+        "metricType": { "enum": ["AverageValue", "Value", "Utilization", null] },
+        "authenticationRef": {
+          "type": ["object", "null"], "additionalProperties": false, "required": ["name"],
+          "properties": { "name": { "type": "string", "minLength": 1 }, "kind": { "enum": ["TriggerAuthentication", "ClusterTriggerAuthentication", null] } }
+        },
+        "useCachedMetrics": { "type": ["boolean", "null"] }
+      }
+    },
     "labelSelector": {
       "description": "A label selector. {} selects every pod or namespace; a matchLabels or matchExpressions that is present must not be empty.",
       "type": "object",
@@ -901,6 +919,30 @@
         }
       }
     },
+    "keda": {
+      "description": "A KEDA ScaledObject for the Deployment (keda.sh/v1alpha1); null or absent = KEDA off. Bounds from KEDA chart 2.21.0's CRD.",
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["enabled", "minReplicaCount", "maxReplicaCount"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minReplicaCount": { "type": "integer", "minimum": 0 },
+        "maxReplicaCount": { "type": "integer", "minimum": 1 },
+        "pollingInterval": { "type": ["integer", "null"], "minimum": 1 },
+        "cooldownPeriod": { "type": ["integer", "null"], "minimum": 0 },
+        "initialCooldownPeriod": { "minimum": 0, "type": ["integer", "null"] },
+        "fallback": {
+          "type": ["object", "null"], "additionalProperties": false, "required": ["failureThreshold", "replicas"],
+          "properties": { "failureThreshold": { "type": "integer", "minimum": 0 }, "replicas": { "minimum": 0, "type": "integer" } }
+        },
+        "behavior": { "description": "The behavior of the HPA KEDA creates, the definition of autoscaling.behavior.", "$ref": "#/definitions/hpaBehavior" },
+        "triggers": {
+          "description": "Keyed by the trigger's name. The map 0.10.0 converts: a null entry is absent, and so are a null optional field and a null metadata key of an entry (a null type or metadata is a schema error).",
+          "type": ["object", "null"],
+          "additionalProperties": { "$ref": "#/definitions/kedaTrigger" }
+        }
+      }
+    },
     "pdb": {
       "type": "object",
       "additionalProperties": false,
@@ -1211,6 +1253,7 @@
           "httpRoute": { "properties": { "enabled": { "const": false } } },
           "ingress": { "properties": { "enabled": { "const": false } } },
           "autoscaling": { "properties": { "enabled": { "const": false } } },
+          "keda": { "properties": { "enabled": { "const": false } } },
           "metrics": { "properties": { "enabled": { "const": false } } }
         }
       }

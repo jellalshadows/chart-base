@@ -1,0 +1,63 @@
+{{- $k := dict }}
+{{- include "chart-base.keda" (dict "ctx" . "out" $k) }}
+{{- if and (eq .Values.workload.type "deployment") $k.keda.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "chart-base.fullname" . }}
+  labels:
+    {{- include "chart-base.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    {{- include "chart-base.scaleTargetRef" . | nindent 4 }}
+  {{- /* Both always rendered from the value (the schema requires them): KEDA's own defaults are 0, scale to zero, and 100. */}}
+  minReplicaCount: {{ $k.keda.minReplicaCount | int64 }}
+  maxReplicaCount: {{ $k.keda.maxReplicaCount | int64 }}
+  {{- /* null = KEDA's default; 0 is a value. */}}
+  {{- range $field := list "pollingInterval" "cooldownPeriod" "initialCooldownPeriod" }}
+  {{- if not (kindIs "invalid" (index $k.keda $field)) }}
+  {{ $field }}: {{ index $k.keda $field | int64 }}
+  {{- end }}
+  {{- end }}
+  {{- with $k.keda.fallback }}
+  fallback:
+    failureThreshold: {{ .failureThreshold | int64 }}
+    replicas: {{ .replicas | int64 }}
+  {{- end }}
+  {{- /* advanced only for a behavior: the shape of autoscaling.behavior, as written. */}}
+  {{- with $k.keda.behavior }}
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        {{- toYaml . | nindent 8 }}
+  {{- end }}
+  {{- /* In key order, the key as the trigger's name (unique, as KEDA's webhook requires); every string quoted. */}}
+  triggers:
+    {{- range $name, $t := $k.triggers }}
+    - name: {{ $name | quote }}
+      type: {{ $t.type | quote }}
+      {{- if hasKey $t "metricType" }}
+      metricType: {{ $t.metricType | quote }}
+      {{- end }}
+      {{- /* Only true: false is KEDA's default, and KEDA's operator drops it from the stored object. */}}
+      {{- if $t.useCachedMetrics }}
+      useCachedMetrics: true
+      {{- end }}
+      {{- if hasKey $t "authenticationRef" }}
+      authenticationRef:
+        name: {{ $t.authenticationRef.name | quote }}
+        {{- if hasKey $t.authenticationRef "kind" }}
+        kind: {{ $t.authenticationRef.kind | quote }}
+        {{- end }}
+      {{- end }}
+      {{- /* KEDA's CRD takes strings only: a string is quoted, a number or a boolean goes through toJson (no 1e+07 form). A metadata that pruning empties is {}: the CRD requires the key. */}}
+      {{- with $t.metadata }}
+      metadata:
+        {{- range $key, $value := . }}
+        {{ $key | quote }}: {{ if kindIs "string" $value }}{{ $value | quote }}{{ else }}{{ $value | toJson | quote }}{{ end }}
+        {{- end }}
+      {{- else }}
+      metadata: {}
+      {{- end }}
+    {{- end }}
+{{- end }}
