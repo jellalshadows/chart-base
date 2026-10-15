@@ -15,6 +15,7 @@ templates:
   - templates/prometheusrule.yaml
   - templates/role.yaml
   - templates/rolebinding.yaml
+  - templates/scaledobject.yaml
   - templates/service.yaml
   - templates/serviceaccount.yaml
   - templates/servicemonitor.yaml
@@ -60,5 +61,11 @@ tests:
   - it: port-names scenario
     values:
       - ../ci/port-names-values.yaml
+    asserts:
+      - matchSnapshot: {}
+
+  - it: keda scenario
+    values:
+      - ../ci/keda-values.yaml
     asserts:
       - matchSnapshot: {}

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Renders every ci/*-values.yaml scenario and validates the manifests with kubeconform
-# against Kubernetes (strict) schemas and pinned CRD schemas (Gateway API, ESO, Prometheus Operator).
+# against Kubernetes (strict) schemas and pinned CRD schemas (Gateway API, ESO, Prometheus Operator, KEDA).
 # Usage: validate-manifests.sh <chart-dir> <kubernetes-version, e.g. 1.33.12>
 set -euo pipefail
 
