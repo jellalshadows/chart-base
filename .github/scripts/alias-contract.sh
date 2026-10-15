@@ -587,6 +587,124 @@ for rel in vending vending-staging; do
 done
 pass "externalSecretKeyRef renders a secretKeyRef on the ExternalSecret's target, with its key, under alias api for the releases vending and vending-staging, and no manifest contains externalSecretKeyRef"
 
+# keda and autoscaling (0.10.0): in keda.triggers a null entry or field is absent in every layer (null table row 8);
+# keda's required minReplicaCount and maxReplicaCount fail on a null where Helm hands one to the chart (Helm 4.3 drops
+# the umbrella's own null in U0 and keeps the chart's default); keda: null is KEDA off in every layer; behavior is not a
+# converted map (a null direction fails where it reaches the chart), behavior: null and metrics: null clear what the
+# umbrella sets, and so does a null memory target next to a metrics list; the ScaledObject follows the release and alias.
+so_spec() { echo "$1" | yq -N -o=json -I=0 "select(.kind == \"ScaledObject\") | .spec$2" - 2>/dev/null || true; }
+hpa_spec() { echo "$1" | yq -N -o=json -I=0 "select(.kind == \"HorizontalPodAutoscaler\") | .spec$2" - 2>/dev/null || true; }
+cron='{type: cron, metadata: {timezone: Etc/UTC, start: "0 8 * * *", end: "0 18 * * *", desiredReplicas: "2"}}'
+queue='{type: rabbitmq, metadata: {queueName: orders, mode: QueueLength, value: "20", hostFromEnv: RABBITMQ_URL}}'
+k_full="  keda:
+    enabled: true
+    triggers: {gone: $cron, queue: $queue, window: $cron}"
+k_nulled="  keda:
+    enabled: true
+    triggers: {gone: null, queue: {type: rabbitmq, metadata: {queueName: orders, mode: QueueLength, value: \"20\", hostFromEnv: null}}, window: $cron}"
+bad_layers=""
+for layer in U0 U1 F S; do
+  case $layer in
+    U0) out="$(lrender "$k_nulled")" ;;
+    U1) out="$(lrender "$k_nulled" --set api.replicas=2)" ;;
+    F) out="$(lrender "$k_full" -f "$(over '  keda: {triggers: {gone: null, queue: {metadata: {hostFromEnv: null}}}}')")" ;;
+    S) out="$(lrender "$k_full" --set api.keda.triggers.gone=null --set api.keda.triggers.queue.metadata.hostFromEnv=null)" ;;
+  esac
+  got="$(so_spec "$out" '.triggers | map(.name) | join(",")') $(so_spec "$out" '.triggers[0].metadata')"
+  case "$(echo "$out" | yq -N 'select(.kind == "ScaledObject")' - 2>/dev/null || true)" in *null*) got="$got (a null in the ScaledObject)" ;; esac
+  [ "$got" = '"queue,window" {"mode":"QueueLength","queueName":"orders","value":"20"}' ] || bad_layers="$bad_layers $layer (got: $(seen "$out" "$got"))"
+done
+[ -z "$bad_layers" ] || fail "keda.triggers: a null trigger (gone) and a null metadata key (hostFromEnv) must be absent (triggers 'queue,window', queue's metadata without hostFromEnv, no null in the ScaledObject), the same in every layer; differs in:$bad_layers"
+pass "keda.triggers: a null trigger and a null metadata key are absent in U0, U1, F and S, and no null reaches the ScaledObject (null table row 8)"
+
+k_on="  keda: {enabled: true, triggers: {window: $cron}}"
+for key in minReplicaCount maxReplicaCount; do
+  def=1; [ "$key" = maxReplicaCount ] && def=10
+  own="  keda: {enabled: true, $key: null, triggers: {window: $cron}}"
+  out="$(lrender "$own")"
+  if $helm4; then [ "$(so_spec "$out" ".$key")" = "$def" ] || fail "keda.$key null in U0: Helm 4.3 must keep the chart's default $def, got $(seen "$out" "$(so_spec "$out" ".$key")")"
+  else expect_fail "$out" "missing property '$key'" "keda.$key null, Helm 3 U0"; fi
+  expect_fail "$(lrender "$own" --set api.replicas=2)" "missing property '$key'" "keda.$key null, U1"
+  for layer in F S; do
+    case $layer in
+      F) out="$(lrender "$k_on" -f "$(over "  keda: {$key: null}")")" ;;
+      S) out="$(lrender "$k_on" --set "api.keda.$key=null")" ;;
+    esac
+    expect_fail "$out" "missing property '$key'" "keda.$key null, $layer"
+    case "$out" in *"api:"*) ;; *) fail "the schema error for keda.$key null ($layer) must name the alias, got: $(echo "$out" | head -3)" ;; esac
+  done
+done
+pass "keda: a null minReplicaCount or maxReplicaCount fails (U1, F, S$($helm4 || echo ', U0'), naming the alias); Helm 4.3 U0 keeps the chart's defaults, never KEDA's 0 and 100"
+
+bad_layers=""
+for layer in U0 U1 F S; do
+  case $layer in
+    U0) out="$(lrender '  keda: null')" ;;
+    U1) out="$(lrender '  keda: null' --set api.replicas=2)" ;;
+    F) out="$(lrender "$k_on" -f "$(over '  keda: null')")" ;;
+    S) out="$(lrender "$k_on" --set api.keda=null --set api.autoscaling.enabled=true)" ;;
+  esac
+  got="$(so_spec "$out" '') $(echo "$out" | yq -N -o=json -I=0 'select(.kind == "Deployment") | .spec.replicas' - 2>/dev/null || true)"
+  case "$out" in *"Error:"*) got="$got (the render failed)" ;; esac
+  want=' 1'; [ "$layer" = U1 ] && want=' 2'; [ "$layer" = S ] && want=' null'
+  [ "$got" = "$want" ] || bad_layers="$bad_layers $layer (got: $(seen "$out" "$got"))"
+done
+[ -z "$bad_layers" ] || fail "keda: null must mean KEDA off (no ScaledObject; the Deployment renders replicas: 1, 2 in U1, none in S, where autoscaling.enabled is true, the shape of a --reuse-values upgrade from 0.9.x), the same in every layer; differs in:$bad_layers"
+pass "keda: null renders no ScaledObject in U0, U1, F and S (KEDA off), the Deployment's replicas where autoscaling is off, and the guards pass next to autoscaling.enabled (S)"
+
+hpa_on='  autoscaling:
+    enabled: true
+    behavior: {scaleDown: {stabilizationWindowSeconds: 600}, scaleUp: {selectPolicy: Max}}
+    metrics: [{type: Pods, pods: {metric: {name: queue_depth}, target: {type: AverageValue, averageValue: "30"}}}]'
+bad_layers=""
+for layer in U0 U1 F S; do
+  case $layer in
+    U0) out="$(lrender '  autoscaling: {enabled: true, behavior: null, metrics: null}')" ;;
+    U1) out="$(lrender '  autoscaling: {enabled: true, behavior: null, metrics: null}' --set api.replicas=2)" ;;
+    F) out="$(lrender "$hpa_on" -f "$(over '  autoscaling: {behavior: null, metrics: null}')")" ;;
+    S) out="$(lrender "$hpa_on" --set api.autoscaling.behavior=null --set api.autoscaling.metrics=null)" ;;
+  esac
+  got="$(hpa_spec "$out" '.behavior') $(hpa_spec "$out" '.metrics')"
+  [ "$got" = 'null [{"type":"Resource","resource":{"name":"cpu","target":{"type":"Utilization","averageUtilization":80}}}]' ] || bad_layers="$bad_layers $layer (got: $(seen "$out" "$got"))"
+done
+[ -z "$bad_layers" ] || fail "autoscaling: behavior null and metrics null must render no behavior and the built-in CPU target, the same in every layer; differs in:$bad_layers"
+pass "autoscaling: behavior null and metrics null clear what the umbrella sets (U0, U1, F, S): no behavior, the built-in targets"
+
+out="$(lrender '  autoscaling: {enabled: true, behavior: {scaleUp: null, scaleDown: {selectPolicy: Max}}}')"
+if $helm4; then [ "$(hpa_spec "$out" '.behavior')" = '{"scaleDown":{"selectPolicy":"Max"}}' ] || fail "behavior.scaleUp null in U0: Helm 4.3 drops the umbrella's own null, so the behavior has scaleDown alone, got $(seen "$out" "$(hpa_spec "$out" '.behavior')")"
+else expect_fail "$out" "got null, want object" "behavior.scaleUp null, Helm 3 U0"; fi
+expect_fail "$(lrender '  autoscaling: {enabled: true, behavior: {scaleUp: null, scaleDown: {selectPolicy: Max}}}' --set api.replicas=2)" "got null, want object" "behavior.scaleUp null, U1"
+expect_fail "$(lrender "$hpa_on" -f "$(over '  autoscaling: {behavior: {scaleUp: null}}')")" "got null, want object" "behavior.scaleUp null, F"
+expect_fail "$(lrender "$hpa_on" --set api.autoscaling.behavior.scaleUp=null)" "got null, want object" "behavior.scaleUp null, S"
+pass "autoscaling.behavior is not converted: a null direction fails the schema (U1, F, S$($helm4 || echo ', U0')); Helm 4.3 U0 drops the umbrella's own null"
+
+mem_on='  autoscaling:
+    enabled: true
+    targetMemoryUtilizationPercentage: 75
+    metrics: [{type: Resource, resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}}]'
+expect_fail "$(lrender "$mem_on")" "chart-base[api]: autoscaling.targetMemoryUtilizationPercentage is not used when autoscaling.metrics is set" "a memory target next to a metrics list"
+bad_layers=""
+for layer in U0 U1 F S; do
+  case $layer in
+    U0) out="$(lrender '  autoscaling: {enabled: true, targetMemoryUtilizationPercentage: null, metrics: [{type: Resource, resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}}]}')" ;;
+    U1) out="$(lrender '  autoscaling: {enabled: true, targetMemoryUtilizationPercentage: null, metrics: [{type: Resource, resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}}]}' --set api.replicas=2)" ;;
+    F) out="$(lrender "$mem_on" -f "$(over '  autoscaling: {targetMemoryUtilizationPercentage: null}')")" ;;
+    S) out="$(lrender "$mem_on" --set api.autoscaling.targetMemoryUtilizationPercentage=null)" ;;
+  esac
+  got="$(hpa_spec "$out" '.metrics | map(.resource.name) | join(",")')"
+  [ "$got" = '"cpu"' ] || bad_layers="$bad_layers $layer (got: $(seen "$out" "$got"))"
+done
+[ -z "$bad_layers" ] || fail "autoscaling.targetMemoryUtilizationPercentage null next to a metrics list must render the list alone (the remedy of the guard), the same in every layer; differs in:$bad_layers"
+pass "autoscaling: the memory guard's remedy (targetMemoryUtilizationPercentage: null) renders the list alone in U0, U1, F and S"
+
+for rel in vending vending-staging; do
+  lrender "$k_on" > /dev/null
+  out="$(helm template "$rel" "$layers" --namespace platform --kube-version 1.33.0 2>&1 || true)"
+  name="$(echo "$out" | yq -N 'select(.kind == "ScaledObject") | .metadata.name + " " + .spec.scaleTargetRef.kind + "/" + .spec.scaleTargetRef.name' - 2>/dev/null || true)"
+  [ "$name" = "$rel-api Deployment/$rel-api" ] || fail "the ScaledObject under alias api and release $rel must be $rel-api and target Deployment/$rel-api, got '$name'$(case "$out" in *"Error:"*) echo "; the render failed: $(seen "$out" "")" ;; esac)"
+done
+pass "the ScaledObject is named <release>-<alias> and targets the Deployment of its alias, for the releases vending and vending-staging"
+
 bad="$work/bad"
 make_umbrella "$bad" Sales
 cat > "$bad/values.yaml" <<'EOF'
