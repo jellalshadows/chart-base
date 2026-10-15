@@ -561,6 +561,164 @@ machines-consumer:
     requests: {cpu: 100m, memory: 256Mi}
 ```
 
+### A worker scaled by its queue (KEDA, scale to zero)
+
+A RabbitMQ consumer that runs while its queue holds messages and has no pod otherwise
+([ADR-0056](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)).
+KEDA reads the broker's URL from the main container's environment (`hostFromEnv`), here the component's Secret,
+injected whole:
+
+```yaml
+orders-consumer:
+  image: {repository: ghcr.io/acme/orders, tag: "2.4.0"}
+  args: ["--mode=consumer"]
+  ports: []
+  service:
+    enabled: false
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+  externalSecret:                          # ESO -> Secret vending-orders-consumer-secrets -> envFrom
+    enabled: true
+    secretStoreRef: {kind: ClusterSecretStore, name: gcp-sm}
+    data:
+      RABBITMQ_URL: {key: orders-rabbitmq-url}   # amqp://user:password@rabbitmq.messaging:5672/orders
+  keda:
+    enabled: true
+    minReplicaCount: 0                     # scale to zero, written on purpose (the chart's default is 1)
+    maxReplicaCount: 20
+    cooldownPeriod: 120                    # seconds without messages before 0 (only with minReplicaCount: 0)
+    triggers:
+      orders:                              # the trigger's name
+        type: rabbitmq
+        metadata:
+          queueName: orders
+          mode: QueueLength
+          value: 50                        # messages per pod, rendered "50"
+          hostFromEnv: RABBITMQ_URL        # a variable of the main container
+```
+
+The same consumer with its Secret not injected whole (`externalSecret.envFrom: false`): one variable references one
+key, and KEDA resolves that reference too:
+
+```yaml
+orders-consumer:
+  image: {repository: ghcr.io/acme/orders, tag: "2.4.0"}
+  args: ["--mode=consumer"]
+  ports: []
+  service:
+    enabled: false
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+  externalSecret:
+    enabled: true
+    secretStoreRef: {kind: ClusterSecretStore, name: gcp-sm}
+    envFrom: false
+    data:
+      rabbitmq-url: {key: orders-rabbitmq-url}   # no variable name needed: the Secret is not injected
+  env:
+    RABBITMQ_URL: {valueFrom: {externalSecretKeyRef: {key: rabbitmq-url}}}
+  keda:
+    enabled: true
+    minReplicaCount: 0
+    maxReplicaCount: 20
+    cooldownPeriod: 120
+    triggers:
+      orders:
+        type: rabbitmq
+        metadata: {queueName: orders, mode: QueueLength, value: 50, hostFromEnv: RABBITMQ_URL}
+```
+
+KEDA resolves a `...FromEnv` parameter in the main container (the pod's first container): its `envFrom` and its
+`env`, a `secretKeyRef` included (measured with KEDA 2.21.0's operator). Under KEDA's restricted Secret access (the
+KEDA chart's `permissions.operator.restrict.secret`) it reads no Secret of the namespace (measured): reference a
+ClusterTriggerAuthentication instead (`authenticationRef: {name: <name>, kind: ClusterTriggerAuthentication}`). The
+chart checks neither the scaler's metadata nor that the variable exists. A `rabbitmq` scaler connects when KEDA builds
+it: while the broker cannot be reached the ScaledObject is not Ready (measured with KEDA 2.21.0's operator), and Helm 4
+`--wait` then fails at its timeout once it reads the condition (measured by the 0.10.0 research with other trigger
+errors; the [consuming guide](https://github.com/jellalshadows/chart-base/blob/main/docs/guides/consuming.md#autoscaling-the-hpa-and-keda) has the rest).
+
+### An API that scales up fast and down slowly (HPA `behavior`)
+
+```yaml
+sales:
+  image: {repository: ghcr.io/acme/sales, tag: "1.4.2"}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 30
+    behavior:                              # Kubernetes' spec.behavior, closed: a misspelt field fails the render
+      scaleUp:
+        policies: [{type: Percent, value: 100, periodSeconds: 30}]   # at most double every 30 seconds
+      scaleDown:
+        stabilizationWindowSeconds: 600    # 10 minutes of stabilization before scaling in
+        policies: [{type: Pods, value: 1, periodSeconds: 60}]        # then one pod per minute
+```
+
+`behavior` is rendered as written, and the API server fills Kubernetes' defaults into a direction that leaves fields
+out (measured for a `scaleUp` with `selectPolicy` alone, on kube-apiserver 1.33.0 and 1.37.0). `tolerance` is not
+offered: Kubernetes 1.33 and 1.34 drop it without a word. An override file merges into `behavior` field by field and
+cannot remove one direction; `behavior: null` removes the whole block
+([ADR-0055](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md)).
+
+### Scaling on the main container next to sidecars (`ContainerResource`, `containerName`)
+
+The built-in CPU and memory targets measure the main container once there is a sidecar (decision 52). A `metrics`
+list is rendered as written, so it names the main container itself:
+
+```yaml
+sales:
+  image: {repository: ghcr.io/acme/sales, tag: "1.4.2"}
+  resources:
+    requests: {cpu: 500m, memory: 512Mi}
+  sidecars:
+    proxy:
+      image: {repository: ghcr.io/acme/auth-proxy, tag: "1.2.0"}
+      resources: {requests: {cpu: 100m, memory: 64Mi}}
+  autoscaling:
+    enabled: true
+    metrics:                               # the whole list: no built-in target is rendered next to it
+      - type: ContainerResource
+        containerResource:
+          name: cpu
+          container: sales                 # the main container is named after the alias
+          target: {type: Utilization, averageUtilization: 70}
+```
+
+With KEDA, a `cpu` trigger measures the whole pod unless `containerName` names a container:
+
+```yaml
+sales:
+  image: {repository: ghcr.io/acme/sales, tag: "1.4.2"}
+  resources:
+    requests: {cpu: 500m, memory: 512Mi}
+  sidecars:
+    proxy:
+      image: {repository: ghcr.io/acme/auth-proxy, tag: "1.2.0"}
+      resources: {requests: {cpu: 100m, memory: 64Mi}}
+  keda:
+    enabled: true
+    minReplicaCount: 2                     # a cpu trigger cannot scale from zero
+    maxReplicaCount: 20
+    triggers:
+      cpu:
+        type: cpu
+        metricType: Utilization
+        metadata: {value: "70", containerName: sales}
+      office-hours:                        # at least 4 pods on weekdays from 08:00 to 20:00, Madrid time
+        type: cron
+        metadata: {timezone: Europe/Madrid, start: "0 8 * * 1-5", end: "0 20 * * 1-5", desiredReplicas: "4"}
+```
+
+A `Resource` entry of `metrics`, or a `cpu` or `memory` trigger without `containerName`, measures the whole pod: the
+main container's and the sidecars' requests and usage. A name that is neither the main container nor a non-null
+sidecar fails the render, because the API server and KEDA accept any name (measured on kube-apiserver 1.33.0 and
+1.37.0 and with KEDA 2.21.0). A sidecar can be named too: metrics-server reports a native sidecar's usage next to the
+main container's (source reading of the kubelet and of metrics-server 0.9.0; the kind e2e asserts it). Moving a
+running component from the HPA to KEDA: the
+[upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md#switching-to-keda).
+
 ### CronJob
 
 ```yaml
@@ -600,10 +758,12 @@ sales-migrations:
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity. |
 | args | list | `[]` | Container args (overrides the image CMD). |
+| autoscaling.behavior | object | `nil` | The HPA's `spec.behavior`, in Kubernetes' own shape: `scaleUp` and `scaleDown`, each with `stabilizationWindowSeconds` (0 to 3600), `selectPolicy` (`Max`, `Min` or `Disabled`) and `policies` (at least one, each `{type: Pods or Percent, value: 1 or more, periodSeconds: 1 to 1800}`), integers only. Closed at every level: a misspelt field fails the render (Helm 3 alone would only warn and drop it). `null` = not rendered (the API server's defaults); `{}` and an empty direction fail (a value that does nothing). Not offered: `tolerance` (Kubernetes 1.33 and 1.34 drop it without a word). Not a converted map: a `null` inside (`scaleUp: null`, `policies: null`) fails the schema. An override file merges into the `behavior` of a lower layer: it changes a field of a direction by restating it, and cannot remove one direction; `behavior: null` removes the whole block. |
 | autoscaling.enabled | bool | `false` | Render a HorizontalPodAutoscaler (autoscaling/v2). Deployments only. |
 | autoscaling.maxReplicas | int | `10` | Maximum replicas. |
+| autoscaling.metrics | list | `[]` | The HPA's `spec.metrics`, in Kubernetes' own list shape. `[]` or `null` = the built-in targets (`targetCPUUtilizationPercentage`, `targetMemoryUtilizationPercentage`). A non-empty list is the WHOLE list and replaces the built-in targets: restate the CPU target in it to keep it, and `targetMemoryUtilizationPercentage` must then be `null` (the render fails otherwise). Each item: `type` (`Resource`, `ContainerResource`, `Pods`, `Object` or `External`) and the block of that type, no other: `resource: {name, target}`, `containerResource: {name, container, target}` (`name`: `cpu` or `memory`), `pods: {metric, target}`, `object: {describedObject: {apiVersion, kind, name}, metric, target}`, `external: {metric, target}`, where `metric` is `{name, selector}` (`selector`: a label selector, optional). A target is `{type: Utilization, averageUtilization}` (`Resource` and `ContainerResource` only), `{type: AverageValue, averageValue}`, or `{type: Value, value}` (`Object` and `External` only); a quantity is a string or a number. Rendered as written, never switched: a `Resource` entry on a component with sidecars measures the whole pod (the main container's and the sidecars' requests and usage); to measure the main container alone, use `ContainerResource` with `container: <alias>`. A `ContainerResource` container must be the main container (named after the alias) or a non-null `sidecars` key (the render fails otherwise; an init container has exited before the metric is read). A list: an override file replaces it whole, and a `null` item or field fails the schema. |
 | autoscaling.minReplicas | int | `2` | Minimum replicas. |
-| autoscaling.targetCPUUtilizationPercentage | int | `80` | Target average CPU utilization, in percent of the main container's CPU request. With a sidecar the HPA measures the main container alone (a `ContainerResource` metric for it); without one, the pod (`Resource`), which is the same while the main container is the pod's only long-running container (a plain init container has exited, and its requests never count: source reading). Adding the first sidecar changes the metric's kind in that upgrade, and removing the last one changes it back. |
+| autoscaling.targetCPUUtilizationPercentage | int | `80` | Target average CPU utilization, in percent of the main container's CPU request. With a sidecar the HPA measures the main container alone (a `ContainerResource` metric for it); without one, the pod (`Resource`), which is the same while the main container is the pod's only long-running container (a plain init container has exited, and its requests never count: source reading). Adding the first sidecar changes the metric's kind in that upgrade, and removing the last one changes it back. Not used when `metrics` is non-empty: the list replaces the built-in targets (this key keeps its default, which the list wins over). |
 | autoscaling.targetMemoryUtilizationPercentage | int | `nil` | Target average memory utilization, in percent of the main container's memory request, measured like the CPU target (see `targetCPUUtilizationPercentage`). `null` = not used. |
 | command | list | `[]` | Container command (overrides the image ENTRYPOINT). |
 | config | object | `{}` | Environment variables. Rendered into ConfigMap `<fullname>-env` and injected with `envFrom`. Quote a name that YAML 1.1 reads as a boolean (`ON`, `OFF`, `YES`, `NO`, `Y`, `N`): unquoted it becomes `true` or `false`. |
@@ -652,6 +812,15 @@ sales-migrations:
 | job.backoffLimit | int | `3` | Retries before the Job is marked failed (also used by cronjob runs). |
 | job.phase | string | `"pre-deploy"` | Helm hook phase for `workload.type: job`: `pre-deploy` (pre-install,pre-upgrade) or `post-deploy` (post-install,post-upgrade). |
 | job.ttlSecondsAfterFinished | int | `3600` | Seconds a finished Job (workload.type job) is kept for logs before deletion. CronJob runs are retained by the cronjob history limits instead. |
+| keda.behavior | object | `nil` | The `behavior` of the HPA KEDA creates (`advanced.horizontalPodAutoscalerConfig.behavior`), with the shape and the rules of `autoscaling.behavior` (closed, no `tolerance`, a `null` inside fails). `null` = not rendered. |
+| keda.cooldownPeriod | int | `nil` | Seconds after the last active trigger before KEDA scales to zero. `null` = KEDA's default (300). Only with `minReplicaCount: 0`: next to a higher minimum it does nothing, and the render fails (to slow down scale-in between the minimum and the maximum, use `behavior.scaleDown.stabilizationWindowSeconds`). |
+| keda.enabled | bool | `false` | Render a ScaledObject named `<fullname>` (deployments only); KEDA then creates and owns the HPA `keda-hpa-<fullname>`, so with `keda.enabled` the resource name is at most 54 characters. Exclusive with `autoscaling.enabled` (the render fails with both): switching an existing release between the two is documented in docs/upgrading.md. The cluster needs KEDA's CRDs, or the whole release fails at install. |
+| keda.fallback | object | `nil` | `{failureThreshold, replicas}`, both required: after `failureThreshold` failed polls of a trigger KEDA scales to `replicas` and the ScaledObject stays Ready. Needs a trigger other than `cpu` and `memory`, and `replicas` at most `maxReplicaCount` (the HPA caps it); the render fails otherwise. `null` = none. |
+| keda.initialCooldownPeriod | int | `nil` | Seconds after the ScaledObject is created before KEDA may scale to zero. `null` = KEDA's default (0). Only with `minReplicaCount: 0`, like `cooldownPeriod`. |
+| keda.maxReplicaCount | int | `10` | Highest replica count (KEDA's own default is 100); at least `minReplicaCount`. Required: a `null` fails the schema. With a `ReadWriteOnce` or `ReadWriteOncePod` claim in `volumes` it must be 1. |
+| keda.minReplicaCount | int | `1` | Lowest replica count. `0` scales to zero, written on purpose (KEDA's own default is 0, the chart's 1). Required: a `null` fails the schema (it would hand the component KEDA's 0). Not `autoscaling.minReplicas`: a component that moves from the HPA restates its minimum here. |
+| keda.pollingInterval | int | `nil` | Seconds between two polls of the triggers. `null` = KEDA's default (30). It drives scaling only with `minReplicaCount: 0` or `useCachedMetrics`; it also sets how often KEDA refreshes the ScaledObject's conditions, which Helm 4 `--wait` reads. |
+| keda.triggers | object | `{}` | The triggers: a map keyed by the trigger's name (rendered as its `name`, in key order) of `{type, metadata, metricType, authenticationRef: {name, kind}, useCachedMetrics}`. `type` (the scaler: `rabbitmq`, `cron`, `cpu`...) and `metadata` (its parameters: strings, numbers or booleans, rendered as strings) are required; `metricType` is `AverageValue`, `Value` or `Utilization`; `authenticationRef` names an existing TriggerAuthentication or (`kind: ClusterTriggerAuthentication`) ClusterTriggerAuthentication. In `keda.triggers` a `null` entry, a `null` optional field (`metricType`, `authenticationRef` or its `kind`, `useCachedMetrics`) and a `null` metadata key are absent (a `null` `type` or `metadata` fails the schema): an override file removes a trigger with `<name>: null` and one parameter with `metadata.<key>: null`; `useCachedMetrics: false` (KEDA's default) is not rendered. While `keda.enabled`, the render fails without a trigger, for a `cpu` or `memory` trigger whose `metricType` is not `Utilization` or `AverageValue`, for `Utilization` on another trigger, for `useCachedMetrics: true` on a `cron`, `cpu` or `memory` trigger, and for only `cpu` and `memory` triggers with `minReplicaCount: 0` (they cannot scale from zero). A `cpu` or `memory` trigger measures the whole pod, sidecars included, unless `metadata.containerName` names a container: the main container (the alias) or a non-null sidecar (the render fails otherwise). The chart does not check a scaler's metadata: a `...FromEnv` parameter names a variable of the main container (KEDA reads the first container's `envFrom`, the component's Secret included, and its `env`). Quote a trigger name that YAML 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`, `off`, lowercase, capitalized or uppercase): unquoted it becomes `true` or `false`. |
 | lifecycle | object | `{}` | Container lifecycle hooks `postStart` and `preStop`, each with exactly one of `exec`, `httpGet` or `sleep` (Kubernetes does not support `tcpSocket` here), e.g. `{preStop: {exec: {command: ["/app/drain"]}}}`. On Deployments, `lifecycle.preStop` replaces the built-in preStop sleep and requires `preStopSleepSeconds: 0`. An `httpGet.port` given by name is not checked by the chart (unlike a probe's): the kubelet resolves it among the main container's `ports` only, and a `preStop` hook on a name that `ports` does not declare fails with nothing but a `FailedPreStopHook` event while termination goes on (kubelet source reading); give the port by number or by a `ports` name. |
 | metrics.enabled | bool | `false` | Render a Prometheus Operator monitor (`monitoring.coreos.com/v1`): a ServiceMonitor that scrapes the component's Service or, for a worker without a Service, a PodMonitor that scrapes its pods. Deployments only. The CRDs must be installed: without them the release fails. |
 | metrics.interval | string | `nil` | Scrape interval, a Prometheus duration such as `30s` or `1m30s`. `null` = Prometheus' global scrape interval. |
@@ -696,7 +865,7 @@ sales-migrations:
 | rbac.clusterRoles | list | `[]` | Existing ClusterRoles granted to the pods' ServiceAccount in the release namespace only, one RoleBinding `<fullname>.<ClusterRole>` each (`[view]` renders `<fullname>.view`; a `<fullname>` never contains a `.`, so two components of a release never share a binding name). No ClusterRole's rules are checked: only `cluster-admin` is rejected for what it grants (and `*`, which a `roleRef` reads as a name); any other is granted as it is, and ClusterRoles such as Kubernetes' controller role `system:controller:generic-garbage-collector` hold wildcard rules; `edit` and `admin` let the pods act as any ServiceAccount of the namespace. A ClusterRole that does not exist is not detected. Requires a ServiceAccount of the component and `serviceAccount.automountToken: true` (the chart does not know a ClusterRole's rules; a grant that needs no token is written as a `use` rule in `rules`). |
 | rbac.rules | list | `[]` | Namespaced permissions for the pods' ServiceAccount: a Role and a RoleBinding named `<fullname>`, e.g. `[{apiGroups: [coordination.k8s.io], resources: [leases], verbs: [get, list, watch, create, update, patch]}]`. Each rule needs `apiGroups` (`""` is the core group), `resources` (a subresource is written `pods/log`) and `verbs`, and may restrict `resourceNames`. `*` is rejected in every list (it would grant future resources and verbs; in `resourceNames` it is no wildcard), and the verbs are the standard ones: `get`, `list`, `watch`, `create`, `update`, `patch`, `delete`, `deletecollection`, `use`, `bind`, `escalate`, `impersonate`. The main escalation paths (Kubernetes' RBAC Good Practices) grant more than the rule names: reading Secrets (`list` and `watch` reveal them like `get`), creating or changing workloads (a pod may run as any ServiceAccount of the namespace and mount its Secrets), `pods/exec`, `pods/attach` and `pods/ephemeralcontainers` (commands in other pods), `create` on `serviceaccounts/token`, `escalate`, `bind` and `impersonate`. Whoever runs the deploy must hold every permission granted here, and every container of the pod, init containers and sidecars included, gets the token and with it these grants. Requires a ServiceAccount of the component (the chart's, or `serviceAccount.name`), never `default`, and `serviceAccount.automountToken: true` unless `use` is the only verb of every rule (an admission plugin checks such a grant on the ServiceAccount itself: an OpenShift SecurityContextConstraints, for example). With `resourceNames`, `deletecollection` fails the render (Kubernetes never matches it by name), and so does `create` on a resource without `patch` or `update` in the same rule: only a server-side apply or a create through an update carries the name; `create` on a subresource such as `pods/exec` is matched by name. |
 | reloadOnChange | bool | `true` | Restart Deployments (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is updated: the ExternalSecret's Secret and every Secret/ConfigMap referenced in `env`/`envFrom` (and in the `env` of an init container or a sidecar) or mounted by a `configMap` or `secret` entry of `volumes`. The chart's own ConfigMaps roll pods through checksum annotations instead. The cost: a mounted certificate or trust bundle that the application reloads in place still restarts the Deployment on every rotation (and every component that mounts it), and `false` is the only switch: it also stops the restarts for `env`/`envFrom` Secrets. Mounted files are updated in place without a restart, except `subPath` mounts, which are never updated: with `false` such a file stays stale until the pod restarts (a deploy restarts it only when the pod template changes). |
-| replicas | int | `1` | Deployment replicas. Ignored when `autoscaling.enabled`. |
+| replicas | int | `1` | Deployment replicas. Ignored when `autoscaling.enabled` or `keda.enabled` (an autoscaler owns the count). |
 | resources | object | `{}` | Required: `requests.cpu` and `requests.memory`. Container resources. A `null` entry of `limits` or `requests` (other than `requests.cpu` and `requests.memory`, which stay required), and `limits: null`, mean absent: no such limit or request is rendered (the API server would store a null as `"0"`). |
 | revisionHistoryLimit | int | `nil` | Old ReplicaSets kept for `kubectl rollout undo` (`spec.revisionHistoryLimit`). `null` = Kubernetes default (10). Deployments only. |
 | runtimeClassName | string | `nil` | RuntimeClass of the pods (`runtimeClassName`), e.g. `gvisor`; it must exist. `null` = the default runtime handler. |
@@ -712,7 +881,7 @@ sales-migrations:
 | terminationGracePeriodSeconds | int | `30` | Pod termination grace period. Must be greater than `preStopSleepSeconds`; a `lifecycle` sleep must not exceed it. |
 | tolerations | list | `[]` | Tolerations. |
 | topologySpreadConstraints | list | `nil` | `null` = chart defaults (zone + hostname spread, ScheduleAnyway); `[]` = none; a list = used verbatim. |
-| volumes | object | `{}` | Extra volumes of the pod: a map keyed by the volume name, rendered in key order after the chart's own `tmp` and `config-files`. Every entry has a `type` (`emptyDir`; `configMap` and `secret`, mounted read-only; `persistentVolumeClaim`, an EXISTING claim; `ephemeral`, a claim created and deleted with each pod) and, unless only init containers or sidecars mount the volume (`initContainers.<name>.volumeMounts`), an absolute `mountPath`, the main container's mount, with its `subPath` and `readOnly`. Without `mountPath` the main container does not mount it, and `subPath` and `readOnly` fail; a volume that no container mounts fails. The fields of each type: `emptyDir`: `medium` (`Memory`), `sizeLimit`; `configMap`: `name`, `items`, `defaultMode`, `optional`; `secret`: `secretName`, `items`, `defaultMode`, `optional`; `persistentVolumeClaim`: `claimName`, `claimAccessMode` (default `ReadWriteOnce`); `ephemeral`: `size`, `accessMode` (default `ReadWriteOnce`), `storageClassName` (default: the cluster's default class). An `ephemeral` claim lives as long as its pod (source reading): a CronJob keeps those of the finished runs its history limits keep, a Job keeps its own for `job.ttlSecondsAfterFinished`, and each retry gets one of its own. In `volumes`, a `null` entry or field is absent, and `volumes: null` is no volume: an overlay changes the type of a volume that the umbrella defines by setting the previous type's fields to `null` (`cache: {type: ephemeral, size: 10Gi, sizeLimit: null}`), or removes it with `cache: null` and adds one under another name. Write `defaultMode` and `items[].mode` in octal with a leading zero, unquoted (`0440`): `440` is decimal and means `0670`, and `--set` cannot pass an octal literal (use the decimal value, `288`). Omit `items`, or set it to `null`, for every key. Quote a key that YAML 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`, `off`, lowercase, capitalized or uppercase): unquoted it is renamed to `"true"` or `"false"`, and two such keys collide silently. A name is a lowercase DNS-1123 label (`app-data`, not `appData`); `tmp`, `config-files`, `external-secret` and the prefixes `kube-api-access-` and `chart-base-` are reserved. A field of another type fails the render, and so does a `null` in a type's required field (`name`, `secretName`, `claimName`, `size`). A `mountPath` is compared normalized (`//tmp` is `/tmp`) with every other mount of the main container (the chart's `/tmp`, `configFiles.mountPath` while a file is rendered, the other entries) and must not be `/` or the ServiceAccount token directory; a directory may lie beneath another mount (`/tmp/cache`), but a `configMap` or `secret` file (`subPath`) must not lie beneath a ConfigMap or Secret mount. `subPath` and `items[].path` are relative, without `..`, and the `items[].path` of one entry are unique. `readOnly: false` fails on a `configMap` or `secret` mount, and an `emptyDir` or `ephemeral` volume that every container mounts read-only fails (nothing could write it; an init container that fills a volume the main container reads mounts it writable). The main container's `subPath` is not checked against `items` (a `subPath` that names no item mounts an empty directory; the mounts of init containers and sidecars are checked). `sizeLimit` and `size` are strings (`size: 10` would mean 10 bytes) and not zero; `medium: Memory` requires `sizeLimit`: the files count against the container's memory limit. A volume must not name the component's own `<fullname>-env`, `<fullname>-files` or `<fullname>-secrets`, and two `persistentVolumeClaim` entries must not name one claim. A `persistentVolumeClaim` entry DECLARES the claim's access mode in `claimAccessMode`: `ReadWriteOnce` (the default), `ReadWriteOncePod`, `ReadWriteMany` or `ReadOnlyMany`. chart-base cannot read the claim, so a false declaration goes unnoticed. Two rules read it: `ReadOnlyMany` renders the volume and its mount read-only, and on a Deployment a `ReadWriteOnce` or `ReadWriteOncePod` claim requires `replicas` 0 or 1, `autoscaling.enabled: false` and a strategy that adds no pod (`{type: Recreate}`, or `{type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}` for a Deployment that already exists; see `strategy`). |
+| volumes | object | `{}` | Extra volumes of the pod: a map keyed by the volume name, rendered in key order after the chart's own `tmp` and `config-files`. Every entry has a `type` (`emptyDir`; `configMap` and `secret`, mounted read-only; `persistentVolumeClaim`, an EXISTING claim; `ephemeral`, a claim created and deleted with each pod) and, unless only init containers or sidecars mount the volume (`initContainers.<name>.volumeMounts`), an absolute `mountPath`, the main container's mount, with its `subPath` and `readOnly`. Without `mountPath` the main container does not mount it, and `subPath` and `readOnly` fail; a volume that no container mounts fails. The fields of each type: `emptyDir`: `medium` (`Memory`), `sizeLimit`; `configMap`: `name`, `items`, `defaultMode`, `optional`; `secret`: `secretName`, `items`, `defaultMode`, `optional`; `persistentVolumeClaim`: `claimName`, `claimAccessMode` (default `ReadWriteOnce`); `ephemeral`: `size`, `accessMode` (default `ReadWriteOnce`), `storageClassName` (default: the cluster's default class). An `ephemeral` claim lives as long as its pod (source reading): a CronJob keeps those of the finished runs its history limits keep, a Job keeps its own for `job.ttlSecondsAfterFinished`, and each retry gets one of its own. In `volumes`, a `null` entry or field is absent, and `volumes: null` is no volume: an overlay changes the type of a volume that the umbrella defines by setting the previous type's fields to `null` (`cache: {type: ephemeral, size: 10Gi, sizeLimit: null}`), or removes it with `cache: null` and adds one under another name. Write `defaultMode` and `items[].mode` in octal with a leading zero, unquoted (`0440`): `440` is decimal and means `0670`, and `--set` cannot pass an octal literal (use the decimal value, `288`). Omit `items`, or set it to `null`, for every key. Quote a key that YAML 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`, `off`, lowercase, capitalized or uppercase): unquoted it is renamed to `"true"` or `"false"`, and two such keys collide silently. A name is a lowercase DNS-1123 label (`app-data`, not `appData`); `tmp`, `config-files`, `external-secret` and the prefixes `kube-api-access-` and `chart-base-` are reserved. A field of another type fails the render, and so does a `null` in a type's required field (`name`, `secretName`, `claimName`, `size`). A `mountPath` is compared normalized (`//tmp` is `/tmp`) with every other mount of the main container (the chart's `/tmp`, `configFiles.mountPath` while a file is rendered, the other entries) and must not be `/` or the ServiceAccount token directory; a directory may lie beneath another mount (`/tmp/cache`), but a `configMap` or `secret` file (`subPath`) must not lie beneath a ConfigMap or Secret mount. `subPath` and `items[].path` are relative, without `..`, and the `items[].path` of one entry are unique. `readOnly: false` fails on a `configMap` or `secret` mount, and an `emptyDir` or `ephemeral` volume that every container mounts read-only fails (nothing could write it; an init container that fills a volume the main container reads mounts it writable). The main container's `subPath` is not checked against `items` (a `subPath` that names no item mounts an empty directory; the mounts of init containers and sidecars are checked). `sizeLimit` and `size` are strings (`size: 10` would mean 10 bytes) and not zero; `medium: Memory` requires `sizeLimit`: the files count against the container's memory limit. A volume must not name the component's own `<fullname>-env`, `<fullname>-files` or `<fullname>-secrets`, and two `persistentVolumeClaim` entries must not name one claim. A `persistentVolumeClaim` entry DECLARES the claim's access mode in `claimAccessMode`: `ReadWriteOnce` (the default), `ReadWriteOncePod`, `ReadWriteMany` or `ReadOnlyMany`. chart-base cannot read the claim, so a false declaration goes unnoticed. Two rules read it: `ReadOnlyMany` renders the volume and its mount read-only, and on a Deployment a `ReadWriteOnce` or `ReadWriteOncePod` claim requires `replicas` 0 or 1 and `autoscaling.enabled: false` (with `keda.enabled`, `keda.maxReplicaCount: 1`), and a strategy that adds no pod (`{type: Recreate}`, or `{type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}` for a Deployment that already exists; see `strategy`). |
 | workload.type | string | `"deployment"` | Workload kind: `deployment` (API or worker), `cronjob`, or `job` (a Helm hook, see `job.phase`). |
 
 ## Design decisions
@@ -1005,7 +1174,8 @@ code, official docs) and local renders.
     [ADR-0049](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)
 50. **An existing claim on a Deployment declares its access mode; `strategy.rollingUpdate: null` is absent.** A
     `persistentVolumeClaim` entry declared `ReadWriteOnce` (the default) or `ReadWriteOncePod` requires a Deployment
-    that never runs two pods: `replicas` 0 or 1, no autoscaling, and `strategy: {type: Recreate}` or a rolling update
+    that never runs two pods: `replicas` 0 or 1, no autoscaling (with KEDA, `keda.maxReplicaCount: 1`: decision 56), and
+    `strategy: {type: Recreate}` or a rolling update
     with `maxSurge: 0`. The message names the remedy for a Deployment that already exists, because with Helm 4 the API
     refuses a switch to Recreate in one upgrade of a Deployment created without `strategy` (measured).
     `strategy.rollingUpdate: null` is accepted and never
@@ -1028,7 +1198,8 @@ code, official docs) and local renders.
     [ADR-0051](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)
 52. **With a sidecar, the HPA's built-in targets measure the main container.** The CPU and memory targets render as
     `ContainerResource` metrics of the main container once the component has a non-null sidecar, and as today's
-    pod-wide `Resource` metrics otherwise: the percentage keeps meaning percent of the main container's requests.
+    pod-wide `Resource` metrics otherwise: the percentage keeps meaning percent of the main container's requests. It
+    holds for the built-in targets only: a non-empty `autoscaling.metrics` replaces them (decision 55).
     *Rejected:* pod-wide utilization with sidecars (the sidecar moves the threshold), a key to choose.
     [ADR-0052](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0052-hpa-targets-measure-the-main-container-with-sidecars.md)
 53. **The ExternalSecret takes `dataFrom`, a curated template and a file mount, and its injection is a switch.** Still
@@ -1051,6 +1222,27 @@ code, official docs) and local renders.
     `optional`. *Rejected:* hand-written `secretKeyRef` names (they dangle under another release name or alias), a
     generated key list.
     [ADR-0054](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0054-env-externalsecretkeyref-references-the-components-own-secret.md)
+55. **The HPA's `behavior` and `metrics` are validated pass-throughs, and a non-empty `metrics` list replaces the
+    built-in targets.** `autoscaling.behavior` is Kubernetes' `spec.behavior`, closed at every level (no `tolerance`;
+    `{}` and an empty direction fail; not a converted map: a `null` inside fails). `autoscaling.metrics` is Kubernetes'
+    list, each item validated per `type`, with the target type tied to its value field. A non-empty list is the whole
+    list, rendered as written (never switched to `ContainerResource`), and the memory target next to it fails; `[]` and
+    `null` keep the built-in targets, so `spec.metrics` is never empty. A `ContainerResource` entry must name the main
+    container or a non-null sidecar. It amends decision 52. *Rejected:* curated knobs, an unvalidated pass-through, a
+    list added to the built-in targets, `tolerance`, `minReplicas: 0`.
+    [ADR-0055](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md)
+56. **KEDA: a curated ScaledObject block with a triggers map, in place of the HPA.** `keda.enabled` renders one
+    ScaledObject `<fullname>` for a Deployment, exclusive with `autoscaling.enabled`: `minReplicaCount` (1 by default,
+    not KEDA's 0) and `maxReplicaCount`, both required, the polling and cooldown periods, `fallback`, `behavior` and
+    `triggers`, a map keyed by the trigger's name where a `null` entry, optional field or metadata key is absent and
+    the metadata values are rendered as strings. Authentication by reference only (`authenticationRef`, or a
+    `...FromEnv` parameter on the main container's variables). No `spec.replicas` while KEDA is on; guards for what
+    KEDA's webhook or operator would reject, and 0.7.0's claim guard reads `keda.maxReplicaCount` (it amends decision
+    50). No KEDA annotation on
+    the chart's HPA: switching a running release is documented. *Rejected:* a pass-through of the ScaledObject spec,
+    `triggers` as KEDA's list, KEDA's `minReplicaCount` default, an annotation on every HPA, a chart-rendered
+    TriggerAuthentication.
+    [ADR-0056](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)
 
 ## Versioning and releases
 
@@ -1108,8 +1300,13 @@ cosign verify ghcr.io/jellalshadows/charts/chart-base:X.Y.Z \
   ClusterRole can grant no more than `admin` holds. In `clusterRoles` no ClusterRole's rules are checked, and only
   `cluster-admin` is rejected for what it grants (and `*`, which a `roleRef` reads as a name): any other ClusterRole
   is granted as it is, so read its rules before you bind it.
-- **Turning on `autoscaling` for a running component** removes `spec.replicas`: Kubernetes scales it to 1
-  once, then the HPA scales it back up.
+- **KEDA** (`keda`) needs KEDA's CRDs, its operator and its admission webhook (the KEDA chart installs the three;
+  the e2e runs KEDA 2.21.0): without the CRDs the whole release fails at install, and without the operator a
+  ScaledObject cannot be deleted (its finalizer). `autoscaling.enabled` and `keda.enabled` fail together: switching a
+  running component between the HPA and KEDA follows the
+  [upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md#09x--0100).
+- **Turning on `autoscaling` or `keda` for a running component** removes `spec.replicas`: Kubernetes scales it to 1
+  once, then the autoscaler scales it.
 - **Quote image tags** (`tag: "1.10"`): the schema only accepts strings, so an unquoted `1.10` fails
   instead of silently becoming `1.1`.
 

@@ -14,9 +14,9 @@
 - **Actions:** `config:best-practices` pins every `uses:` reference to a commit SHA with the version as a trailing comment (`# vX.Y.Z`), in `ci.yaml` and `release.yaml`.
 - **Tool versions:** the `*_VERSION` environment variables that have a `# renovate:` comment directly above them.
   In `ci.yaml`: `HELM_VERSION`, `HELM_UNITTEST_VERSION`, `KUBECONFORM_VERSION`, `HELM_DOCS_VERSION`,
-  `ACTIONLINT_VERSION`, `LYCHEE_VERSION`, `GATEWAY_API_VERSION`, `ESO_CHART_VERSION` and
-  `PROMETHEUS_OPERATOR_VERSION` (the External Secrets Operator chart, and the Gateway API and Prometheus
-  Operator CRDs used by the e2e). `release.yaml` tracks `HELM_VERSION` and `COSIGN_VERSION` (the cosign binary, installed by the `sigstore/cosign-installer` action, which Renovate pins like every other action).
+  `ACTIONLINT_VERSION`, `LYCHEE_VERSION`, `GATEWAY_API_VERSION`, `ESO_CHART_VERSION`,
+  `PROMETHEUS_OPERATOR_VERSION`, `KEDA_CHART_VERSION` and `METRICS_SERVER_CHART_VERSION` (the External Secrets
+  Operator, KEDA and metrics-server charts, and the Gateway API and Prometheus Operator CRDs used by the e2e). `release.yaml` tracks `HELM_VERSION` and `COSIGN_VERSION` (the cosign binary, installed by the `sigstore/cosign-installer` action, which Renovate pins like every other action).
   The `release-signing` job of `ci.yaml` reads `COSIGN_VERSION` from `release.yaml` (there is one place to bump), so a cosign bump is exercised by the CI of the Renovate pull request: it runs the signing steps against an already-signed release ([testing guide](../guides/testing.md#release-signing-checks)).
 - **Cadence:** one `ci tooling` group (`packageRules`, for the `github-actions` and `custom.regex` managers): one pull request, only for releases older than 7 days (`minimumReleaseAge`), scheduled `before 6am on monday`.
 
@@ -26,12 +26,12 @@ Nothing pings you about these; check them by hand from time to time.
 
 - The Helm 3 entry of the `lint` job matrix in `ci.yaml` (`helm: [v3.22.0, v4.3.0]`). Its **4.x entry must equal `HELM_VERSION`**: when a Renovate PR bumps `HELM_VERSION`, edit the matrix entry in that same PR.
 - The `kind` versions and the digest-pinned `node_image` values of the `e2e` matrix in `ci.yaml`.
-- The commit SHAs of the schema sources in `.github/scripts/validate-manifests.sh` (`k8s_schemas` and `crd_schemas`): they are raw URLs, which Renovate does not track. The CRD catalog also holds the Prometheus Operator schemas that kubeconform checks against: they do not follow `PROMETHEUS_OPERATOR_VERSION`.
+- The commit SHAs of the schema sources in `.github/scripts/validate-manifests.sh` (`k8s_schemas` and `crd_schemas`): they are raw URLs, which Renovate does not track. The CRD catalog also holds the Prometheus Operator and KEDA schemas that kubeconform checks against: they do not follow `PROMETHEUS_OPERATOR_VERSION` and `KEDA_CHART_VERSION`.
 
 ## Reviewing a Renovate pull request
 
 1. Read the PR body: which tools and actions change, and the release notes linked from it.
-2. Wait for CI. **Every check must be green, including the `e2e` jobs on kind**; a green `lint` alone is not enough for a Helm, Gateway API or Prometheus Operator bump.
+2. Wait for CI. **Every check must be green, including the `e2e` jobs on kind**; a green `lint` alone is not enough for a Helm, Gateway API, Prometheus Operator, KEDA or metrics-server bump. For a KEDA bump, read the Kubernetes versions the release is tested on: KEDA only warns outside them (both e2e legs are outside 2.21's), and a release that fails on one leg gets a pin per leg ([testing guide](../guides/testing.md#end-to-end-on-kind)).
    ```bash
    gh pr checks <number> --repo jellalshadows/chart-base
    ```
