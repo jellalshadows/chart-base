@@ -10,6 +10,18 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- /* externalSecret: every check reads chart-base.externalSecret, so a null data entry and a null field are absent before any check. */ -}}
 {{- $es := dict -}}
 {{- include "chart-base.externalSecret" (dict "ctx" . "out" $es) -}}
+{{- /* keda: every check reads chart-base.keda, so keda null is off and a null trigger or a null field of one is absent before any check. */ -}}
+{{- $kd := dict -}}
+{{- include "chart-base.keda" (dict "ctx" . "out" $kd) -}}
+{{- $keda := $kd.keda -}}
+{{- /* The existing claims a node attaches for one pod at a time: the persistentVolumeClaim entries of volumes declared ReadWriteOnce (the default) or ReadWriteOncePod, by volume name. The one predicate of the claim guard of a Deployment and of the fallback guard (next to such a claim, raising keda.maxReplicaCount is no remedy). */ -}}
+{{- $claimVolumes := dict -}}
+{{- include "chart-base.volumes" (dict "ctx" . "out" $claimVolumes) -}}
+{{- $onePodClaims := dict -}}
+{{- range $name, $v := $claimVolumes -}}
+{{- $mode := $v.claimAccessMode | default "ReadWriteOnce" -}}
+{{- if and (eq $v.type "persistentVolumeClaim") (has $mode (list "ReadWriteOnce" "ReadWriteOncePod")) }}{{ $_ := set $onePodClaims $name $mode }}{{ end -}}
+{{- end -}}
 {{- $dns1035 := "^[a-z]([-a-z0-9]*[a-z0-9])?$" -}}
 {{- if not (regexMatch $dns1035 $component) -}}
 {{- include "chart-base.fail" (list . (printf "alias %q must be lowercase kebab-case (%s)" $component $dns1035)) -}}
@@ -38,6 +50,69 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- range $i, $m := $hpaMetrics -}}
 {{- if and (eq $m.type "ContainerResource") (not (has $m.containerResource.container $metricContainers)) -}}
 {{- include "chart-base.fail" (list $ (printf "autoscaling.metrics[%d].containerResource.container %q is not a container of this component (its containers: %s): the HPA accepts any name and the metric never resolves" $i $m.containerResource.container (join ", " $metricContainers))) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- /* keda: one autoscaler per Deployment; then, while keda is enabled (a base values file may keep a disabled block), what KEDA's webhook or operator would reject, or what would do nothing. */ -}}
+{{- if and .Values.autoscaling.enabled $keda.enabled -}}
+{{- include "chart-base.fail" (list . "autoscaling.enabled and keda.enabled are both true, and a Deployment can have one autoscaler: set autoscaling.enabled: false in the values layer that enables keda (for an existing HPA, see \"Switching to KEDA\" in docs/upgrading.md: delete the HPA first or the upgrade fails at KEDA's admission webhook), or set keda.enabled: false") -}}
+{{- end -}}
+{{- if $keda.enabled -}}
+{{- if gt (len $fullname) 54 -}}
+{{- include "chart-base.fail" (list . (printf "the ScaledObject's HPA is named keda-hpa-%s and must fit in 63 characters, so with keda.enabled the resource name %q (%d chars) must be at most 54: shorten the release name or the alias" $fullname $fullname (len $fullname))) -}}
+{{- end -}}
+{{- if gt (int64 $keda.minReplicaCount) (int64 $keda.maxReplicaCount) -}}
+{{- include "chart-base.fail" (list . (printf "keda.minReplicaCount (%d) must be <= keda.maxReplicaCount (%d)" (int64 $keda.minReplicaCount) (int64 $keda.maxReplicaCount))) -}}
+{{- end -}}
+{{- if not $kd.triggers -}}
+{{- include "chart-base.fail" (list . "keda.enabled is true and keda.triggers has no trigger (a null entry is absent): add one, or set keda.enabled: false") -}}
+{{- end -}}
+{{- /* Per trigger, in key order. cpu and memory are KEDA's resource scalers; containerName is a metadata key of theirs. */ -}}
+{{- $onlyResource := true -}}
+{{- range $name, $t := $kd.triggers -}}
+{{- $isResource := has $t.type (list "cpu" "memory") -}}
+{{- $metricType := get $t "metricType" -}}
+{{- if not $isResource }}{{ $onlyResource = false }}{{ end -}}
+{{- if and $isResource (not (has $metricType (list "Utilization" "AverageValue"))) -}}
+{{- include "chart-base.fail" (list $ (printf "keda.triggers.%s is a %s trigger and needs metricType: Utilization or AverageValue (KEDA's operator rejects it otherwise and the ScaledObject never becomes Ready): set keda.triggers.%s.metricType" $name $t.type $name)) -}}
+{{- end -}}
+{{- if and (not $isResource) (eq $metricType "Utilization") -}}
+{{- include "chart-base.fail" (list $ (printf "keda.triggers.%s.metricType: Utilization applies to cpu and memory triggers only (KEDA rejects it at reconcile): use AverageValue or Value, or remove it" $name)) -}}
+{{- end -}}
+{{- if and $isResource (hasKey $t.metadata "containerName") (not (has (toString $t.metadata.containerName) $metricContainers)) -}}
+{{- include "chart-base.fail" (list $ (printf "keda.triggers.%s.metadata.containerName %q is not a container of this component (its containers: %s): KEDA accepts any name and the metric never resolves" $name (toString $t.metadata.containerName) (join ", " $metricContainers))) -}}
+{{- end -}}
+{{- if and $t.useCachedMetrics (has $t.type (list "cron" "cpu" "memory")) -}}
+{{- include "chart-base.fail" (list $ (printf "keda.triggers.%s.useCachedMetrics is not supported for cron, cpu and memory triggers (KEDA denies it): remove it" $name)) -}}
+{{- end -}}
+{{- end -}}
+{{- $periods := list -}}
+{{- range $f := list "cooldownPeriod" "initialCooldownPeriod" }}{{ if not (kindIs "invalid" (index $keda $f)) }}{{ $periods = append $periods $f }}{{ end }}{{ end -}}
+{{- if and $onlyResource (eq (int64 $keda.minReplicaCount) 0) -}}
+{{- $nulls := list -}}
+{{- range $f := $periods }}{{ $nulls = append $nulls (printf "keda.%s: null" $f) }}{{ end -}}
+{{- $alsoNull := "" -}}
+{{- if $nulls }}{{ $alsoNull = printf " and %s (KEDA reads them only on the step to zero)" (join " and " $nulls) }}{{ end -}}
+{{- include "chart-base.fail" (list . (printf "keda.triggers holds only cpu and memory triggers and keda.minReplicaCount is 0: they cannot scale from zero (KEDA's admission webhook denies it): set keda.minReplicaCount: 1%s, or add a trigger of another type" $alsoNull)) -}}
+{{- end -}}
+{{- with $keda.fallback -}}
+{{- if $onlyResource -}}
+{{- include "chart-base.fail" (list $ "keda.fallback needs a trigger other than cpu or memory (KEDA's admission webhook denies it otherwise): set keda.fallback: null, or add such a trigger") -}}
+{{- end -}}
+{{- if gt (int64 .replicas) (int64 $keda.maxReplicaCount) -}}
+{{- if $onePodClaims -}}
+{{- $claim := keys $onePodClaims | sortAlpha | first -}}
+{{- include "chart-base.fail" (list $ (printf "keda.fallback.replicas (%d) is above keda.maxReplicaCount (%d): the HPA caps it, so lower it to 1 or less (volumes.%s mounts the existing claim %q, declared %s, which keeps keda.maxReplicaCount at 1)" (int64 .replicas) (int64 $keda.maxReplicaCount) $claim (index $claimVolumes $claim).claimName (index $onePodClaims $claim))) -}}
+{{- else -}}
+{{- include "chart-base.fail" (list $ (printf "keda.fallback.replicas (%d) is above keda.maxReplicaCount (%d): the HPA caps it, so lower it to %d or less, or raise keda.maxReplicaCount" (int64 .replicas) (int64 $keda.maxReplicaCount) (int64 $keda.maxReplicaCount))) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- /* The periods are read only on the step to zero (minReplicaCount 0; idleReplicaCount is not offered). Scaling to zero is no remedy where only cpu and memory triggers exist. */ -}}
+{{- if ge (int64 $keda.minReplicaCount) 1 -}}
+{{- range $f := $periods -}}
+{{- $toZero := ternary "" "set keda.minReplicaCount: 0 to scale to zero, or " $onlyResource -}}
+{{- include "chart-base.fail" (list $ (printf "keda.%s only times the step to zero replicas, and keda.minReplicaCount is %d, so it has no effect: %sremove it (to slow down scale-in between minReplicaCount and maxReplicaCount, use keda.behavior.scaleDown.stabilizationWindowSeconds)" $f (int64 $keda.minReplicaCount) $toZero)) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -387,7 +462,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- end -}}
 {{- end -}}
 
-{{- /* volumes: an existing claim declared ReadWriteOnce or ReadWriteOncePod is attached for one pod at a time, so a Deployment that mounts it must never run two pods. Only persistentVolumeClaim entries: an ephemeral volume has a claim per pod. */ -}}
+{{- /* volumes: an existing claim declared ReadWriteOnce or ReadWriteOncePod is attached for one pod at a time, so a Deployment that mounts it must never run two pods. Only persistentVolumeClaim entries: an ephemeral volume has a claim per pod. This is the Deployment branch: its remedies are a Deployment's (another workload type gets a branch of its own). */ -}}
 {{- if eq .Values.workload.type "deployment" -}}
 {{- $claimStrategy := .Values.strategy | default dict -}}
 {{- $claimRollingUpdate := $claimStrategy.rollingUpdate | default dict -}}
@@ -399,15 +474,19 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- end -}}
 {{- $twoPods := list -}}
 {{- if .Values.autoscaling.enabled }}{{ $twoPods = append $twoPods "autoscaling.enabled is true" }}{{ end -}}
-{{- if and (not .Values.autoscaling.enabled) (gt (int64 .Values.replicas) 1) }}{{ $twoPods = append $twoPods (printf "replicas is %d" (int64 .Values.replicas)) }}{{ end -}}
+{{- /* With keda.enabled, replicas is not rendered and the HPA KEDA creates caps every scale-up, fallback included, at keda.maxReplicaCount. */ -}}
+{{- if and $keda.enabled (gt (int64 $keda.maxReplicaCount) 1) }}{{ $twoPods = append $twoPods (printf "keda.maxReplicaCount is %d" (int64 $keda.maxReplicaCount)) }}{{ end -}}
+{{- if and (not .Values.autoscaling.enabled) (not $keda.enabled) (gt (int64 .Values.replicas) 1) }}{{ $twoPods = append $twoPods (printf "replicas is %d" (int64 .Values.replicas)) }}{{ end -}}
+{{- $onePod := "replicas 0 or 1, autoscaling.enabled: false" -}}
+{{- if $keda.enabled }}{{ $onePod = "keda.maxReplicaCount: 1" }}{{ end -}}
 {{- if and $surges (not .Values.strategy) }}{{ $twoPods = append $twoPods "strategy is not set, and the Kubernetes default (RollingUpdate, maxSurge 25%) adds a pod" }}{{ end -}}
 {{- if and $surges .Values.strategy (not (hasKey $claimRollingUpdate "maxSurge")) }}{{ $twoPods = append $twoPods "strategy.rollingUpdate.maxSurge is not set, and the Kubernetes default (25%) adds a pod" }}{{ end -}}
 {{- if and $surges (hasKey $claimRollingUpdate "maxSurge") }}{{ $twoPods = append $twoPods (printf "strategy.rollingUpdate.maxSurge is %v, which adds a pod" $claimRollingUpdate.maxSurge) }}{{ end -}}
 {{- range $name, $v := $volumes -}}
 {{- $declared := $v.claimAccessMode | default "ReadWriteOnce" -}}
-{{- if and $twoPods (eq $v.type "persistentVolumeClaim") (has $declared (list "ReadWriteOnce" "ReadWriteOncePod")) -}}
+{{- if and $twoPods (hasKey $onePodClaims $name) -}}
 {{- $declaration := printf "%s (claimAccessMode%s)" $declared (ternary "" ", the default" (hasKey $v "claimAccessMode")) -}}
-{{- include "chart-base.fail" (list $ (printf "volumes.%s mounts the existing claim %q, declared %s: a node attaches such a claim for one pod at a time, and this Deployment can run a second pod (%s); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: replicas 0 or 1, autoscaling.enabled: false, and a strategy that adds no pod: strategy: {type: Recreate} for a new component; strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}} for a Deployment that already exists (with Helm 4 the API refuses a switch to Recreate in that upgrade); strategy: {type: Recreate, rollingUpdate: null} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.%s.claimAccessMode" $name $v.claimName $declaration (join "; " $twoPods) $name)) -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s mounts the existing claim %q, declared %s: a node attaches such a claim for one pod at a time, and this Deployment can run a second pod (%s); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: %s, and a strategy that adds no pod: strategy: {type: Recreate} for a new component; strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}} for a Deployment that already exists (with Helm 4 the API refuses a switch to Recreate in that upgrade); strategy: {type: Recreate, rollingUpdate: null} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.%s.claimAccessMode" $name $v.claimName $declaration (join "; " $twoPods) $onePod $name)) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

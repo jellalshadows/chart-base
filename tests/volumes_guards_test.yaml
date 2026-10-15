@@ -991,3 +991,100 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: accepts a ReadWriteOnce claim with keda, keda.maxReplicaCount 1 and Recreate
+    set:
+      keda.enabled: true
+      keda.maxReplicaCount: 1
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+      strategy: {type: Recreate}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a ReadWriteOnce claim with keda, keda.maxReplicaCount 1 and RollingUpdate with maxSurge 0
+    set:
+      keda.enabled: true
+      keda.maxReplicaCount: 1
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a ReadWriteOnce claim with keda and keda.maxReplicaCount 2, naming keda.maxReplicaCount 1 as the remedy
+    set:
+      keda.enabled: true
+      keda.maxReplicaCount: 2
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+      strategy: {type: Recreate}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOnce \(claimAccessMode, the default\): a node attaches such a claim for one pod at a time, and this Deployment can run a second pod \(keda.maxReplicaCount is 2\); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: keda.maxReplicaCount: 1, and a strategy that adds no pod: strategy: \{type: Recreate\} for a new component; strategy: \{type: RollingUpdate, rollingUpdate: \{maxSurge: 0, maxUnavailable: 1\}\} for a Deployment that already exists \(with Helm 4 the API refuses a switch to Recreate in that upgrade\); strategy: \{type: Recreate, rollingUpdate: null\} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.data.claimAccessMode'
+
+  - it: rejects a ReadWriteOnce claim with keda and the default strategy, with the remedies of keda
+    set:
+      keda.enabled: true
+      keda.maxReplicaCount: 1
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOnce \(claimAccessMode, the default\): a node attaches such a claim for one pod at a time, and this Deployment can run a second pod \(strategy is not set, and the Kubernetes default \(RollingUpdate, maxSurge 25%\) adds a pod\); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: keda.maxReplicaCount: 1, and a strategy that adds no pod: strategy: \{type: Recreate\} for a new component; strategy: \{type: RollingUpdate, rollingUpdate: \{maxSurge: 0, maxUnavailable: 1\}\} for a Deployment that already exists \(with Helm 4 the API refuses a switch to Recreate in that upgrade\); strategy: \{type: Recreate, rollingUpdate: null\} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.data.claimAccessMode'
+
+  - it: accepts replicas 3 next to keda with keda.maxReplicaCount 1 (replicas is not rendered with keda)
+    set:
+      replicas: 3
+      keda.enabled: true
+      keda.maxReplicaCount: 1
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+      strategy: {type: Recreate}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a claim declared ReadWriteMany with keda and keda.maxReplicaCount 5
+    set:
+      keda.enabled: true
+      keda.maxReplicaCount: 5
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data, claimAccessMode: ReadWriteMany}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: fails for fallback.replicas above keda.maxReplicaCount next to a ReadWriteOnce claim, offering only to lower it
+    set:
+      keda.enabled: true
+      keda.maxReplicaCount: 1
+      keda.fallback: {failureThreshold: 3, replicas: 2}
+      keda.triggers.queue: {type: rabbitmq, metadata: {queueName: orders, mode: QueueLength, value: "20", hostFromEnv: RABBITMQ_URL}}
+      strategy: {type: Recreate}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: keda.fallback.replicas \(2\) is above keda.maxReplicaCount \(1\): the HPA caps it, so lower it to 1 or less \(volumes.data mounts the existing claim "sales-data", declared ReadWriteOnce, which keeps keda.maxReplicaCount at 1\)'
+
+  - it: accepts the fallback guard's remedy next to a ReadWriteOnce claim (fallback.replicas 1)
+    set:
+      keda.enabled: true
+      keda.maxReplicaCount: 1
+      keda.fallback: {failureThreshold: 3, replicas: 1}
+      keda.triggers.queue: {type: rabbitmq, metadata: {queueName: orders, mode: QueueLength, value: "20", hostFromEnv: RABBITMQ_URL}}
+      strategy: {type: Recreate}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - hasDocuments:
+          count: 0

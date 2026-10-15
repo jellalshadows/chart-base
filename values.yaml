@@ -112,7 +112,8 @@ configFiles:
 # mode in `claimAccessMode`: `ReadWriteOnce` (the default), `ReadWriteOncePod`, `ReadWriteMany` or `ReadOnlyMany`.
 # chart-base cannot read the claim, so a false declaration goes unnoticed. Two rules read it: `ReadOnlyMany` renders the
 # volume and its mount read-only, and on a Deployment a `ReadWriteOnce` or `ReadWriteOncePod` claim requires `replicas`
-# 0 or 1, `autoscaling.enabled: false` and a strategy that adds no pod (`{type: Recreate}`, or `{type: RollingUpdate,
+# 0 or 1 and `autoscaling.enabled: false` (with `keda.enabled`, `keda.maxReplicaCount: 1`), and a strategy that adds
+# no pod (`{type: Recreate}`, or `{type: RollingUpdate,
 # rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}` for a Deployment that already exists; see `strategy`).
 volumes: {}
 
@@ -379,21 +380,31 @@ autoscaling:
 # `autoscaling`. Off unless `keda.enabled`; `keda: null` from any values layer, or no `keda` key at all, means off.
 keda:
   # -- Render a ScaledObject named `<fullname>` (deployments only); KEDA then creates and owns the HPA
-  # `keda-hpa-<fullname>`. The cluster needs KEDA's CRDs, or the whole release fails at install.
+  # `keda-hpa-<fullname>`, so with `keda.enabled` the resource name is at most 54 characters. Exclusive with
+  # `autoscaling.enabled` (the render fails with both): switching an existing release between the two is documented in
+  # docs/upgrading.md. The cluster needs KEDA's CRDs, or the whole release fails at install.
   enabled: false
   # -- Lowest replica count. `0` scales to zero, written on purpose (KEDA's own default is 0, the chart's 1). Required:
-  # a `null` fails the schema (it would hand the component KEDA's 0).
+  # a `null` fails the schema (it would hand the component KEDA's 0). Not `autoscaling.minReplicas`: a component that
+  # moves from the HPA restates its minimum here.
   minReplicaCount: 1
-  # -- Highest replica count (KEDA's own default is 100). Required: a `null` fails the schema.
+  # -- Highest replica count (KEDA's own default is 100); at least `minReplicaCount`. Required: a `null` fails the
+  # schema. With a `ReadWriteOnce` or `ReadWriteOncePod` claim in `volumes` it must be 1.
   maxReplicaCount: 10
-  # -- (int) Seconds between two polls of the triggers. `null` = KEDA's default (30).
+  # -- (int) Seconds between two polls of the triggers. `null` = KEDA's default (30). It drives scaling only with
+  # `minReplicaCount: 0` or `useCachedMetrics`; it also sets how often KEDA refreshes the ScaledObject's conditions,
+  # which Helm 4 `--wait` reads.
   pollingInterval: null
-  # -- (int) Seconds after the last active trigger before KEDA scales to zero. `null` = KEDA's default (300).
+  # -- (int) Seconds after the last active trigger before KEDA scales to zero. `null` = KEDA's default (300). Only with
+  # `minReplicaCount: 0`: next to a higher minimum it does nothing, and the render fails (to slow down scale-in between
+  # the minimum and the maximum, use `behavior.scaleDown.stabilizationWindowSeconds`).
   cooldownPeriod: null
-  # -- (int) Seconds after the ScaledObject is created before KEDA may scale to zero. `null` = KEDA's default (0).
+  # -- (int) Seconds after the ScaledObject is created before KEDA may scale to zero. `null` = KEDA's default (0). Only
+  # with `minReplicaCount: 0`, like `cooldownPeriod`.
   initialCooldownPeriod: null
   # -- (object) `{failureThreshold, replicas}`, both required: after `failureThreshold` failed polls of a trigger KEDA
-  # scales to `replicas`. `null` = none.
+  # scales to `replicas` and the ScaledObject stays Ready. Needs a trigger other than `cpu` and `memory`, and
+  # `replicas` at most `maxReplicaCount` (the HPA caps it); the render fails otherwise. `null` = none.
   fallback: null
   # -- (object) The `behavior` of the HPA KEDA creates (`advanced.horizontalPodAutoscalerConfig.behavior`), with the
   # shape and the rules of `autoscaling.behavior` (closed, no `tolerance`, a `null` inside fails). `null` = not rendered.
@@ -405,9 +416,15 @@ keda:
   # ClusterTriggerAuthentication`) ClusterTriggerAuthentication. In `keda.triggers` a `null` entry, a `null` optional
   # field (`metricType`, `authenticationRef` or its `kind`, `useCachedMetrics`) and a `null` metadata key are absent (a
   # `null` `type` or `metadata` fails the schema): an override file removes a trigger with `<name>: null` and one
-  # parameter with `metadata.<key>: null`. `useCachedMetrics: false` (KEDA's default) is not rendered. Quote a trigger
-  # name that YAML 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`, `off`, lowercase, capitalized or uppercase):
-  # unquoted it becomes `true` or `false`.
+  # parameter with `metadata.<key>: null`; `useCachedMetrics: false` (KEDA's default) is not rendered. While
+  # `keda.enabled`, the render fails without a trigger, for a `cpu` or `memory` trigger whose `metricType` is not `Utilization` or `AverageValue`, for
+  # `Utilization` on another trigger, for `useCachedMetrics: true` on a `cron`, `cpu` or `memory` trigger, and for only
+  # `cpu` and `memory` triggers with `minReplicaCount: 0` (they cannot scale from zero). A `cpu` or `memory` trigger
+  # measures the whole pod, sidecars included, unless `metadata.containerName` names a container: the main container
+  # (the alias) or a non-null sidecar (the render fails otherwise). The chart does not check a scaler's metadata: a
+  # `...FromEnv` parameter names a variable of the main container (KEDA reads the first container's `envFrom`, the
+  # component's Secret included, and its `env`). Quote a trigger name that YAML 1.1 reads as a boolean (`on`, `yes`,
+  # `no`, `y`, `n`, `off`, lowercase, capitalized or uppercase): unquoted it becomes `true` or `false`.
   triggers: {}
 
 pdb:
