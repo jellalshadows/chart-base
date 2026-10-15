@@ -349,6 +349,15 @@ autoscaling:
   # -- (int) Target average memory utilization, in percent of the main container's memory request, measured like the
   # CPU target (see `targetCPUUtilizationPercentage`). `null` = not used.
   targetMemoryUtilizationPercentage: null
+  # -- (object) The HPA's `spec.behavior`, in Kubernetes' own shape: `scaleUp` and `scaleDown`, each with
+  # `stabilizationWindowSeconds` (0 to 3600), `selectPolicy` (`Max`, `Min` or `Disabled`) and `policies` (at least one,
+  # each `{type: Pods or Percent, value: 1 or more, periodSeconds: 1 to 1800}`), integers only. Closed at every level: a
+  # misspelt field fails the render (Helm 3 alone would only warn and drop it). `null` = not rendered (the API server's
+  # defaults); `{}` and an empty direction fail (a value that does nothing). Not offered: `tolerance` (Kubernetes 1.33
+  # and 1.34 drop it without a word). Not a converted map: a `null` inside (`scaleUp: null`, `policies: null`) fails the
+  # schema. An override file merges into the `behavior` of a lower layer: it changes a field of a direction by
+  # restating it, and cannot remove one direction; `behavior: null` removes the whole block.
+  behavior: null
 
 pdb:
   # -- Render a PodDisruptionBudget (policy/v1). Deployments only.

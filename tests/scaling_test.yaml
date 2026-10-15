@@ -175,3 +175,61 @@ tests:
           value:
             - {type: ContainerResource, containerResource: {name: cpu, container: chart-base, target: {type: Utilization, averageUtilization: 70}}}
             - {type: ContainerResource, containerResource: {name: memory, container: chart-base, target: {type: Utilization, averageUtilization: 75}}}
+
+  - it: renders spec.behavior as written (both directions, every field, the policies in their order)
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 600
+          selectPolicy: Min
+          policies:
+            - {type: Pods, value: 1, periodSeconds: 60}
+            - {type: Percent, value: 10, periodSeconds: 120}
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          selectPolicy: Max
+          policies:
+            - {type: Percent, value: 100, periodSeconds: 15}
+    asserts:
+      - equal:
+          path: spec.behavior
+          value:
+            scaleDown:
+              stabilizationWindowSeconds: 600
+              selectPolicy: Min
+              policies:
+                - {type: Pods, value: 1, periodSeconds: 60}
+                - {type: Percent, value: 10, periodSeconds: 120}
+            scaleUp:
+              stabilizationWindowSeconds: 0
+              selectPolicy: Max
+              policies:
+                - {type: Percent, value: 100, periodSeconds: 15}
+
+  - it: renders one direction alone, and selectPolicy Disabled without policies
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.behavior.scaleDown.selectPolicy: Disabled
+    asserts:
+      - equal:
+          path: spec.behavior
+          value:
+            scaleDown:
+              selectPolicy: Disabled
+
+  - it: renders no behavior for behavior null (the default; the API server's defaults apply)
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+    asserts:
+      - notExists:
+          path: spec.behavior
+      - equal:
+          path: spec.scaleTargetRef
+          value:
+            apiVersion: apps/v1
+            kind: Deployment
+            name: vending-chart-base

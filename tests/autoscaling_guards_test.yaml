@@ -1,0 +1,178 @@
+suite: autoscaling (the HorizontalPodAutoscaler's behavior and metrics), schema rules and guards
+templates:
+  - templates/validate.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+values:
+  - values/base.yaml
+tests:
+  - it: accepts every field of behavior at its bounds (windows 0 and 3600, periods 1 and 1800, value 1)
+    set:
+      autoscaling.behavior:
+        scaleUp: {stabilizationWindowSeconds: 0, selectPolicy: Max, policies: [{type: Pods, value: 1, periodSeconds: 1}]}
+        scaleDown: {stabilizationWindowSeconds: 3600, selectPolicy: Min, policies: [{type: Percent, value: 100, periodSeconds: 1800}]}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects stabilizationWindowSeconds -1
+    set:
+      autoscaling.behavior.scaleUp.stabilizationWindowSeconds: -1
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior/scaleUp/stabilizationWindowSeconds': minimum: got -1, want 0"
+
+  - it: rejects stabilizationWindowSeconds 3601 (one hour at most)
+    set:
+      autoscaling.behavior.scaleDown.stabilizationWindowSeconds: 3601
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior/scaleDown/stabilizationWindowSeconds': maximum: got 3,601, want 3,600"
+
+  - it: rejects a policy periodSeconds of 0
+    set:
+      autoscaling.behavior.scaleDown.policies: [{type: Pods, value: 1, periodSeconds: 0}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior/scaleDown/policies/0/periodSeconds': minimum: got 0, want 1"
+
+  - it: rejects a policy periodSeconds of 1801 (30 minutes at most)
+    set:
+      autoscaling.behavior.scaleUp.policies: [{type: Pods, value: 1, periodSeconds: 1801}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior/scaleUp/policies/0/periodSeconds': maximum: got 1,801, want 1,800"
+
+  - it: rejects a policy value of 0
+    set:
+      autoscaling.behavior.scaleUp.policies: [{type: Percent, value: 0, periodSeconds: 60}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior/scaleUp/policies/0/value': minimum: got 0, want 1"
+
+  - it: rejects selectPolicy disabled (the enum is Max, Min, Disabled)
+    set:
+      autoscaling.behavior.scaleDown.selectPolicy: disabled
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior/scaleDown/selectPolicy': value must be one of 'Max', 'Min', 'Disabled'"
+
+  - it: rejects a policy of type percent (the enum is Pods, Percent)
+    set:
+      autoscaling.behavior.scaleDown.policies: [{type: percent, value: 10, periodSeconds: 60}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior/scaleDown/policies/0/type': value must be one of 'Pods', 'Percent'"
+
+  - it: rejects policies [] (a direction with policies needs one)
+    set:
+      autoscaling.behavior.scaleDown.policies: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior/scaleDown/policies': minItems: got 0, want 1"
+
+  - it: rejects a policy without type
+    set:
+      autoscaling.behavior.scaleDown.policies: [{value: 1, periodSeconds: 60}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior/scaleDown/policies/0': missing property 'type'"
+
+  - it: rejects a policy without value
+    set:
+      autoscaling.behavior.scaleDown.policies: [{type: Pods, periodSeconds: 60}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior/scaleDown/policies/0': missing property 'value'"
+
+  - it: rejects a policy without periodSeconds
+    set:
+      autoscaling.behavior.scaleDown.policies: [{type: Pods, value: 1}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior/scaleDown/policies/0': missing property 'periodSeconds'"
+
+  - it: rejects a string where an integer is expected (value "4")
+    set:
+      autoscaling.behavior.scaleUp.policies: [{type: Pods, value: "4", periodSeconds: 60}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior/scaleUp/policies/0/value': got string, want integer"
+
+  - it: rejects behavior {} (a behavior that does nothing)
+    set:
+      autoscaling.behavior: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior': minProperties: got 0, want 1"
+
+  - it: rejects scaleDown {} (a direction that does nothing)
+    set:
+      autoscaling.behavior.scaleDown: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior/scaleDown': minProperties: got 0, want 1"
+
+  - it: rejects tolerance (dropped without a word on Kubernetes 1.33 and 1.34)
+    set:
+      autoscaling.behavior.scaleDown.tolerance: "0.05"
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior/scaleDown': additional properties 'tolerance' not allowed"
+
+  - it: rejects a misspelt direction (scaledown)
+    set:
+      autoscaling.behavior.scaledown.selectPolicy: Max
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior': additional properties 'scaledown' not allowed"
+
+  - it: rejects a misspelt field of a direction (stabilisationWindowSeconds)
+    set:
+      autoscaling.behavior.scaleDown.stabilisationWindowSeconds: 60
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior/scaleDown': additional properties 'stabilisationWindowSeconds' not allowed"
+
+  - it: rejects a misspelt field of a policy (periodsecond)
+    set:
+      autoscaling.behavior.scaleDown.policies: [{type: Pods, value: 1, periodSeconds: 60, periodsecond: 60}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior/scaleDown/policies/0': additional properties 'periodsecond' not allowed"
+
+  - it: rejects scaleUp null (behavior is not a converted map, so a null inside is an error)
+    set:
+      autoscaling.behavior:
+        scaleUp: null
+        scaleDown: {selectPolicy: Max}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior/scaleUp': got null, want object"
+
+  - it: rejects policies null
+    set:
+      autoscaling.behavior.scaleDown:
+        selectPolicy: Max
+        policies: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior/scaleDown/policies': got null, want array"
+
+  - it: accepts selectPolicy Disabled without policies
+    set:
+      autoscaling.behavior.scaleUp.selectPolicy: Disabled
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts behavior null (the default, not rendered)
+    set:
+      autoscaling.behavior: null
+    asserts:
+      - hasDocuments:
+          count: 0

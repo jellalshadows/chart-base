@@ -7,9 +7,7 @@ metadata:
     {{- include "chart-base.labels" . | nindent 4 }}
 spec:
   scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: {{ include "chart-base.fullname" . }}
+    {{- include "chart-base.scaleTargetRef" . | nindent 4 }}
   minReplicas: {{ .Values.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.autoscaling.maxReplicas }}
   {{- /* With a sidecar the built-in targets measure the main container alone (ContainerResource); without one, the pod (Resource). */}}
@@ -20,4 +18,9 @@ spec:
     {{- with .Values.autoscaling.targetMemoryUtilizationPercentage }}
     {{- include "chart-base.utilizationMetric" (dict "name" "memory" "percent" . "container" $container) | nindent 4 }}
     {{- end }}
+  {{- /* spec.behavior as written (the schema closes it at every level and rejects a null inside); null renders nothing and the API server's defaults apply. */}}
+  {{- with .Values.autoscaling.behavior }}
+  behavior:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 {{- end }}

@@ -28,3 +28,16 @@ Usage: include "chart-base.utilizationMetric" (dict "name" "cpu" "percent" <valu
       averageUtilization: {{ .percent }}
 {{- end -}}
 {{- end -}}
+
+{{/*
+chart-base.scaleTargetRef: the workload an autoscaler of this component targets, as the three lines of a
+scaleTargetRef: apps/v1, Deployment, <fullname>. The one writer of the target of the HorizontalPodAutoscaler
+(templates/hpa.yaml) and of the ScaledObject (templates/scaledobject.yaml): another workload type changes this helper
+alone.
+Usage: scaleTargetRef: {{- include "chart-base.scaleTargetRef" . | nindent 4 }}
+*/}}
+{{- define "chart-base.scaleTargetRef" -}}
+apiVersion: apps/v1
+kind: Deployment
+name: {{ include "chart-base.fullname" . }}
+{{- end -}}
