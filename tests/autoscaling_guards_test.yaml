@@ -176,3 +176,239 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: accepts a Resource entry (Utilization)
+    set:
+      autoscaling.metrics: [{type: Resource, resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}}]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a ContainerResource entry of the main container (AverageValue, a string quantity)
+    set:
+      autoscaling.enabled: true
+      autoscaling.metrics: [{type: ContainerResource, containerResource: {name: memory, container: chart-base, target: {type: AverageValue, averageValue: 300Mi}}}]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a Pods entry with a selector (AverageValue, a number quantity)
+    set:
+      autoscaling.metrics: [{type: Pods, pods: {metric: {name: queue_depth, selector: {matchLabels: {queue: orders}}}, target: {type: AverageValue, averageValue: 30}}}]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts an Object entry (Value, describedObject with apiVersion)
+    set:
+      autoscaling.metrics: [{type: Object, object: {describedObject: {apiVersion: networking.k8s.io/v1, kind: Ingress, name: main}, metric: {name: requests_per_second}, target: {type: Value, value: 2k}}}]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts an External entry (AverageValue)
+    set:
+      autoscaling.metrics: [{type: External, external: {metric: {name: sqs_messages, selector: {matchLabels: {queue: orders}}}, target: {type: AverageValue, averageValue: "30"}}}]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects an entry without the block of its type
+    set:
+      autoscaling.metrics: [{type: Pods}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0': missing property 'pods'"
+
+  - it: rejects another block next to the block of the type (type Resource with pods)
+    set:
+      autoscaling.metrics: [{type: Resource, resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}, pods: {metric: {name: x}, target: {type: AverageValue, averageValue: "1"}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/pods': false schema"
+
+  - it: rejects an unknown metric type
+    set:
+      autoscaling.metrics: [{type: Custom}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/type': value must be one of 'Resource', 'ContainerResource', 'Pods', 'Object', 'External'"
+
+  - it: rejects a Resource name other than cpu and memory
+    set:
+      autoscaling.metrics: [{type: Resource, resource: {name: foo, target: {type: Utilization, averageUtilization: 70}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/resource/name': value must be one of 'cpu', 'memory'"
+
+  - it: rejects Utilization with averageValue on a Resource entry (the target type is tied to its value field)
+    set:
+      autoscaling.metrics: [{type: Resource, resource: {name: cpu, target: {type: Utilization, averageValue: 500m}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/resource/target/averageValue': false schema"
+
+  - it: rejects AverageValue with averageUtilization on a ContainerResource entry
+    set:
+      autoscaling.metrics: [{type: ContainerResource, containerResource: {name: cpu, container: chart-base, target: {type: AverageValue, averageUtilization: 70}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/containerResource/target/averageUtilization': false schema"
+
+  - it: rejects Value on a Pods entry (AverageValue only)
+    set:
+      autoscaling.metrics: [{type: Pods, pods: {metric: {name: queue_depth}, target: {type: Value, averageValue: "30"}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/pods/target/type': value must be 'AverageValue'"
+
+  - it: rejects Utilization on an Object entry
+    set:
+      autoscaling.metrics: [{type: Object, object: {describedObject: {kind: Ingress, name: main}, metric: {name: rps}, target: {type: Utilization, value: "10"}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/object/target/type': value must be one of 'Value', 'AverageValue'"
+
+  - it: rejects Value with averageValue on an External entry
+    set:
+      autoscaling.metrics: [{type: External, external: {metric: {name: sqs_messages}, target: {type: Value, averageValue: "30"}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/external/target/averageValue': false schema"
+
+  - it: rejects AverageValue with value on an Object entry
+    set:
+      autoscaling.metrics: [{type: Object, object: {describedObject: {kind: Ingress, name: main}, metric: {name: rps}, target: {type: AverageValue, value: "10"}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/object/target/value': false schema"
+
+  - it: rejects an Object entry without describedObject.kind
+    set:
+      autoscaling.metrics: [{type: Object, object: {describedObject: {name: main}, metric: {name: rps}, target: {type: Value, value: "10"}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/object/describedObject': missing property 'kind'"
+
+  - it: rejects a ContainerResource container that is no DNS label
+    set:
+      autoscaling.metrics: [{type: ContainerResource, containerResource: {name: cpu, container: Main, target: {type: Utilization, averageUtilization: 70}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/containerResource/container': 'Main' does not match pattern"
+
+  - it: rejects a null item (a list is not converted, and --set by index leaves null items)
+    set:
+      autoscaling.metrics: [null]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0': got null, want object"
+
+  - it: rejects a null field inside an item (selector null)
+    set:
+      autoscaling.metrics: [{type: External, external: {metric: {name: sqs_messages, selector: null}, target: {type: Value, value: 100}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/external/metric/selector': got null, want object"
+
+  - it: rejects a misspelt field of a target (averageutilization)
+    set:
+      autoscaling.metrics: [{type: Resource, resource: {name: cpu, target: {type: Utilization, averageUtilization: 70, averageutilization: 70}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/resource/target': additional properties 'averageutilization' not allowed"
+
+  - it: rejects an empty averageValue (a quantity is never empty)
+    set:
+      autoscaling.metrics: [{type: Pods, pods: {metric: {name: queue_depth}, target: {type: AverageValue, averageValue: ""}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/pods/target/averageValue': minLength: got 0, want 1"
+
+  - it: rejects a metrics item without type
+    set:
+      autoscaling.metrics: [{resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0': missing property 'type'"
+
+  - it: rejects averageUtilization 0
+    set:
+      autoscaling.metrics: [{type: Resource, resource: {name: cpu, target: {type: Utilization, averageUtilization: 0}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/resource/target/averageUtilization': minimum: got 0, want 1"
+
+  - it: fails for the memory target next to a non-empty metrics list, with the full message
+    set:
+      autoscaling.enabled: true
+      autoscaling.metrics: [{type: Resource, resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}}]
+      autoscaling.targetMemoryUtilizationPercentage: 75
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: autoscaling.targetMemoryUtilizationPercentage is not used when autoscaling.metrics is set \(the list replaces the built-in targets\): set autoscaling.targetMemoryUtilizationPercentage: null, and add a memory entry to autoscaling.metrics if the component scales on memory'
+
+  - it: accepts the memory target with metrics [] (the built-in memory target)
+    set:
+      autoscaling.enabled: true
+      autoscaling.metrics: []
+      autoscaling.targetMemoryUtilizationPercentage: 75
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts the memory target next to a metrics list while autoscaling is disabled (a guard runs while its block is enabled)
+    set:
+      autoscaling.metrics: [{type: Resource, resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}}]
+      autoscaling.targetMemoryUtilizationPercentage: 75
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a ContainerResource entry of a sidecar
+    set:
+      autoscaling.enabled: true
+      autoscaling.metrics: [{type: ContainerResource, containerResource: {name: cpu, container: proxy, target: {type: Utilization, averageUtilization: 70}}}]
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: fails for a ContainerResource entry of a null sidecar (a null entry is no container)
+    set:
+      autoscaling.enabled: true
+      autoscaling.metrics: [{type: ContainerResource, containerResource: {name: cpu, container: proxy, target: {type: Utilization, averageUtilization: 70}}}]
+      sidecars:
+        proxy: null
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: autoscaling.metrics\[0\].containerResource.container "proxy" is not a container of this component \(its containers: chart-base\): the HPA accepts any name and the metric never resolves'
+
+  - it: fails for a ContainerResource entry of an init container (it has exited before the metric is read)
+    set:
+      autoscaling.enabled: true
+      autoscaling.metrics: [{type: Resource, resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}}, {type: ContainerResource, containerResource: {name: cpu, container: migrate, target: {type: Utilization, averageUtilization: 70}}}]
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: autoscaling.metrics\[1\].containerResource.container "migrate" is not a container of this component \(its containers: chart-base\): the HPA accepts any name and the metric never resolves'
+
+  - it: fails for an unknown ContainerResource container, listing the containers (the main one first, then the sidecars sorted)
+    set:
+      autoscaling.enabled: true
+      autoscaling.metrics: [{type: ContainerResource, containerResource: {name: memory, container: shipper, target: {type: Utilization, averageUtilization: 70}}}]
+      sidecars:
+        zeta: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+        alpha: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: autoscaling.metrics\[0\].containerResource.container "shipper" is not a container of this component \(its containers: chart-base, alpha, zeta\): the HPA accepts any name and the metric never resolves'
+
+  - it: accepts an unknown ContainerResource container while autoscaling is disabled
+    set:
+      autoscaling.metrics: [{type: ContainerResource, containerResource: {name: memory, container: shipper, target: {type: Utilization, averageUtilization: 70}}}]
+    asserts:
+      - hasDocuments:
+          count: 0

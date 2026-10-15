@@ -186,6 +186,85 @@
         }
       }
     },
+    "hpaMetric": {
+      "description": "An item of autoscaling.metrics: Kubernetes' MetricSpec with the block of its type and no other. Not converted: a null item or field is an error (an overlay replaces the list whole).",
+      "type": "object", "required": ["type"], "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["Resource", "ContainerResource", "Pods", "Object", "External"] },
+        "resource": {
+          "type": "object", "additionalProperties": false, "required": ["name", "target"],
+          "properties": { "name": { "$ref": "#/definitions/hpaResourceName" }, "target": { "$ref": "#/definitions/hpaUtilizationTarget" } }
+        },
+        "containerResource": {
+          "type": "object", "additionalProperties": false, "required": ["name", "container", "target"],
+          "properties": {
+            "name": { "$ref": "#/definitions/hpaResourceName" },
+            "container": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63, "description": "The main container (the alias) or a sidecar (templates/validate.yaml)." },
+            "target": { "$ref": "#/definitions/hpaUtilizationTarget" }
+          }
+        },
+        "pods": {
+          "required": ["metric", "target"], "type": "object", "additionalProperties": false,
+          "properties": { "metric": { "$ref": "#/definitions/hpaMetricIdentifier" }, "target": { "$ref": "#/definitions/hpaAverageValueTarget" } }
+        },
+        "object": {
+          "type": "object", "additionalProperties": false, "required": ["describedObject", "metric", "target"],
+          "properties": {
+            "describedObject": {
+              "type": "object", "additionalProperties": false, "required": ["kind", "name"],
+              "properties": { "apiVersion": { "type": "string", "minLength": 1 }, "kind": { "type": "string", "minLength": 1 }, "name": { "type": "string", "minLength": 1 } }
+            },
+            "metric": { "$ref": "#/definitions/hpaMetricIdentifier" },
+            "target": { "$ref": "#/definitions/hpaValueTarget" }
+          }
+        },
+        "external": {
+          "additionalProperties": false, "required": ["metric", "target"], "type": "object",
+          "properties": { "metric": { "$ref": "#/definitions/hpaMetricIdentifier" }, "target": { "$ref": "#/definitions/hpaValueTarget" } }
+        }
+      },
+      "allOf": [
+        { "if": { "required": ["type"], "properties": { "type": { "const": "Resource" } } }, "then": { "required": ["resource"], "properties": { "containerResource": false, "pods": false, "object": false, "external": false } } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "ContainerResource" } } }, "then": { "required": ["containerResource"], "properties": { "resource": false, "pods": false, "object": false, "external": false } } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "Pods" } } }, "then": { "required": ["pods"], "properties": { "resource": false, "containerResource": false, "object": false, "external": false } } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "Object" } } }, "then": { "required": ["object"], "properties": { "resource": false, "containerResource": false, "pods": false, "external": false } } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "External" } } }, "then": { "required": ["external"], "properties": { "resource": false, "containerResource": false, "pods": false, "object": false } } }
+      ]
+    },
+    "hpaResourceName": { "description": "The resource of a Resource or ContainerResource metric.", "enum": ["cpu", "memory"] },
+    "hpaQuantity": { "description": "A Kubernetes quantity: a string (500m) or a number.", "type": ["string", "number"], "minLength": 1 },
+    "hpaMetricIdentifier": {
+      "description": "The metric of a Pods, Object or External entry: its name and an optional label selector.",
+      "required": ["name"], "type": "object", "additionalProperties": false,
+      "properties": { "name": { "type": "string", "minLength": 1 }, "selector": { "$ref": "#/definitions/labelSelector" } }
+    },
+    "hpaUtilizationTarget": {
+      "description": "The target of a Resource or ContainerResource entry: Utilization with averageUtilization, or AverageValue with averageValue.",
+      "type": "object", "additionalProperties": false, "required": ["type"],
+      "properties": {
+        "type": { "enum": ["Utilization", "AverageValue"] },
+        "averageUtilization": { "type": "integer", "minimum": 1 },
+        "averageValue": { "$ref": "#/definitions/hpaQuantity" }
+      },
+      "allOf": [
+        { "if": { "required": ["type"], "properties": { "type": { "const": "Utilization" } } }, "then": { "required": ["averageUtilization"], "properties": { "averageValue": false } } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "AverageValue" } } }, "then": { "required": ["averageValue"], "properties": { "averageUtilization": false } } }
+      ]
+    },
+    "hpaAverageValueTarget": {
+      "description": "The target of a Pods entry: AverageValue with averageValue.",
+      "type": "object", "additionalProperties": false, "required": ["type", "averageValue"],
+      "properties": { "type": { "enum": ["AverageValue"] }, "averageValue": { "$ref": "#/definitions/hpaQuantity" } }
+    },
+    "hpaValueTarget": {
+      "description": "The target of an Object or External entry: Value with value, or AverageValue with averageValue.",
+      "required": ["type"], "type": "object", "additionalProperties": false,
+      "properties": { "type": { "enum": ["Value", "AverageValue"] }, "value": { "$ref": "#/definitions/hpaQuantity" }, "averageValue": { "$ref": "#/definitions/hpaQuantity" } },
+      "allOf": [
+        { "if": { "required": ["type"], "properties": { "type": { "const": "Value" } } }, "then": { "required": ["value"], "properties": { "averageValue": false } } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "AverageValue" } } }, "then": { "required": ["averageValue"], "properties": { "value": false } } }
+      ]
+    },
     "labelSelector": {
       "description": "A label selector. {} selects every pod or namespace; a matchLabels or matchExpressions that is present must not be empty.",
       "type": "object",
@@ -814,7 +893,12 @@
         "maxReplicas": { "type": "integer", "minimum": 1 },
         "targetCPUUtilizationPercentage": { "type": "integer", "minimum": 1, "maximum": 100 },
         "targetMemoryUtilizationPercentage": { "type": ["integer", "null"], "minimum": 1, "maximum": 100 },
-        "behavior": { "$ref": "#/definitions/hpaBehavior" }
+        "behavior": { "$ref": "#/definitions/hpaBehavior" },
+        "metrics": {
+          "description": "spec.metrics: a non-empty list is the whole list (the built-in targets are not rendered); [] and null = the built-in targets.",
+          "type": ["array", "null"],
+          "items": { "$ref": "#/definitions/hpaMetric" }
+        }
       }
     },
     "pdb": {

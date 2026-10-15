@@ -27,6 +27,20 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if and .Values.autoscaling.enabled (gt (int .Values.autoscaling.minReplicas) (int .Values.autoscaling.maxReplicas)) -}}
 {{- include "chart-base.fail" (list . "autoscaling.minReplicas must be <= autoscaling.maxReplicas") -}}
 {{- end -}}
+{{- /* The containers an autoscaler's per-container metric can name: the main container (the alias), then the non-null sidecars, sorted (chart-base.containers' pruned map; an init container has exited before a metric is read). */ -}}
+{{- $metricContainers := prepend (keys $containers.sidecars | sortAlpha) $component -}}
+{{- /* autoscaling.metrics, while autoscaling is enabled: a non-empty list replaces the built-in targets, so the memory target next to it does nothing; a ContainerResource entry names a container of this component. */ -}}
+{{- if .Values.autoscaling.enabled -}}
+{{- $hpaMetrics := .Values.autoscaling.metrics | default list -}}
+{{- if and $hpaMetrics (not (kindIs "invalid" .Values.autoscaling.targetMemoryUtilizationPercentage)) -}}
+{{- include "chart-base.fail" (list . "autoscaling.targetMemoryUtilizationPercentage is not used when autoscaling.metrics is set (the list replaces the built-in targets): set autoscaling.targetMemoryUtilizationPercentage: null, and add a memory entry to autoscaling.metrics if the component scales on memory") -}}
+{{- end -}}
+{{- range $i, $m := $hpaMetrics -}}
+{{- if and (eq $m.type "ContainerResource") (not (has $m.containerResource.container $metricContainers)) -}}
+{{- include "chart-base.fail" (list $ (printf "autoscaling.metrics[%d].containerResource.container %q is not a container of this component (its containers: %s): the HPA accepts any name and the metric never resolves" $i $m.containerResource.container (join ", " $metricContainers))) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- /* configFiles.mountPath is compared normalized (chart-base.cleanPath) and rendered as written, and checked whether or not a file is rendered. */ -}}
 {{- $configMountPath := .Values.configFiles.mountPath -}}
 {{- $configMount := include "chart-base.cleanPath" $configMountPath -}}

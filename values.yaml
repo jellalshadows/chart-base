@@ -344,7 +344,8 @@ autoscaling:
   # the main container alone (a `ContainerResource` metric for it); without one, the pod (`Resource`), which is the same
   # while the main container is the pod's only long-running container (a plain init container has exited, and its
   # requests never count: source reading). Adding the
-  # first sidecar changes the metric's kind in that upgrade, and removing the last one changes it back.
+  # first sidecar changes the metric's kind in that upgrade, and removing the last one changes it back. Not used when
+  # `metrics` is non-empty: the list replaces the built-in targets (this key keeps its default, which the list wins over).
   targetCPUUtilizationPercentage: 80
   # -- (int) Target average memory utilization, in percent of the main container's memory request, measured like the
   # CPU target (see `targetCPUUtilizationPercentage`). `null` = not used.
@@ -358,6 +359,21 @@ autoscaling:
   # schema. An override file merges into the `behavior` of a lower layer: it changes a field of a direction by
   # restating it, and cannot remove one direction; `behavior: null` removes the whole block.
   behavior: null
+  # -- (list) The HPA's `spec.metrics`, in Kubernetes' own list shape. `[]` or `null` = the built-in targets
+  # (`targetCPUUtilizationPercentage`, `targetMemoryUtilizationPercentage`). A non-empty list is the WHOLE list and
+  # replaces the built-in targets: restate the CPU target in it to keep it, and `targetMemoryUtilizationPercentage` must
+  # then be `null` (the render fails otherwise). Each item: `type` (`Resource`, `ContainerResource`, `Pods`, `Object` or
+  # `External`) and the block of that type, no other: `resource: {name, target}`, `containerResource: {name, container,
+  # target}` (`name`: `cpu` or `memory`), `pods: {metric, target}`, `object: {describedObject: {apiVersion, kind, name},
+  # metric, target}`, `external: {metric, target}`, where `metric` is `{name, selector}` (`selector`: a label selector,
+  # optional). A target is `{type: Utilization, averageUtilization}` (`Resource` and `ContainerResource` only), `{type:
+  # AverageValue, averageValue}`, or `{type: Value, value}` (`Object` and `External` only); a quantity is a string or a
+  # number. Rendered as written, never switched: a `Resource` entry on a component with sidecars measures the whole pod
+  # (the main container's and the sidecars' requests and usage); to measure the main container alone, use
+  # `ContainerResource` with `container: <alias>`. A `ContainerResource` container must be the main container (named
+  # after the alias) or a non-null `sidecars` key (the render fails otherwise; an init container has exited before the
+  # metric is read). A list: an override file replaces it whole, and a `null` item or field fails the schema.
+  metrics: []
 
 pdb:
   # -- Render a PodDisruptionBudget (policy/v1). Deployments only.
