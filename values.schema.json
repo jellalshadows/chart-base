@@ -160,7 +160,7 @@
       }
     },
     "hpaBehavior": {
-      "description": "An HPA's spec.behavior (autoscaling.behavior, keda.behavior), Kubernetes' shape without tolerance; null = not rendered. Not converted: a null inside is an error.",
+      "description": "An HPA's spec.behavior (autoscaling.behavior, keda.behavior), Kubernetes' shape without tolerance; null = not rendered. Not converted: a null inside is an error wherever it reaches the chart (Helm 4.3 drops one written in an umbrella's own values while nothing is passed for the alias).",
       "type": ["object", "null"], "additionalProperties": false, "minProperties": 1,
       "properties": {
         "scaleUp": { "$ref": "#/definitions/hpaScalingRules" },

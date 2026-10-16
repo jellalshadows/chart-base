@@ -356,9 +356,11 @@ autoscaling:
   # each `{type: Pods or Percent, value: 1 or more, periodSeconds: 1 to 1800}`), integers only. Closed at every level: a
   # misspelt field fails the render (Helm 3 alone would only warn and drop it). `null` = not rendered (the API server's
   # defaults); `{}` and an empty direction fail (a value that does nothing). Not offered: `tolerance` (Kubernetes 1.33
-  # and 1.34 drop it without a word). Not a converted map: a `null` inside (`scaleUp: null`, `policies: null`) fails the
-  # schema. An override file merges into the `behavior` of a lower layer: it changes a field of a direction by
-  # restating it, and cannot remove one direction; `behavior: null` removes the whole block.
+  # and 1.34 drop it without a word: source reading). Not a converted map: a `null` inside (`scaleUp: null`, `policies:
+  # null`) fails the schema (on Helm 4.3 a `null` inside it in an umbrella's own values, with nothing passed for the
+  # alias, is dropped, and a direction or a `behavior` left empty then fails `minProperties`: see the consuming guide).
+  # An override file merges into the `behavior` of a lower layer: it changes a field of a direction by restating it,
+  # and cannot remove one direction; `behavior: null` removes the whole block.
   behavior: null
   # -- (list) The HPA's `spec.metrics`, in Kubernetes' own list shape. `[]` or `null` = the built-in targets
   # (`targetCPUUtilizationPercentage`, `targetMemoryUtilizationPercentage`). A non-empty list is the WHOLE list and
@@ -385,11 +387,13 @@ keda:
   # docs/upgrading.md. The cluster needs KEDA's CRDs, or the whole release fails at install.
   enabled: false
   # -- Lowest replica count. `0` scales to zero, written on purpose (KEDA's own default is 0, the chart's 1). Required:
-  # a `null` fails the schema (it would hand the component KEDA's 0). Not `autoscaling.minReplicas`: a component that
-  # moves from the HPA restates its minimum here.
+  # a `null` fails the schema (it would hand the component KEDA's 0; on Helm 4.3 a `null` in an umbrella's own values,
+  # with nothing passed for the alias, keeps the default: see the consuming guide). Not `autoscaling.minReplicas`: a
+  # component that moves from the HPA restates its minimum here.
   minReplicaCount: 1
   # -- Highest replica count (KEDA's own default is 100); at least `minReplicaCount`. Required: a `null` fails the
-  # schema. With a `ReadWriteOnce` or `ReadWriteOncePod` claim in `volumes` it must be 1.
+  # schema (on Helm 4.3 a `null` in an umbrella's own values, with nothing passed for the alias, keeps the default: see
+  # the consuming guide). With a `ReadWriteOnce` or `ReadWriteOncePod` claim in `volumes` it must be 1.
   maxReplicaCount: 10
   # -- (int) Seconds between two polls of the triggers. `null` = KEDA's default (30). It drives scaling only with
   # `minReplicaCount: 0` or `useCachedMetrics`; it also sets how often KEDA refreshes the ScaledObject's conditions,
@@ -407,7 +411,8 @@ keda:
   # `replicas` at most `maxReplicaCount` (the HPA caps it); the render fails otherwise. `null` = none.
   fallback: null
   # -- (object) The `behavior` of the HPA KEDA creates (`advanced.horizontalPodAutoscalerConfig.behavior`), with the
-  # shape and the rules of `autoscaling.behavior` (closed, no `tolerance`, a `null` inside fails). `null` = not rendered.
+  # shape and the rules of `autoscaling.behavior` (closed, no `tolerance`, a `null` inside fails the schema but for Helm
+  # 4.3's exception in an umbrella's own values: see `autoscaling.behavior`). `null` = not rendered.
   behavior: null
   # -- The triggers: a map keyed by the trigger's name (rendered as its `name`, in key order) of `{type, metadata,
   # metricType, authenticationRef: {name, kind}, useCachedMetrics}`. `type` (the scaler: `rabbitmq`, `cron`, `cpu`...)

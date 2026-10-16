@@ -61,13 +61,21 @@ to 1.36 and only warns outside them), with the KEDA chart 2.21.0's CRDs, Helm 4.
   names the main container or a non-null sidecar; `Utilization` only on `cpu` and `memory`; no `useCachedMetrics: true`
   on `cron`, `cpu` and `memory`; not only `cpu` and `memory` triggers at `minReplicaCount: 0`; a `fallback` needs a
   trigger other than `cpu` and `memory`, and `fallback.replicas` at most `maxReplicaCount`; `cooldownPeriod` and
-  `initialCooldownPeriod` only with `minReplicaCount: 0` (KEDA reads them only on the step to zero). A remedy never
-  points where another guard waits: next to only `cpu` and `memory` triggers, the period guard does not offer scale to
-  zero, and the zero guard names the periods to remove.
+  `initialCooldownPeriod` only with `minReplicaCount: 0` (KEDA reads them only on the step to zero). A field to remove
+  is named in its `null` form (`keda.cooldownPeriod: null`), the one an override file can write. No remedy creates a
+  violation the values did not already have: next to only `cpu` and `memory` triggers the period guard does not offer
+  scale to zero, the zero guard names the periods to set to `null`, and the claim guard names the minimum and the
+  fallback when they are above 1 (below). A remedy leads to another guard only for a violation the values already
+  held, as the zero guard's `minReplicaCount: 1` next to a `fallback` with only `cpu` triggers (every remedy measured
+  by the final reviews and the fix wave of 0.10.0, on Helm 4.3.0 and 3.22.0).
 - 0.7.0's guard for a `ReadWriteOnce` or `ReadWriteOncePod` claim on a Deployment
   ([ADR-0050](0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md)) covers KEDA: with
   `keda.enabled` it reads `maxReplicaCount`, never `replicas`, and its remedy is `keda.maxReplicaCount: 1` with the same
-  strategy rule. The claims it reads are one variable of `templates/validate.yaml`, which the fallback guard reads too:
+  strategy rule. The remedy also names `keda.minReplicaCount: 1` when the minimum is above 1, and
+  `keda.fallback.replicas: 1 or less` when a fallback's `replicas` is above 1: lowering the maximum alone would then
+  fail the guard `minReplicaCount <= maxReplicaCount` or the fallback guard (measured by the review of the guards'
+  task, on Helm 4.3.0 and 3.22.0); without them the text names the maximum alone. The claims it reads are one variable
+  of `templates/validate.yaml`, which the fallback guard reads too:
   next to such a claim its message offers only to lower `fallback.replicas` (raising `maxReplicaCount` would fail the
   claim guard: measured by the plan review), and it names the claim.
 - No KEDA annotation on the chart's HPA, and no handover key: switching between the HPA and KEDA is documented
@@ -80,7 +88,8 @@ to 1.36 and only warns outside them), with the KEDA chart 2.21.0's CRDs, Helm 4.
   `maxReplicaCount: 1` renders).
 - HPA to KEDA takes `kubectl delete hpa <fullname>` before the upgrade (the count is kept; measured), or two upgrades:
   `autoscaling.enabled: false` (which renders `replicas`: set it to the current count), then `keda.enabled: true`
-  (`replicas` leaves the manifest and the API server sets the count to 1 until KEDA or its HPA raises it; measured).
+  (`replicas` leaves the manifest and the API server sets the count to 1, measured; KEDA or its HPA then raises it,
+  source reading).
   KEDA to the HPA works in one upgrade while the workload has a pod (measured); at zero the HPA never scales it up
   (`ScalingActive` False, `ScalingDisabled`: Kubernetes source, asserted by the kind e2e).
 - `keda.minReplicaCount` (1) is not `autoscaling.minReplicas` (2): a component moved from the HPA restates its minimum.
@@ -89,9 +98,13 @@ to 1.36 and only warns outside them), with the KEDA chart 2.21.0's CRDs, Helm 4.
 - A cluster without KEDA's CRDs fails the whole release at install (`no matches for kind "ScaledObject"`), as
   [ADR-0012](0012-no-capabilities-gating.md) says for every CRD kind. KEDA's operator must outlive the ScaledObjects: its
   finalizer holds `helm uninstall --wait`.
-- With Helm 4 `--wait`, a ScaledObject that is not Ready fails the upgrade at the timeout (Helm 3 does not look); a
-  `fallback` keeps it Ready while its trigger source is down (both measured by the 0.10.0 research); a scaler that
-  connects when it is built (rabbitmq, measured) makes it not Ready while the source cannot be reached.
+- With Helm 4 `--wait`, a ScaledObject whose `Ready` is False or Unknown when Helm reads it fails the upgrade at the
+  timeout (Helm 3 does not look): an upgrade that does not change it while its trigger source is down fails so
+  (measured by the 0.10.0 research). A new or changed ScaledObject can pass before KEDA's operator has reported
+  (measured: an invalid one alone in its release returned in 0 to 1 s, exit 0), so `--wait` is no proof that it is
+  Ready: gate on `kubectl wait --for=condition=Ready`, as the kind e2e does. A `fallback` keeps it Ready while its
+  trigger source is down (measured by the 0.10.0 research); a scaler that connects when it is built (rabbitmq,
+  measured) makes it not Ready while the source cannot be reached.
 - `keda-hpa-<fullname>` is not in the release; it carries the ScaledObject's labels and annotations, and equals a sibling
   alias's own HPA only for contrived names (release `keda`, aliases `api` on KEDA and `hpa-keda-api` on the HPA: both
   `keda-hpa-keda-api`), when KEDA's operator would take that HPA over (inferred from the names; not run). No guard.

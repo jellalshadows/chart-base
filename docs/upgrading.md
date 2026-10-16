@@ -425,7 +425,7 @@ nothing alone and fails the same way with both charts). `externalSecret.template
 `externalSecret` defaults, which lack the two keys, and the upgrade writes no revision (measured with a real upgrade
 from the published 0.8.0 on kube-apiserver 1.37.0, Helm 4.3.0 and 3.22.0), unlike the upgrade to 0.8.0 (its section
 above). Use `--reset-then-reuse-values`, which upgrades (measured the same way); an umbrella is not affected (measured
-the same way: its revision 2 renders 0.8.0's manifests byte for byte).
+the same way: its revision 2 renders 0.8.0's manifests byte for byte, but for the `helm.sh/chart` label).
 
 - **Two relaxations.** A key of `externalSecret.data` that is not an environment variable name (`tls.crt`) is accepted
   while the Secret is not injected (`envFrom: false`, or a disabled block) and in a block templated with
@@ -463,8 +463,8 @@ A direct install upgraded with
 `--reuse-values` from 0.9.x upgrades too: the reused values have no `keda` key, no `autoscaling.behavior` and no
 `autoscaling.metrics`, and the chart reads that as KEDA off and the built-in targets (measured with a real upgrade from
 the published 0.9.0 on kube-apiserver 1.37.0, Helm 4.3.0 and 3.22.0, with and without `autoscaling`: revision 2
-renders revision 1's manifest byte for byte). From 0.4.x to 0.8.x, `--reuse-values` still fails with the lines of
-0.9.0 (`Every upgrade`, above).
+renders revision 1's manifest byte for byte, but for the `helm.sh/chart` label). From 0.4.x to 0.8.x,
+`--reuse-values` still fails with the lines of 0.9.0 (`Every upgrade`, above).
 
 - **`keda.minReplicaCount` and `keda.maxReplicaCount` are required inside `keda`.** A `null` fails with `at '/keda':
   missing property 'minReplicaCount'` (or `'maxReplicaCount'`), also while `keda.enabled` is false, except in the
@@ -515,10 +515,18 @@ has at least one replica (measured: the count is kept, and the ScaledObject is d
 come back: the HPA controller never scales a target up from 0 while `minReplicas` is 1 or more (it reports
 `ScalingActive` False, reason `ScalingDisabled`: Kubernetes source at v1.33.12 and v1.37.0, asserted by the kind e2e),
 the chart renders no `replicas` while `autoscaling.enabled`, and KEDA does not restore the count when its
-ScaledObject is deleted. The upgrade succeeds and the component stays at zero pods. First raise the count: an upgrade
-with `keda.minReplicaCount: 1` or more (KEDA raises the count at its next poll), or `kubectl scale deployment <fullname>
---replicas=<n>`; then switch. Switching KEDA off to fixed replicas (`autoscaling.enabled: false`) is not affected: the
-chart renders `replicas` again. The chart cannot see the live count.
+ScaledObject is deleted. The upgrade succeeds and the component stays at zero pods. Two ways out:
+
+- raise the count first, with an upgrade that sets `keda.minReplicaCount: 1` or more (KEDA raises the count at its
+  next poll: KEDA 2.21.0 source reading), and switch once the Deployment has a pod;
+- or switch first and, once the ScaledObject is gone, run `kubectl scale deployment <fullname> --replicas=<n>`: nothing
+  scales it back to zero then, and the HPA scales from there (source reading: no KEDA loop runs without the
+  ScaledObject, and the chart renders no `replicas` while `autoscaling.enabled`, so Helm does not reset it).
+
+A `kubectl scale` while KEDA still holds the component at zero is undone at KEDA's next poll: the condition that took
+it to zero still holds (KEDA 2.21.0 source reading). Switching KEDA off to fixed replicas
+(`autoscaling.enabled: false`) is not affected: the chart renders `replicas` again. The chart cannot see the live
+count.
 
 ### What does not carry over
 

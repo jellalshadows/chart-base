@@ -153,11 +153,15 @@ In `keda.triggers` a `null` entry, a `null` optional field of an entry (`metricT
 with `triggers.<name>.metadata.<key>: null`. `keda.minReplicaCount` and `keda.maxReplicaCount` are required, also while
 KEDA is off: a `null` fails with `missing property`, except in the umbrella's own values on Helm 4.3 while nothing is
 passed for the alias, where the default stays (1 and 10, never KEDA's own 0 and 100). `keda: null` is KEDA off.
-`autoscaling.behavior` is not converted: a `null` direction is a schema error (Helm 4.3 drops one written in the
-umbrella's own values while nothing is passed for the alias), and `behavior: null` removes the whole block.
+`autoscaling.behavior` and `keda.behavior` are not converted: a `null` inside (a direction, or a field of one) is a
+schema error, except that Helm 4.3 drops one written in the umbrella's own values while nothing is passed for the
+alias (a direction or a `behavior` left empty then fails `minProperties`); `behavior: null` removes the whole block.
 `autoscaling.metrics` is a list: an overlay replaces it whole, a `null` item is a schema error, and `metrics: null`
-renders the built-in targets; `targetMemoryUtilizationPercentage: null` next to a list renders the list alone. Each is
-measured by the alias contract on Helm 4.3.0 and 3.22.0
+renders the built-in targets; `targetMemoryUtilizationPercentage: null` next to a list renders the list alone. The
+alias contract measures, on Helm 4.3.0 and 3.22.0, a `null` trigger and a `null` metadata key, the required counts,
+`keda: null`, `behavior: null` and `metrics: null`, a `null` direction and the memory remedy; the `null` optional
+fields of a trigger, a `null` field inside `behavior`, a `null` `metrics` item and the list overlay were measured by
+the final review of 0.10.0 on both versions, and the unit tests pin the schema rules
 ([ADR-0055](../adr/0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md),
 [ADR-0056](../adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)).
 
@@ -202,14 +206,19 @@ unquoted tag fails at render time ("got number, want string") instead of deployi
 **Turning on autoscaling or KEDA for a running component scales it to 1 once.**
 With `autoscaling.enabled: true` or `keda.enabled: true` the Deployment no longer sets `spec.replicas`, so that the
 autoscaler and Helm do not fight over it. On an existing release, Kubernetes treats the removed field as the default
-of 1 replica, and then the autoscaler scales the Deployment (measured on kube-apiserver 1.33.0 and 1.37.0 for both,
-from 3 and from 5 replicas). Expect a single dip when you enable it on a component that is already serving traffic.
+of 1 replica (measured on kube-apiserver 1.33.0 and 1.37.0 with Helm 4.3.0 and 3.22.0: `autoscaling.enabled` from 3
+replicas and `keda.enabled` from 5 replicas each left 1), and then the autoscaler scales the Deployment (source
+reading: no HPA controller ran in that measurement). Expect a single dip when you enable it on a component that is
+already serving traffic.
 
-**KEDA needs its CRDs, its operator and its admission webhook, and one autoscaler per component.**
-The KEDA chart installs the three (the e2e runs 2.21.0). Without the CRDs the whole release fails at install, as for
-every CRD kind ([ADR-0012](../adr/0012-no-capabilities-gating.md)); without the operator a ScaledObject cannot be
-deleted (its finalizer). `autoscaling.enabled` and `keda.enabled` together fail the render, and an existing release
-cannot switch from the chart's HPA to KEDA in one upgrade where KEDA's webhook runs: the
+**KEDA needs its CRDs, its operator and its metrics API server, and one autoscaler per component.**
+The KEDA chart installs them, and its admission webhook, by default (the e2e runs 2.21.0). Without the CRDs the whole
+release fails at install, as for every CRD kind ([ADR-0012](../adr/0012-no-capabilities-gating.md)); without the
+operator a ScaledObject cannot be deleted (its finalizer); without the metrics API server, which serves
+`external.metrics.k8s.io`, the HPA KEDA creates reads no trigger but `cpu` and `memory` (source reading of the KEDA
+chart 2.21.0). The admission webhook is optional (the KEDA chart's `webhooks.enabled`; its `failurePolicy` is
+`Ignore`); it is what denies a second autoscaler of a Deployment. `autoscaling.enabled` and `keda.enabled` together fail the render,
+and an existing release cannot switch from the chart's HPA to KEDA in one upgrade where KEDA's webhook runs: the
 [upgrade guide](../upgrading.md#09x--0100) has the paths that work, in both directions
 ([ADR-0056](../adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md); more in
 [Autoscaling: the HPA and KEDA](#autoscaling-the-hpa-and-keda)).
@@ -473,11 +482,13 @@ must know:
   operator's finalizer must be removed by the operator: with the operator down, `helm uninstall --wait` fails at its
   timeout and a switch back to the HPA leaves the ScaledObject `Terminating` (measured with KEDA 2.21.0 when 0.10.0
   was designed).
-- **Helm 4 `--wait` reads the ScaledObject's `Ready` condition** (Helm 3 does not look). A ScaledObject that is not
-  Ready fails the upgrade at the `--timeout`, also an upgrade that does not change it, for example while its trigger
-  source is down, and a `fallback` keeps it Ready (both measured by the 0.10.0 research with KEDA 2.21.0's operator;
-  KEDA then feeds `fallback.replicas` to its HPA after `failureThreshold` failed polls: KEDA's source). A scaler that
-  connects when KEDA builds it (`rabbitmq`) keeps the ScaledObject not Ready while its source cannot be reached
+- **Helm 4 `--wait` reads the ScaledObject's `Ready` condition** (Helm 3 does not look). A ScaledObject whose `Ready`
+  is False or Unknown when Helm reads it fails the upgrade at the `--timeout`: an upgrade that does not change it while
+  its trigger source is down fails so, and a `fallback` keeps it Ready (both measured by the 0.10.0 research with KEDA
+  2.21.0's operator; KEDA then feeds `fallback.replicas` to its HPA after `failureThreshold` failed polls: KEDA's
+  source). A new or changed ScaledObject can pass before KEDA's operator has reported (measured: an invalid one alone
+  in its release returned in 0 to 1 s, exit 0), so `--wait` is no proof that it is Ready: gate on
+  `kubectl wait --for=condition=Ready`, as the kind e2e does. A scaler that connects when KEDA builds it (`rabbitmq`) keeps the ScaledObject not Ready while its source cannot be reached
   (measured with KEDA 2.21.0's operator against kube-apiserver 1.33.0 and 1.37.0).
 - **A `...FromEnv` parameter reads the main container's environment** (the pod's first container): its `envFrom`, the
   component's Secret included while `externalSecret.envFrom` is true, and its `env`, a `secretKeyRef` or an

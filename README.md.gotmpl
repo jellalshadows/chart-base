@@ -658,8 +658,9 @@ sales:
 
 `behavior` is rendered as written, and the API server fills Kubernetes' defaults into a direction that leaves fields
 out (measured for a `scaleUp` with `selectPolicy` alone, on kube-apiserver 1.33.0 and 1.37.0). `tolerance` is not
-offered: Kubernetes 1.33 and 1.34 drop it without a word. An override file merges into `behavior` field by field and
-cannot remove one direction; `behavior: null` removes the whole block
+offered: Kubernetes 1.33 and 1.34 drop it without a word (source reading of each release's `kube_features.go`). An
+override file merges into `behavior` field by field and cannot remove one direction; `behavior: null` removes the
+whole block
 ([ADR-0055](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md)).
 
 ### Scaling on the main container next to sidecars (`ContainerResource`, `containerName`)
@@ -1096,7 +1097,8 @@ code, official docs) and local renders.
     [ADR-0054](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0054-env-externalsecretkeyref-references-the-components-own-secret.md)
 55. **The HPA's `behavior` and `metrics` are validated pass-throughs, and a non-empty `metrics` list replaces the
     built-in targets.** `autoscaling.behavior` is Kubernetes' `spec.behavior`, closed at every level (no `tolerance`;
-    `{}` and an empty direction fail; not a converted map: a `null` inside fails). `autoscaling.metrics` is Kubernetes'
+    `{}` and an empty direction fail; not a converted map: a `null` inside fails the schema, except in an umbrella's own
+    values on Helm 4.3 while nothing is passed for the alias, where Helm drops it). `autoscaling.metrics` is Kubernetes'
     list, each item validated per `type`, with the target type tied to its value field. A non-empty list is the whole
     list, rendered as written (never switched to `ContainerResource`), and the memory target next to it fails; `[]` and
     `null` keep the built-in targets, so `spec.metrics` is never empty. A `ContainerResource` entry must name the main
@@ -1172,10 +1174,13 @@ cosign verify ghcr.io/jellalshadows/charts/chart-base:X.Y.Z \
   ClusterRole can grant no more than `admin` holds. In `clusterRoles` no ClusterRole's rules are checked, and only
   `cluster-admin` is rejected for what it grants (and `*`, which a `roleRef` reads as a name): any other ClusterRole
   is granted as it is, so read its rules before you bind it.
-- **KEDA** (`keda`) needs KEDA's CRDs, its operator and its admission webhook (the KEDA chart installs the three;
-  the e2e runs KEDA 2.21.0): without the CRDs the whole release fails at install, and without the operator a
-  ScaledObject cannot be deleted (its finalizer). `autoscaling.enabled` and `keda.enabled` fail together: switching a
-  running component between the HPA and KEDA follows the
+- **KEDA** (`keda`) needs KEDA's CRDs, its operator and its metrics API server (the KEDA chart installs them, and its
+  admission webhook, by default; the e2e runs KEDA 2.21.0): without the CRDs the whole release fails at install,
+  without the operator a ScaledObject cannot be deleted (its finalizer), and without the metrics API server the HPA
+  KEDA creates reads no trigger but `cpu` and `memory` (it serves `external.metrics.k8s.io`: source reading of the
+  KEDA chart 2.21.0). The admission webhook is optional; it is what denies a second autoscaler of a Deployment.
+  `autoscaling.enabled` and `keda.enabled` fail together: switching a running component between the HPA and KEDA
+  follows the
   [upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md#09x--0100).
 - **Turning on `autoscaling` or `keda` for a running component** removes `spec.replicas`: Kubernetes scales it to 1
   once, then the autoscaler scales it.

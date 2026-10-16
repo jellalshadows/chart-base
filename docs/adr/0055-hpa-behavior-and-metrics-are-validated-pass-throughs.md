@@ -28,7 +28,10 @@ the kubelet's CRI stats provider at v1.33.12 and v1.37.0 and of metrics-server 0
   `Disabled`) and `policies` (at least one; `type` `Pods` or `Percent`, `value` 1 or more, `periodSeconds` 1 to 1800),
   integers only, rendered with `toYaml`. `null` (the default) renders nothing; `behavior: {}` and an empty direction fail
   (`minProperties`), being values that do nothing. `tolerance` is not offered. `behavior` is not a converted map: a
-  `null` inside it (`scaleUp: null`, `policies: null`) is a schema error.
+  `null` inside it (`scaleUp: null`, `policies: null`) is a schema error wherever it reaches the chart. On Helm 4.3 a
+  `null` inside `behavior` written in an umbrella's own values (a direction or a field of one) is dropped while nothing
+  is passed for the alias, and a direction or a `behavior` left empty then fails `minProperties`; in every other layer,
+  and on Helm 3.22, it fails the schema (measured).
 - `autoscaling.metrics` is Kubernetes' list, validated per `type`: each item has the block of its type and no other
   (`Resource`, `ContainerResource`, `Pods`, `Object`, `External`), the target type is tied to its value field
   (`Utilization` and `averageUtilization` for `Resource` and `ContainerResource` only; `AverageValue` and
@@ -56,9 +59,10 @@ the kubelet's CRI stats provider at v1.33.12 and v1.37.0 and of metrics-server 0
   `ContainerResource` entry with `container: <alias>` measures the main container.
 - A component that moves from the built-in targets to a list restates its CPU target in the list.
 - An override file merges into a lower layer's `behavior`: it can change a field of a direction, and it cannot remove
-  one direction; `behavior: null` removes the block (measured by the alias contract). On Helm 4.3 a `null` direction in
-  the umbrella's own values is dropped while nothing is passed for the alias, and fails the schema on Helm 3.22 and in
-  every other layer (measured).
+  one direction; `behavior: null` removes the block (measured by the alias contract). On Helm 4.3 a `null` inside
+  `behavior` in the umbrella's own values, a direction or a field of one, is dropped while nothing is passed for the
+  alias (a direction or a block left empty then fails `minProperties`), and it fails the schema on Helm 3.22 and in
+  every other layer (measured: a direction by the alias contract, a field by the final review of 0.10.0).
 - The API server stores a rendered behavior and metrics list as rendered, plus its defaults for a direction that sets
   `selectPolicy` alone, and a number quantity as a string (kube-apiserver 1.33.0 and 1.37.0, Helm 4.3.0 and 3.22.0,
   measured). The e2e checks the stored behavior of the `full` scenario; the non-empty list is unit-tested only.
