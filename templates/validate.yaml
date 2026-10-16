@@ -77,13 +77,13 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list $ (printf "keda.triggers.%s is a %s trigger and needs metricType: Utilization or AverageValue (KEDA's operator rejects it otherwise and the ScaledObject never becomes Ready): set keda.triggers.%s.metricType" $name $t.type $name)) -}}
 {{- end -}}
 {{- if and (not $isResource) (eq $metricType "Utilization") -}}
-{{- include "chart-base.fail" (list $ (printf "keda.triggers.%s.metricType: Utilization applies to cpu and memory triggers only (KEDA rejects it at reconcile): use AverageValue or Value, or remove it" $name)) -}}
+{{- include "chart-base.fail" (list $ (printf "keda.triggers.%s.metricType: Utilization applies to cpu and memory triggers only (KEDA rejects it at reconcile): use AverageValue or Value, or set keda.triggers.%s.metricType: null" $name $name)) -}}
 {{- end -}}
 {{- if and $isResource (hasKey $t.metadata "containerName") (not (has (toString $t.metadata.containerName) $metricContainers)) -}}
 {{- include "chart-base.fail" (list $ (printf "keda.triggers.%s.metadata.containerName %q is not a container of this component (its containers: %s): KEDA accepts any name and the metric never resolves" $name (toString $t.metadata.containerName) (join ", " $metricContainers))) -}}
 {{- end -}}
 {{- if and $t.useCachedMetrics (has $t.type (list "cron" "cpu" "memory")) -}}
-{{- include "chart-base.fail" (list $ (printf "keda.triggers.%s.useCachedMetrics is not supported for cron, cpu and memory triggers (KEDA denies it): remove it" $name)) -}}
+{{- include "chart-base.fail" (list $ (printf "keda.triggers.%s.useCachedMetrics is not supported for cron, cpu and memory triggers (KEDA denies it): set keda.triggers.%s.useCachedMetrics: null" $name $name)) -}}
 {{- end -}}
 {{- end -}}
 {{- $periods := list -}}
@@ -112,7 +112,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if ge (int64 $keda.minReplicaCount) 1 -}}
 {{- range $f := $periods -}}
 {{- $toZero := ternary "" "set keda.minReplicaCount: 0 to scale to zero, or " $onlyResource -}}
-{{- include "chart-base.fail" (list $ (printf "keda.%s only times the step to zero replicas, and keda.minReplicaCount is %d, so it has no effect: %sremove it (to slow down scale-in between minReplicaCount and maxReplicaCount, use keda.behavior.scaleDown.stabilizationWindowSeconds)" $f (int64 $keda.minReplicaCount) $toZero)) -}}
+{{- include "chart-base.fail" (list $ (printf "keda.%s only times the step to zero replicas, and keda.minReplicaCount is %d, so it has no effect: %sset keda.%s: null (to slow down scale-in between minReplicaCount and maxReplicaCount, use keda.behavior.scaleDown.stabilizationWindowSeconds)" $f (int64 $keda.minReplicaCount) $toZero $f)) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -478,7 +478,12 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if and $keda.enabled (gt (int64 $keda.maxReplicaCount) 1) }}{{ $twoPods = append $twoPods (printf "keda.maxReplicaCount is %d" (int64 $keda.maxReplicaCount)) }}{{ end -}}
 {{- if and (not .Values.autoscaling.enabled) (not $keda.enabled) (gt (int64 .Values.replicas) 1) }}{{ $twoPods = append $twoPods (printf "replicas is %d" (int64 .Values.replicas)) }}{{ end -}}
 {{- $onePod := "replicas 0 or 1, autoscaling.enabled: false" -}}
-{{- if $keda.enabled }}{{ $onePod = "keda.maxReplicaCount: 1" }}{{ end -}}
+{{- /* With keda.enabled, the remedy also names keda.minReplicaCount and keda.fallback.replicas when each is above 1: lowering the maximum alone would then fail the minReplicaCount <= maxReplicaCount guard or the fallback guard. */ -}}
+{{- if $keda.enabled -}}
+{{- $onePod = "keda.maxReplicaCount: 1" -}}
+{{- if gt (int64 $keda.minReplicaCount) 1 }}{{ $onePod = printf "%s, keda.minReplicaCount: 1" $onePod }}{{ end -}}
+{{- with $keda.fallback }}{{ if gt (int64 .replicas) 1 }}{{ $onePod = printf "%s, keda.fallback.replicas: 1 or less" $onePod }}{{ end }}{{ end -}}
+{{- end -}}
 {{- if and $surges (not .Values.strategy) }}{{ $twoPods = append $twoPods "strategy is not set, and the Kubernetes default (RollingUpdate, maxSurge 25%) adds a pod" }}{{ end -}}
 {{- if and $surges .Values.strategy (not (hasKey $claimRollingUpdate "maxSurge")) }}{{ $twoPods = append $twoPods "strategy.rollingUpdate.maxSurge is not set, and the Kubernetes default (25%) adds a pod" }}{{ end -}}
 {{- if and $surges (hasKey $claimRollingUpdate "maxSurge") }}{{ $twoPods = append $twoPods (printf "strategy.rollingUpdate.maxSurge is %v, which adds a pod" $claimRollingUpdate.maxSurge) }}{{ end -}}

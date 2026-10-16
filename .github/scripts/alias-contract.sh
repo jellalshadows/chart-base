@@ -166,7 +166,7 @@ pass "<alias>.enabled=false removes the component"
 
 if err="$(render --set nightly-cleanup.cronjob.schedule= 2>&1)"; then fail "empty cronjob.schedule must fail schema validation"; fi
 echo "$err" | grep -q "nightly-cleanup" || fail "schema error must name the alias, got: $err"
-pass "schema is enforced per alias ($(echo "$err" | head -1 | cut -c1-80)...)"
+pass "schema is enforced per alias ($(head -1 <<<"$err" | cut -c1-80)...)"
 
 if err="$(render --set api.replica=3 2>&1)"; then fail "unknown key api.replica must fail (additionalProperties)"; fi
 pass "typos under an alias fail"
@@ -190,7 +190,7 @@ over() { printf 'api:\n%s\n' "$1" > "$work/over.yaml"; echo "$work/over.yaml"; }
 files_data() { echo "$1" | yq -N -o=json -I=0 'select(.kind == "ConfigMap" and .metadata.name == "vending-api-files") | .data' - 2>/dev/null || true; }
 pod() { echo "$1" | yq -N -o=json -I=0 "select(.kind == \"Deployment\") | .spec.template$2" - 2>/dev/null || true; }
 expect_fail() { # <rendered output> <text the error must contain> <what failed to fail>
-  echo "$1" | grep -qF "$2" || fail "$3: expected an error with '$2', got: $(echo "$1" | grep -m1 'Error' || echo 'a render without that error')"
+  grep -qF -- "$2" <<<"$1" || fail "$3: expected an error with '$2', got: $(grep -m1 'Error' <<<"$1" || echo 'a render without that error')"
 }
 
 nulls='  configFiles:
@@ -500,7 +500,7 @@ for k in template envFrom; do
       F) out="$(lrender "$es_db" -f "$(over "  externalSecret: {$k: null}")")" ;;
     esac
     expect_fail "$out" "missing property '$k'" "externalSecret.$k null, $layer"
-    case "$out" in *"api:"*) ;; *) fail "the schema error for externalSecret.$k null ($layer) must name the alias, got: $(echo "$out" | head -3)" ;; esac
+    case "$out" in *"api:"*) ;; *) fail "the schema error for externalSecret.$k null ($layer) must name the alias, got: $(head -3 <<<"$out")" ;; esac
   done
 done
 es_nulls='  externalSecret: {enabled: true, secretStoreRef: {name: vault}, data: {DB: {key: db}}, template: null, envFrom: null}'
@@ -509,7 +509,7 @@ if $helm4; then [ "$(pod "$out" '.spec.containers[0].envFrom[0].secretRef.name')
 else expect_fail "$out" "missing properties 'envFrom', 'template'" "template and envFrom null, Helm 3 U0"; fi
 out="$(lrender "$es_nulls" --set api.replicas=2)"
 expect_fail "$out" "missing properties 'envFrom', 'template'" "template and envFrom null, U1"
-case "$out" in *"api:"*) ;; *) fail "the schema error for template and envFrom null (U1) must name the alias, got: $(echo "$out" | head -3)" ;; esac
+case "$out" in *"api:"*) ;; *) fail "the schema error for template and envFrom null (U1) must name the alias, got: $(head -3 <<<"$out")" ;; esac
 pass "externalSecret: a null template or envFrom fails (U1, F, S$($helm4 || echo ', U0'), naming the alias); Helm 4.3 U0 keeps the chart's defaults"
 
 es_files='  externalSecret:
@@ -631,7 +631,7 @@ for key in minReplicaCount maxReplicaCount; do
       S) out="$(lrender "$k_on" --set "api.keda.$key=null")" ;;
     esac
     expect_fail "$out" "missing property '$key'" "keda.$key null, $layer"
-    case "$out" in *"api:"*) ;; *) fail "the schema error for keda.$key null ($layer) must name the alias, got: $(echo "$out" | head -3)" ;; esac
+    case "$out" in *"api:"*) ;; *) fail "the schema error for keda.$key null ($layer) must name the alias, got: $(head -3 <<<"$out")" ;; esac
   done
 done
 pass "keda: a null minReplicaCount or maxReplicaCount fails (U1, F, S$($helm4 || echo ', U0'), naming the alias); Helm 4.3 U0 keeps the chart's defaults, never KEDA's 0 and 100"
@@ -668,7 +668,7 @@ for layer in U0 U1 F S; do
   [ "$got" = 'null [{"type":"Resource","resource":{"name":"cpu","target":{"type":"Utilization","averageUtilization":80}}}]' ] || bad_layers="$bad_layers $layer (got: $(seen "$out" "$got"))"
 done
 [ -z "$bad_layers" ] || fail "autoscaling: behavior null and metrics null must render no behavior and the built-in CPU target, the same in every layer; differs in:$bad_layers"
-pass "autoscaling: behavior null and metrics null clear what the umbrella sets (U0, U1, F, S): no behavior, the built-in targets"
+pass "autoscaling: behavior null and metrics null render no behavior and the built-in CPU target in U0, U1, F and S (in F and S over values that set both)"
 
 out="$(lrender '  autoscaling: {enabled: true, behavior: {scaleUp: null, scaleDown: {selectPolicy: Max}}}')"
 if $helm4; then [ "$(hpa_spec "$out" '.behavior')" = '{"scaleDown":{"selectPolicy":"Max"}}' ] || fail "behavior.scaleUp null in U0: Helm 4.3 drops the umbrella's own null, so the behavior has scaleDown alone, got $(seen "$out" "$(hpa_spec "$out" '.behavior')")"
@@ -698,7 +698,7 @@ done
 pass "autoscaling: the memory guard's remedy (targetMemoryUtilizationPercentage: null) renders the list alone in U0, U1, F and S"
 
 for rel in vending vending-staging; do
-  lrender "$k_on" > /dev/null
+  lrender "$k_on" > /dev/null   # only to write the umbrella's values.yaml with $k_on, for the render of release $rel below
   out="$(helm template "$rel" "$layers" --namespace platform --kube-version 1.33.0 2>&1 || true)"
   name="$(echo "$out" | yq -N 'select(.kind == "ScaledObject") | .metadata.name + " " + .spec.scaleTargetRef.kind + "/" + .spec.scaleTargetRef.name' - 2>/dev/null || true)"
   [ "$name" = "$rel-api Deployment/$rel-api" ] || fail "the ScaledObject under alias api and release $rel must be $rel-api and target Deployment/$rel-api, got '$name'$(case "$out" in *"Error:"*) echo "; the render failed: $(seen "$out" "")" ;; esac)"

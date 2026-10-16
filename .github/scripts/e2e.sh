@@ -247,8 +247,9 @@ kubectl get secret -n "$ns" "$ref" > /dev/null || fail "the Secret $ref that TLS
 pass "worker: a dataFrom-only Secret decoded from base64, one key a file (items), one a variable (externalSecretKeyRef), no key injected"
 
 echo "== keda"
-# One cron trigger whose window is never active, minReplicaCount 0. The explicit wait does not rest on --wait having seen
-# the ScaledObject's status (Helm 4 reads its Ready condition, Helm 3 does not look).
+# One cron trigger whose window is active one minute a year (1 January, 00:00 to 00:01 UTC), minReplicaCount 0. The
+# explicit wait does not rest on --wait having seen the ScaledObject's status (Helm 4 reads its Ready condition, Helm 3
+# does not look).
 install keda || fail "keda scenario failed to install (KEDA's CRD, its admission webhook, or the Deployment)"
 kubectl wait -n "$ns" scaledobject/keda-chart-base --for=condition=Ready --timeout=120s \
   || fail "the ScaledObject keda-chart-base did not become Ready in 120 s: KEDA's operator could not build its scaler or its HPA; its Ready condition: $(kubectl get scaledobject -n "$ns" keda-chart-base -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}: {.status.conditions[?(@.type=="Ready")].message}' 2>&1 || true)"
@@ -263,12 +264,12 @@ for _ in $(seq 1 60); do
   [ "$n" = 0 ] && break
   sleep 2
 done
-[ "$n" = 0 ] || fail "KEDA must scale keda-chart-base to 0 (minReplicaCount 0, the window never active), got spec.replicas '$n' after 120 s"
+[ "$n" = 0 ] || fail "KEDA must scale keda-chart-base to 0 (minReplicaCount 0; the window is active only on 1 January, 00:00 to 00:01 UTC, and KEDA keeps the pod for its 300 s cooldown after it), got spec.replicas '$n' after 120 s"
 pass "keda: KEDA scales the Deployment to zero"
 # A second upgrade at zero, with an unrelated change: the chart renders no replicas while keda is enabled, so Helm 4's
 # server-side apply does not conflict with KEDA on spec.replicas, --wait returns on a Deployment at 0, and the count stays 0.
 install keda --set config.APP_MODE=keda-2 \
-  || fail "a second upgrade of the keda scenario at zero replicas failed (a rendered replicas conflicts with KEDA under Helm 4)"
+  || fail "a second upgrade of the keda scenario at zero replicas failed (a rendered replicas that conflicts with KEDA under Helm 4, or Helm 4.3's --wait not returning on a Deployment at 0: see Helm's error above)"
 n="$(kubectl get deployment -n "$ns" keda-chart-base -o jsonpath='{.spec.replicas}' || true)"
 [ "$n" = 0 ] || fail "the second upgrade must leave keda-chart-base at 0 replicas, got '$n'"
 pass "keda: a second upgrade at zero succeeds and the count stays 0"
@@ -378,7 +379,9 @@ rollout="$(kubectl get deployment -n "$ns" full-chart-base -o jsonpath='{.spec.s
 [ "$rollout" = "RollingUpdate 1 0 5 5" ] || fail "Deployment must carry strategy, minReadySeconds and revisionHistoryLimit, got '$rollout'"
 # The oldest pod (one of the two --wait saw ready): metrics-server makes full's HPA live, and a pod it adds must not
 # be the one the checks below exec into while it starts.
-pod="$(kubectl get pods -n "$ns" -l app.kubernetes.io/instance=full --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[0].metadata.name}')"
+pod="$(kubectl get pods -n "$ns" -l app.kubernetes.io/instance=full --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[0].metadata.name}')" \
+  || fail "could not read the full scenario's oldest pod (a kubectl error, or no pod)"
+[ -n "$pod" ] || fail "the full scenario has no pod"
 # A native sidecar's usage, which a ContainerResource metric or a KEDA containerName may name: metrics-server reports it
 # next to the main container's (kubelet CRI stats and metrics-server 0.9.0, source reading). Poll every 5 s for up to
 # 180 s: metrics-server needs two scrapes of the node (--metric-resolution=15s).

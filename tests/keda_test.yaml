@@ -58,14 +58,21 @@ tests:
                 metricType: AverageValue
                 metadata: {hostFromEnv: RABBITMQ_URL, mode: QueueLength, queueName: orders, value: "20"}
 
-  - it: renders minReplicaCount 0 and the periods 0 (a zero is a value, not an absent field)
+  - it: renders minReplicaCount 0, the periods 0 and a fallback of 0 and 0 (a zero is a value, not an absent field)
     set:
       keda.enabled: true
       keda.minReplicaCount: 0
       keda.cooldownPeriod: 0
       keda.initialCooldownPeriod: 0
+      keda.fallback: {failureThreshold: 0, replicas: 0}
       keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
     asserts:
+      - equal:
+          path: spec.fallback.failureThreshold
+          value: 0
+      - equal:
+          path: spec.fallback.replicas
+          value: 0
       - equal:
           path: spec.minReplicaCount
           value: 0
@@ -146,14 +153,14 @@ tests:
           path: spec.triggers[0].metadata
           value: {ratio: "0.5", timeout: "7", unsafeSsl: "true", value: "10000000"}
 
-  - it: renders every metadata key quoted (a key true and a key 1 stay strings)
+  - it: renders every metadata key quoted (a key true and a key 1 stay strings; the values x and z are strings in YAML 1.1 and 1.2)
     set:
       keda.enabled: true
-      keda.triggers.queue: {type: rabbitmq, metadata: {"true": x, "1": y}}
+      keda.triggers.queue: {type: rabbitmq, metadata: {"true": x, "1": z}}
     asserts:
       - equal:
           path: spec.triggers[0].metadata
-          value: {"1": "y", "true": "x"}
+          value: {"1": "z", "true": "x"}
 
   - it: renders large integers without an exponent (maxReplicaCount, cooldownPeriod, fallback.failureThreshold)
     set:

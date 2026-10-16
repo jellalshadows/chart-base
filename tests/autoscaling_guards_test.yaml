@@ -103,6 +103,27 @@ tests:
       - failedTemplate:
           errorPattern: "/autoscaling/behavior/scaleUp/policies/0/value': got string, want integer"
 
+  - it: rejects a fractional policy value (1.5; integers only)
+    set:
+      autoscaling.behavior.scaleUp.policies: [{type: Pods, value: 1.5, periodSeconds: 60}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior/scaleUp/policies/0/value': got number, want integer"
+
+  - it: rejects a fractional policy periodSeconds (60.5)
+    set:
+      autoscaling.behavior.scaleDown.policies: [{type: Pods, value: 1, periodSeconds: 60.5}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior/scaleDown/policies/0/periodSeconds': got number, want integer"
+
+  - it: rejects a fractional stabilizationWindowSeconds (0.5)
+    set:
+      autoscaling.behavior.scaleUp.stabilizationWindowSeconds: 0.5
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/behavior/scaleUp/stabilizationWindowSeconds': got number, want integer"
+
   - it: rejects behavior {} (a behavior that does nothing)
     set:
       autoscaling.behavior: {}
@@ -170,7 +191,7 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: accepts behavior null (the default, not rendered)
+  - it: accepts behavior absent (helm-unittest's set with null deletes the key; a literal null is the alias contract's)
     set:
       autoscaling.behavior: null
     asserts:
@@ -227,6 +248,41 @@ tests:
       - failedTemplate:
           errorPattern: "/autoscaling/metrics/0/pods': false schema"
 
+  - it: rejects a key that is no field of a metrics item (extra)
+    set:
+      autoscaling.metrics: [{type: Resource, resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}, extra: 1}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0': additional properties 'extra' not allowed"
+
+  - it: rejects another block next to the block of the type (type ContainerResource with pods)
+    set:
+      autoscaling.metrics: [{type: ContainerResource, containerResource: {name: cpu, container: chart-base, target: {type: Utilization, averageUtilization: 70}}, pods: {metric: {name: x}, target: {type: AverageValue, averageValue: "1"}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/pods': false schema"
+
+  - it: rejects another block next to the block of the type (type Pods with external)
+    set:
+      autoscaling.metrics: [{type: Pods, pods: {metric: {name: queue_depth}, target: {type: AverageValue, averageValue: "30"}}, external: {metric: {name: x}, target: {type: Value, value: "1"}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/external': false schema"
+
+  - it: rejects another block next to the block of the type (type Object with resource)
+    set:
+      autoscaling.metrics: [{type: Object, object: {describedObject: {kind: Ingress, name: main}, metric: {name: rps}, target: {type: Value, value: "10"}}, resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/resource': false schema"
+
+  - it: rejects another block next to the block of the type (type External with pods)
+    set:
+      autoscaling.metrics: [{type: External, external: {metric: {name: sqs_messages}, target: {type: AverageValue, averageValue: "30"}}, pods: {metric: {name: x}, target: {type: AverageValue, averageValue: "1"}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/pods': false schema"
+
   - it: rejects an unknown metric type
     set:
       autoscaling.metrics: [{type: Custom}]
@@ -262,6 +318,20 @@ tests:
       - failedTemplate:
           errorPattern: "/autoscaling/metrics/0/pods/target/type': value must be 'AverageValue'"
 
+  - it: rejects an AverageValue target without averageValue
+    set:
+      autoscaling.metrics: [{type: Pods, pods: {metric: {name: queue_depth}, target: {type: AverageValue}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/pods/target': missing property 'averageValue'"
+
+  - it: rejects a quantity that is a boolean (averageValue true)
+    set:
+      autoscaling.metrics: [{type: Pods, pods: {metric: {name: queue_depth}, target: {type: AverageValue, averageValue: true}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/pods/target/averageValue': got boolean, want number or string"
+
   - it: rejects Utilization on an Object entry
     set:
       autoscaling.metrics: [{type: Object, object: {describedObject: {kind: Ingress, name: main}, metric: {name: rps}, target: {type: Utilization, value: "10"}}}]
@@ -289,6 +359,13 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "/autoscaling/metrics/0/object/describedObject': missing property 'kind'"
+
+  - it: rejects a describedObject name that is a number
+    set:
+      autoscaling.metrics: [{type: Object, object: {describedObject: {kind: Ingress, name: 123}, metric: {name: rps}, target: {type: Value, value: "10"}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/object/describedObject/name': got number, want string"
 
   - it: rejects a ContainerResource container that is no DNS label
     set:
@@ -338,6 +415,20 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "/autoscaling/metrics/0/resource/target/averageUtilization': minimum: got 0, want 1"
+
+  - it: rejects a fractional averageUtilization (70.5; integers only)
+    set:
+      autoscaling.metrics: [{type: Resource, resource: {name: cpu, target: {type: Utilization, averageUtilization: 70.5}}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics/0/resource/target/averageUtilization': got number, want integer"
+
+  - it: rejects metrics as a map (a list, which an override file replaces whole)
+    set:
+      autoscaling.metrics: {type: Pods}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/metrics': got object, want null or array"
 
   - it: fails for the memory target next to a non-empty metrics list, with the full message
     set:
