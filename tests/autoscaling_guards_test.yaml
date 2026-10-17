@@ -423,6 +423,8 @@ tests:
       - failedTemplate:
           errorPattern: "/autoscaling/metrics/0/resource/target/averageUtilization': got number, want integer"
 
+  # Helm prints "warning: destination for chart-base.autoscaling.metrics is a table. Ignoring non-table value ([])" for
+  # this test: it coalesces the map over the chart's default `[]` before the schema rejects it (what a consumer sees too).
   - it: rejects metrics as a map (a list, which an override file replaces whole)
     set:
       autoscaling.metrics: {type: Pods}
