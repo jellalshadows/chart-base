@@ -386,15 +386,15 @@ pod="$(kubectl get pods -n "$ns" -l app.kubernetes.io/instance=full --sort-by=.m
 # next to the main container's (kubelet CRI stats and metrics-server 0.9.0, source reading). Poll every 5 s for up to
 # 180 s: metrics-server needs two scrapes of the node (--metric-resolution=15s).
 reported=""
+both=no
 for _ in $(seq 1 36); do
   reported="$(kubectl get pods.metrics.k8s.io -n "$ns" "$pod" -o jsonpath='{.containers[*].name}' 2>/dev/null || true)"
-  case " $reported " in *" shipper "*) case " $reported " in *" chart-base "*) break ;; esac ;; esac
+  # Each name is matched on its own: in "chart-base shipper" the two share the one space between them, so a single
+  # pattern naming both (*" chart-base "*" shipper "*) never matches (the first CI run of 0.10.0 failed on it).
+  case " $reported " in *" shipper "*) case " $reported " in *" chart-base "*) both=yes; break ;; esac ;; esac
   sleep 5
 done
-case " $reported " in
-  *" shipper "*" chart-base "* | *" chart-base "*" shipper "*) ;;
-  *) fail "metrics-server must report the usage of the native sidecar shipper next to the main container chart-base, got containers '$reported' after 180 s; kubectl top: $(kubectl top pod -n "$ns" "$pod" --containers 2>&1 | tr '\n' ' ')" ;;
-esac
+[ "$both" = yes ] || fail "metrics-server must report the usage of the native sidecar shipper next to the main container chart-base, got containers '$reported' after 180 s; kubectl top: $(kubectl top pod -n "$ns" "$pod" --containers 2>&1 | tr '\n' ' ')"
 pass "full: metrics-server reports the usage of the native sidecar (shipper) next to the main container's"
 runtime="$(kubectl get pod -n "$ns" "$pod" -o jsonpath='{.spec.priorityClassName} {.spec.priority} {.spec.enableServiceLinks} {.spec.dnsConfig.options[0].name}={.spec.dnsConfig.options[0].value} {.spec.hostAliases[0].ip} {.spec.hostAliases[0].hostnames[0]}')"
 [ "$runtime" = "e2e-high 1000 false ndots=2 10.20.30.40 legacy-db.internal" ] \
