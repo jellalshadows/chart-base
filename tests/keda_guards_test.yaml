@@ -1,0 +1,691 @@
+suite: keda (the ScaledObject), schema rules and guards
+templates:
+  - templates/validate.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+values:
+  - values/base.yaml
+tests:
+  - it: accepts keda null (KEDA off)
+    set:
+      keda: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects keda.minReplicaCount null (required, KEDA's own default would scale to zero)
+    set:
+      keda.minReplicaCount: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda': missing property 'minReplicaCount'"
+
+  - it: rejects keda.maxReplicaCount null (required, also while keda is enabled)
+    set:
+      keda.enabled: true
+      keda.maxReplicaCount: null
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda': missing property 'maxReplicaCount'"
+
+  - it: rejects keda.enabled null
+    set:
+      keda.enabled: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda': missing property 'enabled'"
+
+  - it: rejects keda.enabled "false" (a string, which the templates would read as true and render a ScaledObject)
+    set:
+      keda.enabled: "false"
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/enabled': got string, want boolean"
+
+  - it: rejects a misspelt key of keda (minReplicas)
+    set:
+      keda.minReplicas: 2
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda': additional properties 'minReplicas' not allowed"
+
+  - it: rejects minReplicaCount -1
+    set:
+      keda.minReplicaCount: -1
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/minReplicaCount': minimum: got -1, want 0"
+
+  - it: rejects maxReplicaCount 0
+    set:
+      keda.maxReplicaCount: 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/maxReplicaCount': minimum: got 0, want 1"
+
+  - it: rejects pollingInterval 0
+    set:
+      keda.pollingInterval: 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/pollingInterval': minimum: got 0, want 1"
+
+  - it: rejects cooldownPeriod -1
+    set:
+      keda.cooldownPeriod: -1
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/cooldownPeriod': minimum: got -1, want 0"
+
+  - it: rejects initialCooldownPeriod -1
+    set:
+      keda.initialCooldownPeriod: -1
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/initialCooldownPeriod': minimum: got -1, want 0"
+
+  - it: rejects fallback.replicas -1
+    set:
+      keda.fallback: {failureThreshold: 3, replicas: -1}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/fallback/replicas': minimum: got -1, want 0"
+
+  - it: rejects fallback.failureThreshold -1
+    set:
+      keda.fallback: {failureThreshold: -1, replicas: 2}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/fallback/failureThreshold': minimum: got -1, want 0"
+
+  - it: rejects a fallback without failureThreshold
+    set:
+      keda.fallback: {replicas: 2}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/fallback': missing property 'failureThreshold'"
+
+  - it: rejects a fallback without replicas
+    set:
+      keda.fallback: {failureThreshold: 3}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/fallback': missing property 'replicas'"
+
+  - it: rejects a field of fallback the chart does not offer (behavior; KEDA would quietly use its default, static)
+    set:
+      keda.fallback: {failureThreshold: 3, replicas: 2, behavior: currentReplicas}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/fallback': additional properties 'behavior' not allowed"
+
+  - it: rejects a trigger without type
+    set:
+      keda.triggers.queue: {metadata: {queueName: orders}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue': missing property 'type'"
+
+  - it: rejects a trigger with type ""
+    set:
+      keda.triggers.queue: {type: "", metadata: {queueName: orders}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue/type': minLength: got 0, want 1"
+
+  - it: rejects a trigger with type null (type stays required in a non-null entry)
+    set:
+      keda.triggers.queue: {type: null, metadata: {queueName: orders}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue/type': got null, want string"
+
+  - it: rejects a trigger without metadata
+    set:
+      keda.triggers.queue: {type: rabbitmq}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue': missing property 'metadata'"
+
+  - it: rejects a trigger with metadata null
+    set:
+      keda.triggers.queue: {type: rabbitmq, metadata: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue/metadata': got null, want object"
+
+  - it: rejects a name field in a trigger (the key is the name)
+    set:
+      keda.triggers.queue: {name: orders, type: rabbitmq, metadata: {queueName: orders}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue': additional properties 'name' not allowed"
+
+  - it: rejects an authenticationRef without name
+    set:
+      keda.triggers.queue: {type: rabbitmq, authenticationRef: {kind: TriggerAuthentication}, metadata: {queueName: orders}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue/authenticationRef': missing property 'name'"
+
+  - it: rejects an authenticationRef of kind Secret
+    set:
+      keda.triggers.queue: {type: rabbitmq, authenticationRef: {name: a, kind: Secret}, metadata: {queueName: orders}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue/authenticationRef/kind': value must be one of 'TriggerAuthentication', 'ClusterTriggerAuthentication', <nil>"
+
+  - it: rejects a misspelt field of authenticationRef (Kind; the kind would quietly be TriggerAuthentication)
+    set:
+      keda.triggers.q: {type: rabbitmq, authenticationRef: {name: a, Kind: ClusterTriggerAuthentication}, metadata: {queueName: orders}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/q/authenticationRef': additional properties 'Kind' not allowed"
+
+  - it: rejects useCachedMetrics "false" (a string, which the template would render as useCachedMetrics true)
+    set:
+      keda.triggers.q: {type: rabbitmq, useCachedMetrics: "false", metadata: {queueName: orders}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/q/useCachedMetrics': got string, want null or boolean"
+
+  - it: rejects metricType average
+    set:
+      keda.triggers.queue: {type: rabbitmq, metricType: average, metadata: {queueName: orders}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue/metricType': value must be one of 'AverageValue', 'Value', 'Utilization', <nil>"
+
+  - it: rejects a metadata value that is a list
+    set:
+      keda.triggers.queue: {type: rabbitmq, metadata: {queueName: [orders]}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue/metadata/queueName': got array, want null or boolean or number or string"
+
+  - it: rejects a metadata value that is a map
+    set:
+      keda.triggers.queue: {type: rabbitmq, metadata: {queueName: {name: orders}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/triggers/queue/metadata/queueName': got object, want null or boolean or number or string"
+
+  - it: accepts metadata numbers, booleans and null, a null trigger, and a null optional field
+    set:
+      keda.triggers:
+        queue: {type: rabbitmq, metricType: null, useCachedMetrics: null, authenticationRef: null, metadata: {value: 20, unsafeSsl: true, host: null}}
+        gone: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects keda.enabled on a cronjob
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      keda.enabled: true
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/enabled': value must be false"
+
+  - it: rejects keda.enabled on a job
+    set:
+      workload.type: job
+      keda.enabled: true
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/enabled': value must be false"
+
+  - it: accepts keda null on a cronjob
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      keda: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a keda.behavior window of 3601 (the definition of autoscaling.behavior)
+    set:
+      keda.behavior.scaleDown.stabilizationWindowSeconds: 3601
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/behavior/scaleDown/stabilizationWindowSeconds': maximum: got 3,601, want 3,600"
+
+  - it: rejects keda.behavior {}
+    set:
+      keda.behavior: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/behavior': minProperties: got 0, want 1"
+
+  - it: rejects tolerance in keda.behavior
+    set:
+      keda.behavior.scaleUp.tolerance: "0.05"
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/behavior/scaleUp': additional properties 'tolerance' not allowed"
+
+  - it: rejects keda.behavior.scaleUp null
+    set:
+      keda.behavior:
+        scaleUp: null
+        scaleDown: {selectPolicy: Max}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/keda/behavior/scaleUp': got null, want object"
+
+  - it: fails when autoscaling and keda are both enabled, naming the values layer that enables keda
+    set:
+      autoscaling.enabled: true
+      keda.enabled: true
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: autoscaling.enabled and keda.enabled are both true, and a Deployment can have one autoscaler: set autoscaling.enabled: false in the values layer that enables keda \(for an existing HPA, see "Switching to KEDA" in docs/upgrading.md: delete the HPA first or the upgrade fails at KEDA''s admission webhook\), or set keda.enabled: false'
+
+  - it: accepts keda null with autoscaling enabled (a --reuse-values upgrade from 0.9.x has no keda block)
+    set:
+      autoscaling.enabled: true
+      keda: null
+      autoscaling.metrics: null
+      autoscaling.behavior: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a resource name of 54 characters with keda (keda-hpa-<fullname> is 63)
+    release:
+      name: rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr
+    set:
+      keda.enabled: true
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: fails for a resource name of 55 characters with keda
+    release:
+      name: rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr
+    set:
+      keda.enabled: true
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: the ScaledObject''s HPA is named keda-hpa-rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr-chart-base and must fit in 63 characters, so with keda.enabled the resource name "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr-chart-base" \(55 chars\) must be at most 54: shorten the release name or the alias'
+
+  - it: accepts a resource name of 55 characters with keda off (the 63-character bound is unchanged)
+    release:
+      name: rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr
+    set:
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: fails for keda.minReplicaCount above keda.maxReplicaCount
+    set:
+      keda.enabled: true
+      keda.minReplicaCount: 3
+      keda.maxReplicaCount: 2
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: keda.minReplicaCount \(3\) must be <= keda.maxReplicaCount \(2\)'
+
+  - it: accepts keda.minReplicaCount equal to keda.maxReplicaCount
+    set:
+      keda.enabled: true
+      keda.minReplicaCount: 2
+      keda.maxReplicaCount: 2
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: fails for keda.triggers {} while keda is enabled
+    set:
+      keda.enabled: true
+      keda.triggers: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: keda.enabled is true and keda.triggers has no trigger \(a null entry is absent\): add one, or set keda.enabled: false'
+
+  - it: fails for triggers whose only entry is null (a null entry is absent)
+    set:
+      keda.enabled: true
+      keda.triggers.gone: null
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: keda.enabled is true and keda.triggers has no trigger \(a null entry is absent\): add one, or set keda.enabled: false'
+
+  - it: accepts one non-null trigger next to a null one
+    set:
+      keda.enabled: true
+      keda.triggers:
+        gone: null
+        window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: fails for a cpu trigger without metricType
+    set:
+      keda.enabled: true
+      keda.triggers.load: {type: cpu, metadata: {value: "60"}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: keda.triggers.load is a cpu trigger and needs metricType: Utilization or AverageValue \(KEDA''s operator rejects it otherwise and the ScaledObject never becomes Ready\): set keda.triggers.load.metricType'
+
+  - it: fails for a memory trigger with metricType Value
+    set:
+      keda.enabled: true
+      keda.triggers.mem: {type: memory, metricType: Value, metadata: {value: 200Mi}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: keda.triggers.mem is a memory trigger and needs metricType: Utilization or AverageValue \(KEDA''s operator rejects it otherwise and the ScaledObject never becomes Ready\): set keda.triggers.mem.metricType'
+
+  - it: accepts cpu with Utilization and memory with AverageValue
+    set:
+      keda.enabled: true
+      keda.triggers:
+        load: {type: cpu, metricType: Utilization, metadata: {value: "60"}}
+        mem: {type: memory, metricType: AverageValue, metadata: {value: 200Mi}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: fails for metricType Utilization on a prometheus trigger
+    set:
+      keda.enabled: true
+      keda.triggers.rps: {type: prometheus, metricType: Utilization, metadata: {serverAddress: "http://prometheus:9090", query: up, threshold: "1"}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: keda.triggers.rps.metricType: Utilization applies to cpu and memory triggers only \(KEDA rejects it at reconcile\): use AverageValue or Value, or set keda.triggers.rps.metricType: null'
+
+  - it: fails for only cpu and memory triggers with minReplicaCount 0
+    set:
+      keda.enabled: true
+      keda.minReplicaCount: 0
+      keda.triggers.load: {type: cpu, metricType: Utilization, metadata: {value: "60"}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: keda.triggers holds only cpu and memory triggers and keda.minReplicaCount is 0: they cannot scale from zero \(KEDA''s admission webhook denies it\): set keda.minReplicaCount: 1, or add a trigger of another type'
+
+  - it: fails for only cpu triggers at zero next to a cooldownPeriod, naming it in the remedy
+    set:
+      keda.enabled: true
+      keda.minReplicaCount: 0
+      keda.cooldownPeriod: 300
+      keda.triggers.load: {type: cpu, metricType: Utilization, metadata: {value: "60"}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: keda.triggers holds only cpu and memory triggers and keda.minReplicaCount is 0: they cannot scale from zero \(KEDA''s admission webhook denies it\): set keda.minReplicaCount: 1 and keda.cooldownPeriod: null \(KEDA reads them only on the step to zero\), or add a trigger of another type'
+
+  - it: fails for only cpu triggers at zero next to both periods, naming both in the remedy (cooldownPeriod first)
+    set:
+      keda.enabled: true
+      keda.minReplicaCount: 0
+      keda.cooldownPeriod: 300
+      keda.initialCooldownPeriod: 60
+      keda.triggers.load: {type: cpu, metricType: Utilization, metadata: {value: "60"}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: keda.triggers holds only cpu and memory triggers and keda.minReplicaCount is 0: they cannot scale from zero \(KEDA''s admission webhook denies it\): set keda.minReplicaCount: 1 and keda.cooldownPeriod: null and keda.initialCooldownPeriod: null \(KEDA reads them only on the step to zero\), or add a trigger of another type'
+
+  - it: accepts cpu next to a cron trigger with minReplicaCount 0
+    set:
+      keda.enabled: true
+      keda.minReplicaCount: 0
+      keda.triggers:
+        load: {type: cpu, metricType: Utilization, metadata: {value: "60"}}
+        window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts only cpu triggers with minReplicaCount 1
+    set:
+      keda.enabled: true
+      keda.triggers.load: {type: cpu, metricType: Utilization, metadata: {value: "60"}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts containerName of the main container
+    set:
+      keda.enabled: true
+      keda.triggers.load: {type: cpu, metricType: Utilization, metadata: {value: "60", containerName: chart-base}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts containerName of a sidecar
+    set:
+      keda.enabled: true
+      keda.triggers.load: {type: cpu, metricType: Utilization, metadata: {value: "60", containerName: proxy}}
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: fails for containerName of a null sidecar
+    set:
+      keda.enabled: true
+      keda.triggers.load: {type: cpu, metricType: Utilization, metadata: {value: "60", containerName: proxy}}
+      sidecars:
+        proxy: null
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: keda.triggers.load.metadata.containerName "proxy" is not a container of this component \(its containers: chart-base\): KEDA accepts any name and the metric never resolves'
+
+  - it: fails for containerName of an init container
+    set:
+      keda.enabled: true
+      keda.triggers.load: {type: memory, metricType: AverageValue, metadata: {value: 200Mi, containerName: migrate}}
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: keda.triggers.load.metadata.containerName "migrate" is not a container of this component \(its containers: chart-base\): KEDA accepts any name and the metric never resolves'
+
+  - it: fails for an unknown containerName, listing the containers (the main one first, then the sidecars sorted)
+    set:
+      keda.enabled: true
+      keda.triggers.load: {type: cpu, metricType: Utilization, metadata: {value: "60", containerName: app}}
+      sidecars:
+        zeta: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+        alpha: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: keda.triggers.load.metadata.containerName "app" is not a container of this component \(its containers: chart-base, alpha, zeta\): KEDA accepts any name and the metric never resolves'
+
+  - it: fails for useCachedMetrics true on a cron trigger
+    set:
+      keda.enabled: true
+      keda.triggers.window: {type: cron, useCachedMetrics: true, metadata: {timezone: Etc/UTC, start: "0 8 * * *", end: "0 18 * * *", desiredReplicas: "2"}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: keda.triggers.window.useCachedMetrics is not supported for cron, cpu and memory triggers \(KEDA denies it\): set keda.triggers.window.useCachedMetrics: null'
+
+  - it: fails for useCachedMetrics true on a cpu trigger
+    set:
+      keda.enabled: true
+      keda.triggers:
+        load: {type: cpu, metricType: Utilization, useCachedMetrics: true, metadata: {value: "60"}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: keda.triggers.load.useCachedMetrics is not supported for cron, cpu and memory triggers \(KEDA denies it\): set keda.triggers.load.useCachedMetrics: null'
+
+  - it: fails for useCachedMetrics true on a memory trigger
+    set:
+      keda.enabled: true
+      keda.triggers:
+        mem: {type: memory, metricType: AverageValue, useCachedMetrics: true, metadata: {value: 200Mi}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: keda.triggers.mem.useCachedMetrics is not supported for cron, cpu and memory triggers \(KEDA denies it\): set keda.triggers.mem.useCachedMetrics: null'
+
+  - it: accepts useCachedMetrics false on cron, cpu and memory triggers (KEDA's default)
+    set:
+      keda.enabled: true
+      keda.triggers:
+        window: {type: cron, useCachedMetrics: false, metadata: {timezone: Etc/UTC, start: "0 8 * * *", end: "0 18 * * *", desiredReplicas: "2"}}
+        load: {type: cpu, metricType: Utilization, useCachedMetrics: false, metadata: {value: "60"}}
+        mem: {type: memory, metricType: AverageValue, useCachedMetrics: false, metadata: {value: 200Mi}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts useCachedMetrics true on a prometheus trigger
+    set:
+      keda.enabled: true
+      keda.triggers.rps: {type: prometheus, useCachedMetrics: true, metadata: {serverAddress: "http://prometheus:9090", query: up, threshold: "1"}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: fails for a fallback with only cpu and memory triggers
+    set:
+      keda.enabled: true
+      keda.fallback: {failureThreshold: 3, replicas: 2}
+      keda.triggers.load: {type: cpu, metricType: Utilization, metadata: {value: "60"}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: keda.fallback needs a trigger other than cpu or memory \(KEDA''s admission webhook denies it otherwise\): set keda.fallback: null, or add such a trigger'
+
+  - it: accepts a fallback with cpu and rabbitmq triggers
+    set:
+      keda.enabled: true
+      keda.fallback: {failureThreshold: 3, replicas: 2}
+      keda.triggers:
+        load: {type: cpu, metricType: Utilization, metadata: {value: "60"}}
+        queue: {type: rabbitmq, metadata: {queueName: orders, mode: QueueLength, value: "20", hostFromEnv: RABBITMQ_URL}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: fails for fallback.replicas above keda.maxReplicaCount
+    set:
+      keda.enabled: true
+      keda.maxReplicaCount: 4
+      keda.fallback: {failureThreshold: 3, replicas: 5}
+      keda.triggers.queue: {type: rabbitmq, metadata: {queueName: orders, mode: QueueLength, value: "20", hostFromEnv: RABBITMQ_URL}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: keda.fallback.replicas \(5\) is above keda.maxReplicaCount \(4\): the HPA caps it, so lower it to 4 or less, or raise keda.maxReplicaCount'
+
+  - it: accepts fallback.replicas equal to keda.maxReplicaCount
+    set:
+      keda.enabled: true
+      keda.maxReplicaCount: 4
+      keda.fallback: {failureThreshold: 3, replicas: 4}
+      keda.triggers.queue: {type: rabbitmq, metadata: {queueName: orders, mode: QueueLength, value: "20", hostFromEnv: RABBITMQ_URL}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts the fallback guard's other remedy, keda.maxReplicaCount raised to fallback.replicas
+    set:
+      keda.enabled: true
+      keda.maxReplicaCount: 5
+      keda.fallback: {failureThreshold: 3, replicas: 5}
+      keda.triggers.queue: {type: rabbitmq, metadata: {queueName: orders, mode: QueueLength, value: "20", hostFromEnv: RABBITMQ_URL}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: fails for a cooldownPeriod with minReplicaCount 1 (a period of 0 too)
+    set:
+      keda.enabled: true
+      keda.cooldownPeriod: 0
+      keda.triggers.queue: {type: rabbitmq, metadata: {queueName: orders, mode: QueueLength, value: "20", hostFromEnv: RABBITMQ_URL}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: keda.cooldownPeriod only times the step to zero replicas, and keda.minReplicaCount is 1, so it has no effect: set keda.minReplicaCount: 0 to scale to zero, or set keda.cooldownPeriod: null \(to slow down scale-in between minReplicaCount and maxReplicaCount, use keda.behavior.scaleDown.stabilizationWindowSeconds\)'
+
+  - it: fails for an initialCooldownPeriod with minReplicaCount 2
+    set:
+      keda.enabled: true
+      keda.minReplicaCount: 2
+      keda.initialCooldownPeriod: 60
+      keda.triggers.queue: {type: rabbitmq, metadata: {queueName: orders, mode: QueueLength, value: "20", hostFromEnv: RABBITMQ_URL}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: keda.initialCooldownPeriod only times the step to zero replicas, and keda.minReplicaCount is 2, so it has no effect: set keda.minReplicaCount: 0 to scale to zero, or set keda.initialCooldownPeriod: null \(to slow down scale-in between minReplicaCount and maxReplicaCount, use keda.behavior.scaleDown.stabilizationWindowSeconds\)'
+
+  - it: fails for a cooldownPeriod next to only cpu triggers without offering scale to zero (they cannot scale from zero)
+    set:
+      keda.enabled: true
+      keda.cooldownPeriod: 300
+      keda.triggers.load: {type: cpu, metricType: Utilization, metadata: {value: "60"}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: keda.cooldownPeriod only times the step to zero replicas, and keda.minReplicaCount is 1, so it has no effect: set keda.cooldownPeriod: null \(to slow down scale-in between minReplicaCount and maxReplicaCount, use keda.behavior.scaleDown.stabilizationWindowSeconds\)'
+
+  - it: accepts both periods with minReplicaCount 0
+    set:
+      keda.enabled: true
+      keda.minReplicaCount: 0
+      keda.cooldownPeriod: 600
+      keda.initialCooldownPeriod: 60
+      keda.triggers.queue: {type: rabbitmq, metadata: {queueName: orders, mode: QueueLength, value: "20", hostFromEnv: RABBITMQ_URL}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts pollingInterval with minReplicaCount 1 (it also refreshes the ScaledObject's conditions)
+    set:
+      keda.enabled: true
+      keda.pollingInterval: 1
+      keda.triggers.queue: {type: rabbitmq, metadata: {queueName: orders, mode: QueueLength, value: "20", hostFromEnv: RABBITMQ_URL}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts the per-trigger violations and a fallback above the maximum while keda is disabled (a base values file may keep them)
+    set:
+      keda.minReplicaCount: 0
+      keda.cooldownPeriod: 300
+      keda.fallback: {failureThreshold: 3, replicas: 20}
+      keda.triggers:
+        load: {type: cpu, useCachedMetrics: true, metadata: {value: "60", containerName: app}}
+        rps: {type: prometheus, metricType: Utilization, metadata: {serverAddress: "http://prometheus:9090", query: up, threshold: "1"}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts minReplicaCount above maxReplicaCount, a period above a minimum of 1 and a fallback next to only cpu triggers while keda is disabled
+    set:
+      keda.minReplicaCount: 3
+      keda.maxReplicaCount: 2
+      keda.cooldownPeriod: 300
+      keda.fallback: {failureThreshold: 3, replicas: 1}
+      keda.triggers.load: {type: cpu, metricType: Utilization, metadata: {value: "60"}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts only cpu triggers at minReplicaCount 0 while keda is disabled
+    set:
+      keda.minReplicaCount: 0
+      keda.triggers.load: {type: cpu, metricType: Utilization, metadata: {value: "60"}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts keda disabled without a trigger
+    set:
+      keda.triggers: {}
+    asserts:
+      - hasDocuments:
+          count: 0

@@ -175,3 +175,113 @@ tests:
           value:
             - {type: ContainerResource, containerResource: {name: cpu, container: chart-base, target: {type: Utilization, averageUtilization: 70}}}
             - {type: ContainerResource, containerResource: {name: memory, container: chart-base, target: {type: Utilization, averageUtilization: 75}}}
+
+  - it: renders spec.behavior as written (both directions, every field, the policies in their order)
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 600
+          selectPolicy: Min
+          policies:
+            - {type: Pods, value: 1, periodSeconds: 60}
+            - {type: Percent, value: 10, periodSeconds: 120}
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          selectPolicy: Max
+          policies:
+            - {type: Percent, value: 100, periodSeconds: 15}
+    asserts:
+      - equal:
+          path: spec.behavior
+          value:
+            scaleDown:
+              stabilizationWindowSeconds: 600
+              selectPolicy: Min
+              policies:
+                - {type: Pods, value: 1, periodSeconds: 60}
+                - {type: Percent, value: 10, periodSeconds: 120}
+            scaleUp:
+              stabilizationWindowSeconds: 0
+              selectPolicy: Max
+              policies:
+                - {type: Percent, value: 100, periodSeconds: 15}
+
+  - it: renders one direction alone, and selectPolicy Disabled without policies
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.behavior.scaleDown.selectPolicy: Disabled
+    asserts:
+      - equal:
+          path: spec.behavior
+          value:
+            scaleDown:
+              selectPolicy: Disabled
+
+  - it: renders no behavior for behavior null (the default; the API server's defaults apply)
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+    asserts:
+      - notExists:
+          path: spec.behavior
+      - equal:
+          path: spec.scaleTargetRef
+          value:
+            apiVersion: apps/v1
+            kind: Deployment
+            name: vending-chart-base
+
+  - it: renders a non-empty metrics list as written, and no built-in target (the list is the whole list)
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.metrics:
+        - {type: Pods, pods: {metric: {name: queue_depth, selector: {matchLabels: {queue: orders}}}, target: {type: AverageValue, averageValue: "30"}}}
+        - {type: External, external: {metric: {name: sqs_messages}, target: {type: Value, value: 100}}}
+    asserts:
+      - equal:
+          path: spec.metrics
+          value:
+            - {type: Pods, pods: {metric: {name: queue_depth, selector: {matchLabels: {queue: orders}}}, target: {type: AverageValue, averageValue: "30"}}}
+            - {type: External, external: {metric: {name: sqs_messages}, target: {type: Value, value: 100}}}
+
+  - it: renders a Resource entry of the list as written next to a sidecar (never switched to ContainerResource)
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.metrics:
+        - {type: Resource, resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}}
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
+    asserts:
+      - equal:
+          path: spec.metrics
+          value:
+            - {type: Resource, resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}}
+
+  - it: renders the built-in targets for metrics [] (never an empty spec.metrics)
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.metrics: []
+    asserts:
+      - equal:
+          path: spec.metrics
+          value:
+            - {type: Resource, resource: {name: cpu, target: {type: Utilization, averageUtilization: 80}}}
+
+  - it: renders the built-in targets for metrics null
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.metrics: null
+      autoscaling.targetMemoryUtilizationPercentage: 70
+    asserts:
+      - equal:
+          path: spec.metrics
+          value:
+            - {type: Resource, resource: {name: cpu, target: {type: Utilization, averageUtilization: 80}}}
+            - {type: Resource, resource: {name: memory, target: {type: Utilization, averageUtilization: 70}}}

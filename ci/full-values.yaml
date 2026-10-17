@@ -87,6 +87,16 @@ autoscaling:
   minReplicas: 2
   maxReplicas: 4
   targetMemoryUtilizationPercentage: 80
+  # The API server must store the behavior as rendered (the e2e reads it back).
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 600
+      policies:
+        - {type: Pods, value: 1, periodSeconds: 60}
+    scaleUp:
+      selectPolicy: Max
+      policies:
+        - {type: Percent, value: 100, periodSeconds: 30}
 # One sidecar that references nothing (the Reloader annotations stay those of the main container and the volumes): the
 # HPA's built-in targets are then ContainerResource metrics of the main container, as the API servers store them.
 sidecars:

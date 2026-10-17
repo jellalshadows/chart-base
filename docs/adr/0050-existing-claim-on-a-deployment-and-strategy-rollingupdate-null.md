@@ -1,6 +1,6 @@
 # ADR-0050: An existing claim on a Deployment declares its access mode; `strategy.rollingUpdate: null` is absent
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0056](0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md) (0.10.0)
 - **Date:** 2026-10-07
 - **Since:** 0.7.0
 - **Related:** [ADR-0017](0017-progress-deadline-240s.md), [ADR-0036](0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md) (amended), [ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md), [ADR-0047](0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md) (amended), [ADR-0048](0048-httproute-parentrefs-and-matches-are-closed.md) (amended), [ADR-0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)

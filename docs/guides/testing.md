@@ -55,7 +55,9 @@ A single required check, `ci-ok`, depends on all the jobs. chart-testing (`ct`) 
   ports, probes and mounts on a Deployment; and the Reloader feed), `containers_guards` (the schema rules and guards of
   `initContainers` and `sidecars`), `externalsecret_pod` (the ExternalSecret in the pod: `envFrom`, the
   `externalSecretKeyRef` source, the file mount, on every workload type), `externalsecret_guards` (the schema rules and
-  guards of `externalSecret` and of `externalSecretKeyRef`)). Each suite names the templates it renders, and only those
+  guards of `externalSecret` and of `externalSecretKeyRef`), `autoscaling_guards` (the schema rules and guards of
+  `autoscaling.behavior` and `autoscaling.metrics`), `keda` (the ScaledObject), `keda_guards` (the schema rules and
+  guards of `keda`)). Each suite names the templates it renders, and only those
   are rendered: a guard test lists `templates/validate.yaml`.
 - Shared values in `tests/values/`: `base.yaml` (the minimum valid values every suite starts from),
   `env-refs.yaml` (one reference of every kind plus `envFrom` sources, for the `env` suite),
@@ -69,9 +71,9 @@ A single required check, `ci-ok`, depends on all the jobs. chart-testing (`ct`) 
 - **Schema tests** use `failedTemplate` with an `errorPattern` that matches the schema error path, for
   example `"/image/repository': minLength"`. They go through `templates/validate.yaml`, because rendering
   any template makes Helm validate the values against the schema first.
-- **Guard tests** (`tests/validate_test.yaml`, `tests/volumes_guards_test.yaml` for `volumes`, `tests/containers_guards_test.yaml` for `initContainers` and `sidecars`, and `tests/externalsecret_guards_test.yaml` for `externalSecret`) assert the `chart-base[<alias>]: ...` messages of the
+- **Guard tests** (`tests/validate_test.yaml`, `tests/volumes_guards_test.yaml` for `volumes`, `tests/containers_guards_test.yaml` for `initContainers` and `sidecars`, `tests/externalsecret_guards_test.yaml` for `externalSecret`, `tests/autoscaling_guards_test.yaml` for `autoscaling`, and `tests/keda_guards_test.yaml` for `keda`) assert the `chart-base[<alias>]: ...` messages of the
   guards, including the boundaries: a 63-character name passes and a 64-character one fails, and the same
-  for 52 and 53 with a CronJob.
+  for 52 and 53 with a CronJob, and for 54 and 55 with `keda.enabled`.
 - Every suite sets `capabilities` (Kubernetes 1.33) and a real `release.name`, because the defaults of
   helm-unittest are not valid for this chart.
 
@@ -96,8 +98,9 @@ test that a value stays a string therefore uses `true`, `false` or `null`, which
 ## Lint on Helm 3 and 4
 
 **What it proves.** `helm lint --strict` passes, with the real Helm binaries, for every scenario in `ci/`
-(`deployment`, `worker`, `cronjob`, `job`, `full`, `port-names`). The `full` scenario turns every feature on
-at once; `port-names` names its only port `on` (see [kubeconform](#manifest-validation-with-kubeconform)).
+(`deployment`, `worker`, `keda`, `cronjob`, `job`, `full`, `port-names`). The `full` scenario turns every feature on
+at once, but KEDA: `keda` scales a Deployment with a ScaledObject, which excludes the HPA of `full`; `port-names` names
+its only port `on` (see [kubeconform](#manifest-validation-with-kubeconform)).
 CI runs the layer on Helm 3.22.0 and 4.3.0, because Helm 3 still receives security fixes and consumers still
 use it ([ADR-0019](../adr/0019-helm-4-first-helm-3-tested.md)).
 
@@ -123,8 +126,12 @@ done
 
 **What it proves.** Each `ci/` scenario, rendered with `helm template --kube-version`, is valid against
 the strict Kubernetes JSON schemas for Kubernetes 1.33 and 1.37, and against the CRD schemas for the
-Gateway API, External Secrets and Prometheus Operator kinds. Both schema sources are pinned to a commit in the script, so
-a run does not change when an upstream catalog changes.
+Gateway API, External Secrets, Prometheus Operator and KEDA kinds. Both schema sources are pinned to a commit in the script, so
+a run does not change when an upstream catalog changes. For a ScaledObject the pinned schema catches a wrong type or a
+missing required field, not every bound of KEDA 2.21.0's CRD (measured on hand-written ScaledObjects: a number as a
+metadata value, a trigger without `metadata` and a `fallback` without `replicas` fail it, while `maxReplicaCount: 0`,
+`minReplicaCount: -1`, `pollingInterval: 0` and an `authenticationRef.kind` of `Secret` pass it); the chart's schema
+rejects all four before a render.
 
 **Where it lives.** `.github/scripts/validate-manifests.sh <chart-dir> <kubernetes-version>`. The
 chart's floor is 1.33, so the tests run on the oldest and the newest supported versions
@@ -207,6 +214,16 @@ covered: a hyphen in the values key, the `condition` path and the resource names
   under the alias `api` for two release names, with no `externalSecretKeyRef` in any manifest. A layer check that
   fails prints each layer that differs with what it rendered, or the render's error. Paths go through values files
   (Git Bash rewrites `--set a=/x`);
+- for `keda` and `autoscaling`: in `keda.triggers` a `null` trigger and a `null` metadata key are absent in all four
+  layers and no `null` reaches the ScaledObject; a `null` `keda.minReplicaCount` or `maxReplicaCount` fails with
+  `missing property` in U1, F and S (naming the alias in F and S) and in U0 on Helm 3.22, while Helm 4.3 U0 keeps the
+  chart's defaults; `keda: null` renders no ScaledObject in all four, and the Deployment's `replicas` in U0, U1 and F
+  (in S, next to `autoscaling.enabled`, the shape of a `--reuse-values` upgrade from 0.9.x: no `replicas` and no guard
+  failure); `autoscaling.behavior: null` and `metrics: null` render no behavior and the built-in CPU target in all
+  four, and a `null`
+  `behavior.scaleUp` fails the schema in U1, F and S and in U0 on Helm 3.22, while Helm 4.3 U0 drops it; the memory
+  guard's remedy (`targetMemoryUtilizationPercentage: null` next to a `metrics` list) renders the list alone in all
+  four; and the ScaledObject is named `<release>-<alias>` and targets the alias's Deployment, for two release names;
 - an uppercase alias is rejected by the guard.
 
 **Where it lives.** `.github/scripts/alias-contract.sh <chart-dir>`. The script copies the chart next to
@@ -256,14 +273,22 @@ The prerequisites the script installs:
    with `DB_PASSWORD`, `LOG_LEVEL` and `api-key`, for an extract) and `/sales/certs` (a JSON object whose two members
    are base64 text, decoded by `decodingStrategy: Base64`). The script waits until the store is `Ready`, and prints
    the kind nodes' container runtime version (`containerRuntimeVersion`).
-4. A namespace `vending` labelled `pod-security.kubernetes.io/enforce=restricted`. Every pod of every
+4. The **KEDA** chart (`KEDA_CHART_VERSION`, 2.21.0): its CRDs, operator, metrics server and admission webhooks, for
+   the `keda` scenario. KEDA 2.21 is tested by its project on Kubernetes 1.34 to 1.36, so both legs run it outside
+   that window: it only logs `WARNING: KEDA 2.21.0 hasn't been tested on Kubernetes v1.33.0` (measured with its
+   operator and webhooks against kube-apiserver 1.33.0 and 1.37.0 when 0.10.0 was designed). A KEDA release that fails
+   on one leg gets a pin per leg.
+5. **metrics-server** (`METRICS_SERVER_CHART_VERSION`, chart 3.14.0, metrics-server 0.9.0) with
+   `--kubelet-insecure-tls` (kind's kubelets serve a self-signed certificate), for the usage of the `full` scenario's
+   native sidecar.
+6. A namespace `vending` labelled `pod-security.kubernetes.io/enforce=restricted`. Every pod of every
    scenario must therefore satisfy Pod Security `restricted`, which validates the secure defaults
    ([ADR-0013](../adr/0013-secure-by-default.md)).
-5. A Secret `e2e-shared` (key `TOKEN`) in that namespace, created by hand like the ones an operator
+7. A Secret `e2e-shared` (key `TOKEN`) in that namespace, created by hand like the ones an operator
    would create. The `cronjob` and `full` scenarios reference it by name.
-6. A PriorityClass `e2e-high` (value 1000, not the global default, `preemptionPolicy: Never` so it never
+8. A PriorityClass `e2e-high` (value 1000, not the global default, `preemptionPolicy: Never` so it never
    evicts anything), which the `full` scenario's `priorityClassName` points to.
-7. The sources of the scenarios' volumes: a Secret `e2e-files` (key `token`) and a ConfigMap `e2e-rules` (key
+9. The sources of the scenarios' volumes: a Secret `e2e-files` (key `token`) and a ConfigMap `e2e-rules` (key
    `alerts`), which nothing but the `full` scenario's volumes references, and two PersistentVolumeClaims `e2e-runs` and
    `e2e-data` (`ReadWriteOnce`; kind's default class `standard`, local-path with `WaitForFirstConsumer`).
 
@@ -279,9 +304,10 @@ Each scenario is installed with `helm upgrade --install ... --wait --timeout 5m`
 |---|---|
 | `deployment` | The Deployment becomes Ready in the restricted namespace. A second upgrade with `--set config.APP_MODE=api-v2` creates a new ReplicaSet: a config change rolls the pods (the checksum annotation). Then two in-place upgrades on Helm 4.3's server-side apply, with values files the script writes (the scenario installs no `strategy`): the claim `e2e-data` as a `persistentVolumeClaim` volume with `strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}` (the Deployment is Ready with the claim mounted), then `strategy: {type: Recreate}` (`spec.strategy` is exactly `{"type":"Recreate"}`). The Helm 3.22 path is not in the e2e. Its init containers and sidecar: the stored `initContainers` are `setup`, `side`, `wait-side` in that order and only `side` carries `restartPolicy: Always`; `wait-side`, whose only process connects to the sidecar on `127.0.0.1:8081`, exited 0 at its first attempt (it reached a sidecar that `order` placed before it, the runtime proof of the start order); the main container reads `/work/marker`, which `setup` wrote on an `emptyDir`, and a write to `/work`, mounted read-only, fails with `Read-only file system`; `side` is started, no later than the main container. Every `kubectl exec` and `kubectl logs` names its container (`-c`). |
 | `worker` | The worker becomes Ready and there is no Service named for it. It has a PodMonitor labelled `release: e2e` whose endpoint port is the container port `metrics`, and no ServiceMonitor. Its ExternalSecret has `envFrom: false` and one source, an extract of `/sales/certs` with `decodingStrategy: Base64`: once it is `Ready` the Secret holds exactly `tls.crt` and `tls.key`; the key `tls.crt`, mounted with `items` at `/etc/certs/tls/tls.crt`, holds the decoded text, and `tls.key` is not a file of the mount; the variable `TLS_KEY` (an `externalSecretKeyRef`) holds the decoded `tls.key`, no key of the Secret is a variable of the container (read from PID 1's environment), and the `secretKeyRef.name` stored in the pod names a Secret that exists. |
+| `keda` | A Deployment without a Service, scaled by a ScaledObject with one `cron` trigger whose window is active one minute a year (1 January, 00:00 to 00:01 UTC; only a run whose ScaledObject KEDA first polls inside that minute fails the scale to zero, because KEDA then keeps the pod for its 300 s cooldown, longer than the 120 s the e2e waits, while a ScaledObject first polled after the window was never active and is scaled to zero at once: KEDA 2.21.0 source reading) and `minReplicaCount: 0`. The ScaledObject becomes `Ready` (an explicit `kubectl wait`, which does not rest on Helm's `--wait`), KEDA's HPA `keda-hpa-keda-chart-base` targets `apps/v1` `Deployment` `keda-chart-base`, and KEDA scales the Deployment to 0 (polled every 2 seconds for up to 120). A second upgrade with `--set config.APP_MODE=keda-2` succeeds and the count stays 0: the chart renders no `replicas` (a rendered one would conflict with KEDA under Helm 4: measured with `kubectl scale` in place of KEDA, [ADR-0056](../adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md); the e2e asserts the count only), and Helm 4.3's `--wait` returns on a Deployment at 0. Then the switch to the chart's HPA at zero (`keda.enabled: false`, `autoscaling.enabled: true`): the ScaledObject and KEDA's HPA are gone (KEDA's finalizer, then the garbage collector; polled for up to 120 seconds), the chart's HPA reports `ScalingActive` `False` with the reason `ScalingDisabled`, and the Deployment stays at 0, the trap of the [upgrade guide](../upgrading.md#switching-back-to-the-hpa). |
 | `cronjob` | A Job created manually from the CronJob (`kubectl create job --from=cronjob/...`) completes within 180 seconds: a restricted pod that reads its config from the ConfigMap, its `env` references (`fieldRef`, `resourceFieldRef`) and the `e2e-shared` Secret injected with `envFrom` and a prefix. Service links are off: `KUBERNETES_SERVICE_HOST` is set, `DEPLOYMENT_CHART_BASE_SERVICE_HOST` (the `deployment` scenario's Service, installed before; the script first checks that it has a ClusterIP) is not. Its volumes: each run fails if its marker is already on its `ephemeral` volume (a reused volume), writes to an `emptyDir`, appends its pod name to a file on the existing claim `e2e-runs` and prints the file. A second manual run must print the first run's pod name (the claim is the same volume for every run; a scheduled run in between changes nothing). The first run's ephemeral claim (`<pod>-scratch`) is owned by its pod and carries `app.kubernetes.io/instance`, and once the pod is deleted it is gone (polled every 2 seconds for up to 120). |
 | `job` | The `pre-deploy` hook Job succeeds and its log contains `migrations-ok`: it saw `APP_MODE`, `DB_PASSWORD` (from the ExternalSecret, as a variable and as the mounted file `/etc/app-secrets/DB_PASSWORD`) and `/config/migrations.yaml`, all created as hooks before it ran. A second deploy with `--set-string podAnnotations.revision=2` succeeds, so the Job hook is recreated instead of hitting `field is immutable` ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)). The pod has a sidecar `side` that the main command reaches first (`/agnhost connect 127.0.0.1:8081`): the hook still completes, its pod is `Succeeded` and the sidecar is terminated. |
-| `full` | The ExternalSecret becomes Ready, with `data`, an extract of `/sales/config`, a templated `DATABASE_URL` (`Merge`) and a mount at `/etc/app-secrets`: the Secret holds exactly `DATABASE_URL`, `DB_PASSWORD`, `LOG_LEVEL` and `api-key`; `DB_PASSWORD`, which both sources bring, is `s3cr3t` from `data`; `DATABASE_URL` is rendered from it; the Secret carries the chart's labels; in a pod the mounted `DATABASE_URL` holds the same value, and `api-key` (no variable name) is a variable of the main container (read from PID 1's environment). The API server accepts the HTTPRoute, the Deployment's `secret.reloader.stakater.com/reload` annotation is exactly `e2e-files,e2e-shared,full-chart-base-secrets` and its `configmap.reloader.stakater.com/reload` exactly `e2e-rules` (nothing but the volumes references those two), and the HPA, PDB and Ingress are created. In a pod, `/agnhost mounttest --fs_type` reports `tmpfs` for the `medium: Memory` volume at `/tmp/cache` and not for `/tmp`; the Secret `e2e-files`, mounted as a directory at `/config/secrets` beneath the config-files mount, is readable and a write fails with `Read-only file system`; the key `alerts` of `e2e-rules`, mounted with `items`, `defaultMode`, `subPath` and `optional: false` at `/etc/rules/alerts.yaml`, holds what the script wrote. The Deployment carries `strategy` (`maxSurge: 1`, `maxUnavailable: 0`), `minReadySeconds` and `revisionHistoryLimit`; a pod carries `priorityClassName: e2e-high` resolved to priority 1000 by the API server, `enableServiceLinks: false`, the `dnsConfig` option and the `hostAliases` entry. The ServiceMonitor is labelled `release: e2e` and its endpoint targets the Service port `http` with a `30s` interval, there is no PodMonitor, and the PrometheusRule is labelled `release: e2e` and holds the alert `FullChartBaseDown`. The NetworkPolicy is accepted with both policy types, the `except` of its `ipBlock` and its `endPort`. The Role is accepted with its `resourceNames` and its subresource rule, and the RoleBindings `full-chart-base` (to the Role) and `full-chart-base.view` (to the ClusterRole `view`) bind the ServiceAccount `full-chart-base`. It has a sidecar `shipper` that references nothing (the Reloader annotations stay the same), so the API server stores the HPA's two metrics as `ContainerResource` of the main container `chart-base`. |
+| `full` | The ExternalSecret becomes Ready, with `data`, an extract of `/sales/config`, a templated `DATABASE_URL` (`Merge`) and a mount at `/etc/app-secrets`: the Secret holds exactly `DATABASE_URL`, `DB_PASSWORD`, `LOG_LEVEL` and `api-key`; `DB_PASSWORD`, which both sources bring, is `s3cr3t` from `data`; `DATABASE_URL` is rendered from it; the Secret carries the chart's labels; in a pod the mounted `DATABASE_URL` holds the same value, and `api-key` (no variable name) is a variable of the main container (read from PID 1's environment). The API server accepts the HTTPRoute, the Deployment's `secret.reloader.stakater.com/reload` annotation is exactly `e2e-files,e2e-shared,full-chart-base-secrets` and its `configmap.reloader.stakater.com/reload` exactly `e2e-rules` (nothing but the volumes references those two), and the HPA, PDB and Ingress are created. In a pod, `/agnhost mounttest --fs_type` reports `tmpfs` for the `medium: Memory` volume at `/tmp/cache` and not for `/tmp`; the Secret `e2e-files`, mounted as a directory at `/config/secrets` beneath the config-files mount, is readable and a write fails with `Read-only file system`; the key `alerts` of `e2e-rules`, mounted with `items`, `defaultMode`, `subPath` and `optional: false` at `/etc/rules/alerts.yaml`, holds what the script wrote. The Deployment carries `strategy` (`maxSurge: 1`, `maxUnavailable: 0`), `minReadySeconds` and `revisionHistoryLimit`; a pod carries `priorityClassName: e2e-high` resolved to priority 1000 by the API server, `enableServiceLinks: false`, the `dnsConfig` option and the `hostAliases` entry. The ServiceMonitor is labelled `release: e2e` and its endpoint targets the Service port `http` with a `30s` interval, there is no PodMonitor, and the PrometheusRule is labelled `release: e2e` and holds the alert `FullChartBaseDown`. The NetworkPolicy is accepted with both policy types, the `except` of its `ipBlock` and its `endPort`. The Role is accepted with its `resourceNames` and its subresource rule, and the RoleBindings `full-chart-base` (to the Role) and `full-chart-base.view` (to the ClusterRole `view`) bind the ServiceAccount `full-chart-base`. It has a sidecar `shipper` that references nothing (the Reloader annotations stay the same), so the API server stores the HPA's two metrics as `ContainerResource` of the main container `chart-base`. The HPA stores its `behavior` as rendered (`scaleDown`: 600 seconds, `Pods` 1 per 60; `scaleUp`: `Max`, `Percent` 100 per 30). metrics-server reports the usage of the sidecar `shipper` next to the main container's (`pods.metrics.k8s.io`, polled every 5 seconds for up to 180), the fact a `ContainerResource` metric or a KEDA `containerName` that names a sidecar relies on. |
 | `port-names` | The API server accepts the component whose only port is named `on`, and stores `on` as a string in the Service port name and `targetPort`, the container port name, the Ingress backend port name and the ServiceMonitor endpoint port. |
 
 What the e2e does not show about volumes (one node, one Helm version; covered by the unit tests, the prototype's
@@ -306,6 +332,16 @@ with Helm 3.22; External Secrets versions other than 2.11.0; `mergePolicy: Repla
 `conversionStrategy`; an init container's or a sidecar's mount of `external-secret` (and its `subPath`);
 `defaultMode`; `inheritEnv` with the Secret; that the kubelet no longer skips a key that kubelet v1.29.0 skipped (the
 key the e2e checks, `api-key`, passes both: source reading only).
+
+What the e2e does not show about autoscaling (covered by the unit tests, by the prototype's measurements recorded in
+[ADR-0055](../adr/0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md) and [ADR-0056](../adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md), or only by the docs): any scaling on a metric (no
+load is generated: the HPA controller's arithmetic, its stabilization and the effect of `behavior` are source reading);
+a non-empty `autoscaling.metrics` list (unit tests; the API server's answer to every entry type was measured); KEDA
+scaling up from zero, a trigger other than `cron`, `fallback`, a `...FromEnv` parameter, a TriggerAuthentication and
+KEDA's restricted Secret access (some of them measured with KEDA 2.21.0's operator and webhooks out of cluster:
+ADR-0056 says which); the switch from the HPA to KEDA, in one upgrade (denied by KEDA's webhook) or in two (measured
+the same way, with `kubectl scale` in place of the HPA controller); the Helm 3.22 path, and its `--wait` at zero
+replicas; KEDA versions other than 2.21.0 and metrics-server versions other than 0.9.0.
 
 After the scenarios, the **NetworkPolicy checks**. The script creates a namespace `netpol` (Pod Security
 `restricted`) with a default-deny NetworkPolicy (`podSelector: {}`, `policyTypes: [Ingress, Egress]`, no rule), and
@@ -388,15 +424,22 @@ On failure the script prints
 `kubectl get all,persistentvolumeclaims,externalsecrets,servicemonitors,podmonitors,prometheusrules,networkpolicies,serviceaccounts,roles,rolebindings`
 for the namespace of the failing check (`vending` for the scenarios, which also run `kubectl describe` on its
 persistentvolumeclaims, pods and jobs (events show why a pod stays `Pending` or fails to start) and on its
-externalsecrets (why one does not sync), and print the last 50
-lines of the logs of the two manual CronJob runs; `netpol` for the NetworkPolicy checks, which also
+externalsecrets (why one does not sync), describe its ScaledObjects and HPAs (their conditions and events), print the
+last 100 lines of KEDA's operator log and the last 50 of metrics-server's and the metrics APIServices, and print the
+last 50 lines of the logs of the two manual CronJob runs (a KEDA or metrics-server install that does not become ready
+first prints its namespace's pods and events and describes its pods); `netpol` for the NetworkPolicy checks, which also
 list the pods and policies of `monitoring` and print the last 50 lines of the `migrate` Job's log and the last 200 of
 kindnet's; `rbac` for the RBAC checks, which also print the last 200 lines of the `migrate` Job's log, where each
 attempt logs its HTTP status).
 
-**In CI.** The `e2e` job, one leg per Kubernetes version. To debug a failure locally, read the failing
-step in the job log first: the `FAIL:` message names what the script expected. Reproducing it needs a
-local kind cluster on the same Kubernetes version and the three environment variables above.
+**In CI.** The `e2e` job, one leg per Kubernetes version, with `timeout-minutes: 30`: each leg took about 3 minutes
+on 0.9.0's CI run (2:57 and 3:08, from that run's job timings), and KEDA and metrics-server add about 3 in the
+expected case (an estimate, before their first CI run), so a leg near the bound is one whose waits hit their own
+limits, a failing run (they add up to about 35 minutes: the plan review's count). To debug a failure
+locally, read the failing step in the job log first: the `FAIL:` message names what the script expected and prints
+what it found. Reproducing it needs a local kind cluster on the same Kubernetes version and the five environment
+variables above (`GATEWAY_API_VERSION`, `ESO_CHART_VERSION`, `PROMETHEUS_OPERATOR_VERSION`, `KEDA_CHART_VERSION`,
+`METRICS_SERVER_CHART_VERSION`).
 
 ## Documentation checks
 

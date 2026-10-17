@@ -13,14 +13,19 @@
 # container fills, a hook Job that completes with a sidecar, the fronting-proxy recipe and the HPA's metrics. The full,
 # job and worker scenarios check the ExternalSecret's dataFrom, template and file mount: the Secret's key set, the value
 # of a key two sources bring, a templated value and the chart's labels, a key that is no variable name in the
-# environment, the files in the pods and in the hook Job, and a component that reads the Secret without envFrom.
+# environment, the files in the pods and in the hook Job, and a component that reads the Secret without envFrom. The
+# keda scenario checks a ScaledObject (Ready, KEDA's HPA and its target, scale to zero, a second upgrade at zero, and the
+# switch back to the chart's HPA at zero), the full scenario the HPA's behavior, and metrics-server the usage of the full
+# scenario's native sidecar.
 # Usage: e2e.sh <chart-dir>
 # Env: GATEWAY_API_VERSION (e.g. v1.6.2), ESO_CHART_VERSION (e.g. 2.11.0),
-#      PROMETHEUS_OPERATOR_VERSION (e.g. v0.94.1)
+#      PROMETHEUS_OPERATOR_VERSION (e.g. v0.94.1), KEDA_CHART_VERSION (e.g. 2.21.0),
+#      METRICS_SERVER_CHART_VERSION (e.g. 3.14.0)
 set -euo pipefail
 
 chart_dir="${1:?usage: e2e.sh <chart-dir>}"
-: "${GATEWAY_API_VERSION:?}" "${ESO_CHART_VERSION:?}" "${PROMETHEUS_OPERATOR_VERSION:?}"
+: "${GATEWAY_API_VERSION:?}" "${ESO_CHART_VERSION:?}" "${PROMETHEUS_OPERATOR_VERSION:?}" "${KEDA_CHART_VERSION:?}" \
+  "${METRICS_SERVER_CHART_VERSION:?}"
 ns=vending
 
 fail() {
@@ -38,6 +43,12 @@ fail() {
     # chart external-secrets names its controller Deployment external-secrets).
     kubectl describe externalsecrets -n "$ns" >&2 || true
     kubectl logs -n external-secrets deploy/external-secrets --tail=100 >&2 || true
+    # The autoscalers: the ScaledObjects' and the HPAs' conditions and events, KEDA's operator (it builds the scalers and
+    # scales to and from zero) and metrics-server (the usage of every container the HPA reads).
+    kubectl describe scaledobjects.keda.sh,horizontalpodautoscalers -n "$ns" >&2 || true
+    kubectl logs -n keda deploy/keda-operator --tail=100 >&2 || true
+    kubectl logs -n kube-system deploy/metrics-server --tail=50 >&2 || true
+    kubectl get apiservices v1beta1.metrics.k8s.io v1beta1.external.metrics.k8s.io >&2 || true
     # Every container's log of the deployment and job scenarios: an init container that exits (wait-side's REFUSED), a
     # sidecar that never starts.
     kubectl logs -n "$ns" deploy/deployment-chart-base --all-containers --prefix --tail=50 >&2 || true
@@ -78,6 +89,24 @@ kubectl wait --for=condition=Established --timeout=60s crd/servicemonitors.monit
   crd/podmonitors.monitoring.coreos.com crd/prometheusrules.monitoring.coreos.com
 helm install external-secrets external-secrets --repo https://charts.external-secrets.io \
   --version "$ESO_CHART_VERSION" --namespace external-secrets --create-namespace --wait --timeout 5m
+# KEDA's chart (its CRDs, operator, metrics server and admission webhooks) for the keda scenario. KEDA 2.21 is tested on
+# Kubernetes 1.34 to 1.36: on both legs here it only logs a warning (docs/guides/testing.md).
+helm install keda keda --repo https://kedacore.github.io/charts \
+  --version "$KEDA_CHART_VERSION" --namespace keda --create-namespace --wait --timeout 5m || {
+  kubectl get pods,events -n keda >&2 || true
+  kubectl describe pods -n keda >&2 || true
+  fail "KEDA's chart $KEDA_CHART_VERSION did not become ready in 5 minutes (its operator, metrics server or admission webhooks: see the pods and events above)"
+}
+# metrics-server, for the usage of the full scenario's native sidecar. kind's kubelets serve a self-signed certificate:
+# metrics-server must not verify it.
+printf '%s\n' 'args: [--kubelet-insecure-tls]' > "$work/metrics-server.yaml"
+helm install metrics-server metrics-server --repo https://kubernetes-sigs.github.io/metrics-server/ \
+  --version "$METRICS_SERVER_CHART_VERSION" --namespace kube-system -f "$work/metrics-server.yaml" --wait --timeout 5m || {
+  kubectl get pods,events -n kube-system >&2 || true
+  kubectl describe pods -n kube-system -l app.kubernetes.io/name=metrics-server >&2 || true
+  kubectl get apiservices v1beta1.metrics.k8s.io >&2 || true
+  fail "metrics-server's chart $METRICS_SERVER_CHART_VERSION did not become ready in 5 minutes (see its pod, the events and the APIService above)"
+}
 kubectl apply -f - <<'EOF'
 apiVersion: external-secrets.io/v1
 kind: ClusterSecretStore
@@ -217,6 +246,57 @@ ref="$(kubectl get pod -n "$ns" "$wpod" -o jsonpath='{.spec.containers[0].env[?(
 kubectl get secret -n "$ns" "$ref" > /dev/null || fail "the Secret $ref that TLS_KEY references must exist"
 pass "worker: a dataFrom-only Secret decoded from base64, one key a file (items), one a variable (externalSecretKeyRef), no key injected"
 
+echo "== keda"
+# One cron trigger whose window is active one minute a year (1 January, 00:00 to 00:01 UTC), minReplicaCount 0. The
+# explicit wait does not rest on --wait having seen the ScaledObject's status (Helm 4 reads its Ready condition, Helm 3
+# does not look).
+install keda || fail "keda scenario failed to install (KEDA's CRD, its admission webhook, or the Deployment)"
+kubectl wait -n "$ns" scaledobject/keda-chart-base --for=condition=Ready --timeout=120s \
+  || fail "the ScaledObject keda-chart-base did not become Ready in 120 s: KEDA's operator could not build its scaler or its HPA; its Ready condition: $(kubectl get scaledobject -n "$ns" keda-chart-base -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}: {.status.conditions[?(@.type=="Ready")].message}' 2>&1 || true)"
+target="$(kubectl get hpa -n "$ns" keda-hpa-keda-chart-base -o jsonpath='{.spec.scaleTargetRef.apiVersion} {.spec.scaleTargetRef.kind} {.spec.scaleTargetRef.name}' || true)"
+[ "$target" = "apps/v1 Deployment keda-chart-base" ] || fail "KEDA's HPA keda-hpa-keda-chart-base must target apps/v1 Deployment keda-chart-base, got '$target'"
+pass "keda: the ScaledObject is Ready, and KEDA's HPA keda-hpa-keda-chart-base targets the Deployment"
+# KEDA scales to zero at its first poll (initialCooldownPeriod 0, no active trigger): poll every 2 s for up to 120 s.
+n=""
+for _ in $(seq 1 60); do
+  n="$(kubectl get deployment -n "$ns" keda-chart-base -o jsonpath='{.spec.replicas}')" \
+    || fail "could not read the replicas of keda-chart-base"
+  [ "$n" = 0 ] && break
+  sleep 2
+done
+[ "$n" = 0 ] || fail "KEDA must scale keda-chart-base to 0 (minReplicaCount 0; the window is active only on 1 January, 00:00 to 00:01 UTC, and KEDA keeps the pod for its 300 s cooldown after it), got spec.replicas '$n' after 120 s"
+pass "keda: KEDA scales the Deployment to zero"
+# A second upgrade at zero, with an unrelated change: the chart renders no replicas while keda is enabled, so Helm 4's
+# server-side apply does not conflict with KEDA on spec.replicas, --wait returns on a Deployment at 0, and the count stays 0.
+install keda --set config.APP_MODE=keda-2 \
+  || fail "a second upgrade of the keda scenario at zero replicas failed (a rendered replicas that conflicts with KEDA under Helm 4, or Helm 4.3's --wait not returning on a Deployment at 0: see Helm's error above)"
+n="$(kubectl get deployment -n "$ns" keda-chart-base -o jsonpath='{.spec.replicas}' || true)"
+[ "$n" = 0 ] || fail "the second upgrade must leave keda-chart-base at 0 replicas, got '$n'"
+pass "keda: a second upgrade at zero succeeds and the count stays 0"
+# The switch back to the chart's HPA while the workload has no pod (docs/upgrading.md, "Switching back to the HPA"):
+# Helm creates the HPA and deletes the ScaledObject, the garbage collector deletes keda-hpa-keda-chart-base, and the HPA
+# controller never scales a target up from 0 with minReplicas 1 or more (ScalingActive False, reason ScalingDisabled).
+printf '%s\n' 'keda: {enabled: false}' 'autoscaling: {enabled: true}' > "$work/keda-to-hpa.yaml"
+install keda --set config.APP_MODE=keda-2 -f "$work/keda-to-hpa.yaml" || fail "the upgrade from KEDA to the chart's HPA failed"
+left=""
+for _ in $(seq 1 60); do
+  left="$(kubectl get -n "$ns" scaledobject/keda-chart-base hpa/keda-hpa-keda-chart-base --ignore-not-found -o name)" \
+    || fail "could not look up the ScaledObject and KEDA's HPA (a kubectl error, not their absence)"
+  [ -z "$left" ] && break
+  sleep 2
+done
+[ -z "$left" ] || fail "the ScaledObject keda-chart-base and KEDA's HPA must be gone after the switch (KEDA's finalizer, then garbage collection), still there after 120 s: $(echo "$left" | tr '\n' ' ')"
+active=""
+for _ in $(seq 1 60); do
+  active="$(kubectl get hpa -n "$ns" keda-chart-base -o jsonpath='{.status.conditions[?(@.type=="ScalingActive")].status}/{.status.conditions[?(@.type=="ScalingActive")].reason}' || true)"
+  [ "$active" = False/ScalingDisabled ] && break
+  sleep 2
+done
+[ "$active" = False/ScalingDisabled ] || fail "the chart's HPA of a Deployment at 0 replicas must report ScalingActive False, reason ScalingDisabled, got '$active' after 120 s"
+n="$(kubectl get deployment -n "$ns" keda-chart-base -o jsonpath='{.spec.replicas}' || true)"
+[ "$n" = 0 ] || fail "the chart's HPA must leave a Deployment at 0 replicas at 0 (the trap docs/upgrading.md describes), got spec.replicas '$n'"
+pass "keda: switched to the chart's HPA at zero, KEDA's objects are gone, and the HPA leaves the Deployment at 0 (ScalingDisabled)"
+
 echo "== cronjob"
 install cronjob || fail "cronjob scenario failed"
 svc_ip="$(kubectl get service -n "$ns" deployment-chart-base -o jsonpath='{.spec.clusterIP}')"
@@ -293,9 +373,29 @@ reload="$(kubectl get deployment -n "$ns" full-chart-base -o jsonpath='{.metadat
 # full has a sidecar (shipper): the HPA's built-in targets measure the main container alone, as the API server stores them.
 hpa="$(kubectl get hpa -n "$ns" full-chart-base -o jsonpath='{.spec.metrics[*].type} {.spec.metrics[*].containerResource.container}' || true)"
 [ "$hpa" = "ContainerResource ContainerResource chart-base chart-base" ] || fail "full has a sidecar: the HPA's CPU and memory targets must be ContainerResource metrics of the main container chart-base, got '$hpa'"
+behavior="$(kubectl get hpa -n "$ns" full-chart-base -o jsonpath='{.spec.behavior.scaleDown.stabilizationWindowSeconds} {.spec.behavior.scaleDown.policies[0].type}/{.spec.behavior.scaleDown.policies[0].value}/{.spec.behavior.scaleDown.policies[0].periodSeconds} {.spec.behavior.scaleUp.selectPolicy} {.spec.behavior.scaleUp.policies[0].type}/{.spec.behavior.scaleUp.policies[0].value}/{.spec.behavior.scaleUp.policies[0].periodSeconds}' || true)"
+[ "$behavior" = "600 Pods/1/60 Max Percent/100/30" ] || fail "full's HPA must store the behavior as rendered (scaleDown 600 s, Pods 1 per 60 s; scaleUp Max, Percent 100 per 30 s), got '$behavior'"
 rollout="$(kubectl get deployment -n "$ns" full-chart-base -o jsonpath='{.spec.strategy.type} {.spec.strategy.rollingUpdate.maxSurge} {.spec.strategy.rollingUpdate.maxUnavailable} {.spec.minReadySeconds} {.spec.revisionHistoryLimit}')"
 [ "$rollout" = "RollingUpdate 1 0 5 5" ] || fail "Deployment must carry strategy, minReadySeconds and revisionHistoryLimit, got '$rollout'"
-pod="$(kubectl get pods -n "$ns" -l app.kubernetes.io/instance=full -o jsonpath='{.items[0].metadata.name}')"
+# The oldest pod (one of the two --wait saw ready): metrics-server makes full's HPA live, and a pod it adds must not
+# be the one the checks below exec into while it starts.
+pod="$(kubectl get pods -n "$ns" -l app.kubernetes.io/instance=full --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[0].metadata.name}')" \
+  || fail "could not read the full scenario's oldest pod (a kubectl error, or no pod)"
+[ -n "$pod" ] || fail "the full scenario has no pod"
+# A native sidecar's usage, which a ContainerResource metric or a KEDA containerName may name: metrics-server reports it
+# next to the main container's (kubelet CRI stats and metrics-server 0.9.0, source reading). Poll every 5 s for up to
+# 180 s: metrics-server needs two scrapes of the node (--metric-resolution=15s).
+reported=""
+both=no
+for _ in $(seq 1 36); do
+  reported="$(kubectl get pods.metrics.k8s.io -n "$ns" "$pod" -o jsonpath='{.containers[*].name}' 2>/dev/null || true)"
+  # Each name is matched on its own: in "chart-base shipper" the two share the one space between them, so a single
+  # pattern naming both (*" chart-base "*" shipper "*) never matches (the first CI run of 0.10.0 failed on it).
+  case " $reported " in *" shipper "*) case " $reported " in *" chart-base "*) both=yes; break ;; esac ;; esac
+  sleep 5
+done
+[ "$both" = yes ] || fail "metrics-server must report the usage of the native sidecar shipper next to the main container chart-base, got containers '$reported' after 180 s; kubectl top: $(kubectl top pod -n "$ns" "$pod" --containers 2>&1 | tr '\n' ' ')"
+pass "full: metrics-server reports the usage of the native sidecar (shipper) next to the main container's"
 runtime="$(kubectl get pod -n "$ns" "$pod" -o jsonpath='{.spec.priorityClassName} {.spec.priority} {.spec.enableServiceLinks} {.spec.dnsConfig.options[0].name}={.spec.dnsConfig.options[0].value} {.spec.hostAliases[0].ip} {.spec.hostAliases[0].hostnames[0]}')"
 [ "$runtime" = "e2e-high 1000 false ndots=2 10.20.30.40 legacy-db.internal" ] \
   || fail "pod must carry priorityClassName (priority 1000), enableServiceLinks, dnsConfig and hostAliases, got '$runtime'"

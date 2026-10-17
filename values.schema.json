@@ -159,6 +159,130 @@
         "endPort": { "required": ["port"], "properties": { "port": { "type": "integer" } } }
       }
     },
+    "hpaBehavior": {
+      "description": "An HPA's spec.behavior (autoscaling.behavior, keda.behavior), Kubernetes' shape without tolerance; null = not rendered. Not converted: a null inside is an error wherever it reaches the chart (Helm 4.3 drops one written in an umbrella's own values while nothing is passed for the alias).",
+      "type": ["object", "null"], "additionalProperties": false, "minProperties": 1,
+      "properties": {
+        "scaleUp": { "$ref": "#/definitions/hpaScalingRules" },
+        "scaleDown": { "$ref": "#/definitions/hpaScalingRules" }
+      }
+    },
+    "hpaScalingRules": {
+      "description": "One direction of an HPA's behavior: at least one field; policies, when present, has at least one policy.",
+      "minProperties": 1, "type": "object", "additionalProperties": false,
+      "properties": {
+        "stabilizationWindowSeconds": { "type": "integer", "minimum": 0, "maximum": 3600 },
+        "selectPolicy": { "enum": ["Max", "Min", "Disabled"] },
+        "policies": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "required": ["type", "value", "periodSeconds"], "type": "object", "additionalProperties": false,
+            "properties": {
+              "type": { "enum": ["Pods", "Percent"] },
+              "value": { "type": "integer", "minimum": 1 },
+              "periodSeconds": { "type": "integer", "minimum": 1, "maximum": 1800 }
+            }
+          }
+        }
+      }
+    },
+    "hpaMetric": {
+      "description": "An item of autoscaling.metrics: Kubernetes' MetricSpec with the block of its type and no other. Not converted: a null item or field is an error (an overlay replaces the list whole).",
+      "type": "object", "required": ["type"], "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["Resource", "ContainerResource", "Pods", "Object", "External"] },
+        "resource": {
+          "type": "object", "additionalProperties": false, "required": ["name", "target"],
+          "properties": { "name": { "$ref": "#/definitions/hpaResourceName" }, "target": { "$ref": "#/definitions/hpaUtilizationTarget" } }
+        },
+        "containerResource": {
+          "type": "object", "additionalProperties": false, "required": ["name", "container", "target"],
+          "properties": {
+            "name": { "$ref": "#/definitions/hpaResourceName" },
+            "container": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63, "description": "The main container (the alias) or a sidecar (templates/validate.yaml)." },
+            "target": { "$ref": "#/definitions/hpaUtilizationTarget" }
+          }
+        },
+        "pods": {
+          "required": ["metric", "target"], "type": "object", "additionalProperties": false,
+          "properties": { "metric": { "$ref": "#/definitions/hpaMetricIdentifier" }, "target": { "$ref": "#/definitions/hpaAverageValueTarget" } }
+        },
+        "object": {
+          "type": "object", "additionalProperties": false, "required": ["describedObject", "metric", "target"],
+          "properties": {
+            "describedObject": {
+              "type": "object", "additionalProperties": false, "required": ["kind", "name"],
+              "properties": { "apiVersion": { "type": "string", "minLength": 1 }, "kind": { "type": "string", "minLength": 1 }, "name": { "type": "string", "minLength": 1 } }
+            },
+            "metric": { "$ref": "#/definitions/hpaMetricIdentifier" },
+            "target": { "$ref": "#/definitions/hpaValueTarget" }
+          }
+        },
+        "external": {
+          "additionalProperties": false, "required": ["metric", "target"], "type": "object",
+          "properties": { "metric": { "$ref": "#/definitions/hpaMetricIdentifier" }, "target": { "$ref": "#/definitions/hpaValueTarget" } }
+        }
+      },
+      "allOf": [
+        { "if": { "required": ["type"], "properties": { "type": { "const": "Resource" } } }, "then": { "required": ["resource"], "properties": { "containerResource": false, "pods": false, "object": false, "external": false } } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "ContainerResource" } } }, "then": { "required": ["containerResource"], "properties": { "resource": false, "pods": false, "object": false, "external": false } } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "Pods" } } }, "then": { "required": ["pods"], "properties": { "resource": false, "containerResource": false, "object": false, "external": false } } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "Object" } } }, "then": { "required": ["object"], "properties": { "resource": false, "containerResource": false, "pods": false, "external": false } } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "External" } } }, "then": { "required": ["external"], "properties": { "resource": false, "containerResource": false, "pods": false, "object": false } } }
+      ]
+    },
+    "hpaResourceName": { "description": "The resource of a Resource or ContainerResource metric.", "enum": ["cpu", "memory"] },
+    "hpaQuantity": { "description": "A Kubernetes quantity: a string (500m) or a number.", "type": ["string", "number"], "minLength": 1 },
+    "hpaMetricIdentifier": {
+      "description": "The metric of a Pods, Object or External entry: its name and an optional label selector.",
+      "required": ["name"], "type": "object", "additionalProperties": false,
+      "properties": { "name": { "type": "string", "minLength": 1 }, "selector": { "$ref": "#/definitions/labelSelector" } }
+    },
+    "hpaUtilizationTarget": {
+      "description": "The target of a Resource or ContainerResource entry: Utilization with averageUtilization, or AverageValue with averageValue.",
+      "type": "object", "additionalProperties": false, "required": ["type"],
+      "properties": {
+        "type": { "enum": ["Utilization", "AverageValue"] },
+        "averageUtilization": { "type": "integer", "minimum": 1 },
+        "averageValue": { "$ref": "#/definitions/hpaQuantity" }
+      },
+      "allOf": [
+        { "if": { "required": ["type"], "properties": { "type": { "const": "Utilization" } } }, "then": { "required": ["averageUtilization"], "properties": { "averageValue": false } } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "AverageValue" } } }, "then": { "required": ["averageValue"], "properties": { "averageUtilization": false } } }
+      ]
+    },
+    "hpaAverageValueTarget": {
+      "description": "The target of a Pods entry: AverageValue with averageValue.",
+      "type": "object", "additionalProperties": false, "required": ["type", "averageValue"],
+      "properties": { "type": { "enum": ["AverageValue"] }, "averageValue": { "$ref": "#/definitions/hpaQuantity" } }
+    },
+    "hpaValueTarget": {
+      "description": "The target of an Object or External entry: Value with value, or AverageValue with averageValue.",
+      "required": ["type"], "type": "object", "additionalProperties": false,
+      "properties": { "type": { "enum": ["Value", "AverageValue"] }, "value": { "$ref": "#/definitions/hpaQuantity" }, "averageValue": { "$ref": "#/definitions/hpaQuantity" } },
+      "allOf": [
+        { "if": { "required": ["type"], "properties": { "type": { "const": "Value" } } }, "then": { "required": ["value"], "properties": { "averageValue": false } } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "AverageValue" } } }, "then": { "required": ["averageValue"], "properties": { "value": false } } }
+      ]
+    },
+    "kedaTrigger": {
+      "description": "An entry of keda.triggers (the key is its name, so no name field); null = no such trigger; a null optional field is absent (chart-base.keda prunes it).",
+      "type": ["object", "null"], "additionalProperties": false, "required": ["type", "metadata"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1 },
+        "metadata": {
+          "description": "The scaler's parameters, rendered as strings; a null value is absent.",
+          "type": "object",
+          "additionalProperties": { "type": ["string", "number", "boolean", "null"] }
+        },
+        "metricType": { "enum": ["AverageValue", "Value", "Utilization", null] },
+        "authenticationRef": {
+          "type": ["object", "null"], "additionalProperties": false, "required": ["name"],
+          "properties": { "name": { "type": "string", "minLength": 1 }, "kind": { "enum": ["TriggerAuthentication", "ClusterTriggerAuthentication", null] } }
+        },
+        "useCachedMetrics": { "type": ["boolean", "null"] }
+      }
+    },
     "labelSelector": {
       "description": "A label selector. {} selects every pod or namespace; a matchLabels or matchExpressions that is present must not be empty.",
       "type": "object",
@@ -786,7 +910,37 @@
         "minReplicas": { "type": "integer", "minimum": 1 },
         "maxReplicas": { "type": "integer", "minimum": 1 },
         "targetCPUUtilizationPercentage": { "type": "integer", "minimum": 1, "maximum": 100 },
-        "targetMemoryUtilizationPercentage": { "type": ["integer", "null"], "minimum": 1, "maximum": 100 }
+        "targetMemoryUtilizationPercentage": { "type": ["integer", "null"], "minimum": 1, "maximum": 100 },
+        "behavior": { "$ref": "#/definitions/hpaBehavior" },
+        "metrics": {
+          "description": "spec.metrics: a non-empty list is the whole list (the built-in targets are not rendered); [] and null = the built-in targets.",
+          "type": ["array", "null"],
+          "items": { "$ref": "#/definitions/hpaMetric" }
+        }
+      }
+    },
+    "keda": {
+      "description": "A KEDA ScaledObject for the Deployment (keda.sh/v1alpha1); null or absent = KEDA off. Bounds from KEDA chart 2.21.0's CRD.",
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["enabled", "minReplicaCount", "maxReplicaCount"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minReplicaCount": { "type": "integer", "minimum": 0 },
+        "maxReplicaCount": { "type": "integer", "minimum": 1 },
+        "pollingInterval": { "type": ["integer", "null"], "minimum": 1 },
+        "cooldownPeriod": { "type": ["integer", "null"], "minimum": 0 },
+        "initialCooldownPeriod": { "minimum": 0, "type": ["integer", "null"] },
+        "fallback": {
+          "type": ["object", "null"], "additionalProperties": false, "required": ["failureThreshold", "replicas"],
+          "properties": { "failureThreshold": { "type": "integer", "minimum": 0 }, "replicas": { "minimum": 0, "type": "integer" } }
+        },
+        "behavior": { "description": "The behavior of the HPA KEDA creates, the definition of autoscaling.behavior.", "$ref": "#/definitions/hpaBehavior" },
+        "triggers": {
+          "description": "Keyed by the trigger's name. The map 0.10.0 converts: a null entry is absent, and so are a null optional field and a null metadata key of an entry (a null type or metadata is a schema error).",
+          "type": ["object", "null"],
+          "additionalProperties": { "$ref": "#/definitions/kedaTrigger" }
+        }
       }
     },
     "pdb": {
@@ -1099,6 +1253,7 @@
           "httpRoute": { "properties": { "enabled": { "const": false } } },
           "ingress": { "properties": { "enabled": { "const": false } } },
           "autoscaling": { "properties": { "enabled": { "const": false } } },
+          "keda": { "properties": { "enabled": { "const": false } } },
           "metrics": { "properties": { "enabled": { "const": false } } }
         }
       }

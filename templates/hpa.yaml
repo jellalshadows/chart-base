@@ -7,11 +7,15 @@ metadata:
     {{- include "chart-base.labels" . | nindent 4 }}
 spec:
   scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: {{ include "chart-base.fullname" . }}
+    {{- include "chart-base.scaleTargetRef" . | nindent 4 }}
   minReplicas: {{ .Values.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  {{- /* A non-empty autoscaling.metrics is the whole list, rendered as written (never switched to ContainerResource). Empty or null: the built-in targets, so spec.metrics is never empty (the API server would turn an empty list into CPU 80% without a word). */}}
+  {{- $metrics := .Values.autoscaling.metrics | default list }}
+  {{- if $metrics }}
+  metrics:
+    {{- toYaml $metrics | nindent 4 }}
+  {{- else }}
   {{- /* With a sidecar the built-in targets measure the main container alone (ContainerResource); without one, the pod (Resource). */}}
   {{- $container := "" }}
   {{- if include "chart-base.hasSidecars" . }}{{ $container = include "chart-base.component" . }}{{ end }}
@@ -20,4 +24,10 @@ spec:
     {{- with .Values.autoscaling.targetMemoryUtilizationPercentage }}
     {{- include "chart-base.utilizationMetric" (dict "name" "memory" "percent" . "container" $container) | nindent 4 }}
     {{- end }}
+  {{- end }}
+  {{- /* spec.behavior as written (the schema closes it at every level and rejects a null inside); null renders nothing and the API server's defaults apply. */}}
+  {{- with .Values.autoscaling.behavior }}
+  behavior:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 {{- end }}

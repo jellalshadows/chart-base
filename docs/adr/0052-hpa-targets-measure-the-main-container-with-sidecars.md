@@ -1,6 +1,6 @@
 # ADR-0052: With a sidecar, the HPA's built-in targets measure the main container
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0055](0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md) (0.10.0)
 - **Date:** 2026-10-08
 - **Since:** 0.8.0
 - **Related:** [ADR-0014](0014-resource-requests-required.md), [ADR-0051](0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)

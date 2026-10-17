@@ -11,7 +11,8 @@ metadata:
     {{- . | nindent 4 }}
   {{- end }}
 spec:
-  {{- if not .Values.autoscaling.enabled }}
+  {{- /* An autoscaler owns the count: Helm 4 would conflict with it on spec.replicas, Helm 3 would reset it at every upgrade. */}}
+  {{- if not (or .Values.autoscaling.enabled (.Values.keda | default dict).enabled) }}
   replicas: {{ .Values.replicas }}
   {{- end }}
   progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds | int64 }}

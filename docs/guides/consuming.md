@@ -118,14 +118,14 @@ pinned by one check of the alias contract, on both Helm versions
 
 | The `null` is written on | From `-f`/`--set`; from the umbrella's own values on Helm 3.22; from the umbrella's own values on Helm 4.3 when a `-f`/`--set` value names that alias | From the umbrella's own values on Helm 4.3 when nothing is passed for that alias |
 |---|---|---|
-| a chart default the schema requires ([ADR-0027](../adr/0027-required-keys-in-the-schema.md): `serviceAccount.automountToken`, `job.ttlSecondsAfterFinished`, `podSecurityContext`) | Helm removes it; the render fails (`missing property`) | ignored: the default stays (nothing fails when the default is valid; `resources` and `image.repository` then fail the schema like the next row) |
+| a chart default the schema requires ([ADR-0027](../adr/0027-required-keys-in-the-schema.md): `serviceAccount.automountToken`, `job.ttlSecondsAfterFinished`, `podSecurityContext`, `keda.minReplicaCount` and `keda.maxReplicaCount`) | Helm removes it; the render fails (`missing property`) | ignored: the default stays (nothing fails when the default is valid; `resources` and `image.repository` then fail the schema like the next row) |
 | a key that an enabled block needs ([ADR-0047](../adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md): `cronjob.schedule`, `externalSecret.secretStoreRef.kind` and `.name`, `httpRoute.parentRefs`, `ingress.hosts`) | Helm removes it; the render fails (`missing property`) | ignored: the default (`""`, `[]`) stays and fails the schema (`minLength: got 0, want 1`, `minItems`); for `secretStoreRef.kind` the default `ClusterSecretStore` stays and renders |
 | any other chart default (`podSecurityContext.runAsUser`, `securityContext.readOnlyRootFilesystem`, `ingress.className`) | the default is gone | ignored: the default stays |
-| a whole map that the chart's `values.yaml` defines (`config`, `env`, `podLabels`, `podAnnotations`, `nodeSelector`, `configFiles.files`, `volumes`, `initContainers`, `sidecars`) | cleared | same result |
+| a whole map that the chart's `values.yaml` defines (`config`, `env`, `podLabels`, `podAnnotations`, `nodeSelector`, `configFiles.files`, `volumes`, `initContainers`, `sidecars`, `keda`), and `autoscaling.behavior` and the list `autoscaling.metrics` | cleared (`keda: null` is KEDA off; `metrics: null` renders the built-in targets) | same result |
 | a whole map that the chart's `values.yaml` does not define (`resources.requests`) | schema error `got null, want object` | Helm drops it, and the required `requests` is then missing (`missing property 'requests'`) |
-| one entry of a typed map (`config.<KEY>`, `env.<NAME>`, labels, annotations, `nodeSelector.<key>`), or an optional member of a closed object (`lifecycle.postStart`, `strategy.rollingUpdate.maxSurge`, `dnsConfig.options`); a field inside an init container's or a sidecar's env `valueFrom` or probe `httpGet` or `exec` (definitions shared with the main container) | schema error `got null, want …` | Helm drops the entry |
+| one entry of a typed map (`config.<KEY>`, `env.<NAME>`, labels, annotations, `nodeSelector.<key>`), or an optional member of a closed object (`lifecycle.postStart`, `strategy.rollingUpdate.maxSurge`, `dnsConfig.options`, `autoscaling.behavior.scaleUp`); a field inside an init container's or a sidecar's env `valueFrom` or probe `httpGet` or `exec` (definitions shared with the main container) | schema error `got null, want …` | Helm drops the entry |
 | a key inside a pass-through object (`affinity.<key>`, a key of a main-container probe) | rendered as `null` in the manifest | dropped |
-| a file of `configFiles.files` or a key of a map-form file (maps reached through maps); an entry of `resources.limits`, an entry of `resources.requests` other than `cpu` and `memory`, or `resources.limits` itself; an entry of `volumes` or a field of an entry; `strategy.rollingUpdate`; an entry of `initContainers` or `sidecars`, or an optional field of an entry at any depth, not inside a list (`env.<NAME>`, a mount, a probe, a `securityContext` field: the hardened default comes back); an entry of `externalSecret.data` or an optional field of one (`property`, `version`, `decodingStrategy`), and an entry of `externalSecret.template.data` | removed by chart-base ([ADR-0045](../adr/0045-null-in-configfiles-and-resources-is-absent.md), [ADR-0049](../adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md), [ADR-0050](../adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md), [ADR-0051](../adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md), [ADR-0053](../adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md)) | removed |
+| a file of `configFiles.files` or a key of a map-form file (maps reached through maps); an entry of `resources.limits`, an entry of `resources.requests` other than `cpu` and `memory`, or `resources.limits` itself; an entry of `volumes` or a field of an entry; `strategy.rollingUpdate`; an entry of `initContainers` or `sidecars`, or an optional field of an entry at any depth, not inside a list (`env.<NAME>`, a mount, a probe, a `securityContext` field: the hardened default comes back); an entry of `externalSecret.data` or an optional field of one (`property`, `version`, `decodingStrategy`), and an entry of `externalSecret.template.data`; an entry of `keda.triggers`, or an optional field or a metadata key of one | removed by chart-base ([ADR-0045](../adr/0045-null-in-configfiles-and-resources-is-absent.md), [ADR-0049](../adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md), [ADR-0050](../adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md), [ADR-0051](../adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md), [ADR-0053](../adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md), [ADR-0056](../adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)) | removed |
 
 `externalSecret.data: null` with `externalSecret.enabled: true` and no `dataFrom` entry is cleared and then fails the
 source guard ([ADR-0047](../adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md)). In `externalSecret.data` a `null` entry, and a `null`
@@ -147,9 +147,27 @@ These are rules of these maps, not of every map. An environment that removes an 
 `--set` below that entry: Helm itself fails (`failed parsing --set data: unable to parse key: interface conversion:
 interface {} is nil, not map[string]interface {}`, measured on Helm 4.3.0 and 3.22.0).
 
+In `keda.triggers` a `null` entry, a `null` optional field of an entry (`metricType`, `authenticationRef` or its
+`kind`, `useCachedMetrics`) and a `null` metadata key are absent, and no `null` reaches the ScaledObject (a `null`
+`type` or `metadata` stays a schema error): an overlay removes a trigger with `triggers.<name>: null` and one parameter
+with `triggers.<name>.metadata.<key>: null`. `keda.minReplicaCount` and `keda.maxReplicaCount` are required, also while
+KEDA is off: a `null` fails with `missing property`, except in the umbrella's own values on Helm 4.3 while nothing is
+passed for the alias, where the default stays (1 and 10, never KEDA's own 0 and 100). `keda: null` is KEDA off.
+`autoscaling.behavior` and `keda.behavior` are not converted: a `null` inside (a direction, or a field of one) is a
+schema error, except that Helm 4.3 drops one written in the umbrella's own values while nothing is passed for the
+alias (a direction or a `behavior` left empty then fails `minProperties`); `behavior: null` removes the whole block.
+`autoscaling.metrics` is a list: an overlay replaces it whole, a `null` item is a schema error, and `metrics: null`
+renders the built-in targets; `targetMemoryUtilizationPercentage: null` next to a list renders the list alone. The
+alias contract measures, on Helm 4.3.0 and 3.22.0, a `null` trigger and a `null` metadata key, the required counts,
+`keda: null`, `behavior: null` and `metrics: null`, a `null` direction and the memory remedy; the `null` optional
+fields of a trigger, a `null` field inside `behavior`, a `null` `metrics` item and the list overlay were measured by
+the final review of 0.10.0 on both versions, and the unit tests pin the schema rules
+([ADR-0055](../adr/0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md),
+[ADR-0056](../adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)).
+
 An overlay can add entries to a map, and can clear with `null` a whole map that the chart's `values.yaml` defines; it
 cannot remove one entry, except where this guide says so per map (in 0.7.0: a file of `configFiles.files`, a key of a
-map-form file, an entry of `resources.limits` or `resources.requests`, other than `requests.cpu` and `requests.memory`, which stay required, and an entry of `volumes` or one of its fields; in 0.8.0 an entry of `initContainers` or `sidecars` or one of its fields; in 0.9.0 an entry of `externalSecret.data` or one of its optional fields, and an entry of `externalSecret.template.data`): keep the entries that differ per
+map-form file, an entry of `resources.limits` or `resources.requests`, other than `requests.cpu` and `requests.memory`, which stay required, and an entry of `volumes` or one of its fields; in 0.8.0 an entry of `initContainers` or `sidecars` or one of its fields; in 0.9.0 an entry of `externalSecret.data` or one of its optional fields, and an entry of `externalSecret.template.data`; in 0.10.0 an entry of `keda.triggers`, or an optional field or a metadata key of one): keep the entries that differ per
 environment in the overlays. On Helm 4, lint and template an umbrella with the same `-f`/`--set` values the deploy
 uses: a `null` in the umbrella's own values is ignored until a value is passed for that component.
 
@@ -185,11 +203,25 @@ turns every value into a string
 YAML reads an unquoted `1.10` as the number 1.1. The schema only accepts a string for `image.tag`, so an
 unquoted tag fails at render time ("got number, want string") instead of deploying `1.1`.
 
-**Turning on autoscaling for a running component scales it to 1 once.**
-With `autoscaling.enabled: true` the Deployment no longer sets `spec.replicas`, so that the HPA and
-Helm do not fight over it. On an existing release, Kubernetes treats the removed field as the default
-of 1 replica, and then the HPA scales the Deployment back up. Expect a single dip when you enable it on a
-component that is already serving traffic.
+**Turning on autoscaling or KEDA for a running component scales it to 1 once.**
+With `autoscaling.enabled: true` or `keda.enabled: true` the Deployment no longer sets `spec.replicas`, so that the
+autoscaler and Helm do not fight over it. On an existing release, Kubernetes treats the removed field as the default
+of 1 replica (measured on kube-apiserver 1.33.0 and 1.37.0 with Helm 4.3.0 and 3.22.0: `autoscaling.enabled` from 3
+replicas and `keda.enabled` from 5 replicas each left 1), and then the autoscaler scales the Deployment (source
+reading: no HPA controller ran in that measurement). Expect a single dip when you enable it on a component that is
+already serving traffic.
+
+**KEDA needs its CRDs, its operator and its metrics API server, and one autoscaler per component.**
+The KEDA chart installs them, and its admission webhook, by default (the e2e runs 2.21.0). Without the CRDs the whole
+release fails at install, as for every CRD kind ([ADR-0012](../adr/0012-no-capabilities-gating.md)); without the
+operator a ScaledObject cannot be deleted (its finalizer); without the metrics API server, which serves
+`external.metrics.k8s.io`, the HPA KEDA creates reads no trigger but `cpu` and `memory` (source reading of the KEDA
+chart 2.21.0). The admission webhook is optional (the KEDA chart's `webhooks.enabled`; its `failurePolicy` is
+`Ignore`); it is what denies a second autoscaler of a Deployment. `autoscaling.enabled` and `keda.enabled` together
+fail the render, and an existing release cannot switch from the chart's HPA to KEDA in one upgrade where KEDA's
+webhook runs: the [upgrade guide](../upgrading.md#09x--0100) has the paths that work, in both directions
+([ADR-0056](../adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md); more in
+[Autoscaling: the HPA and KEDA](#autoscaling-the-hpa-and-keda)).
 
 **`externalSecret` needs External Secrets Operator 0.16 or later, with its default template delimiters.**
 The chart renders `external-secrets.io/v1`, which External Secrets serves from 0.16.0 and alone from 0.17.0 (source
@@ -428,6 +460,60 @@ Secret `<fullname>-secrets`. It needs External Secrets Operator 0.16 or later (`
   ExternalSecret, not in Helm. A source that returns nothing is reported `Ready=True` and creates no Secret (source
   reading). Gate the pipeline on `helm template` with the deploy's real values, and watch the ExternalSecret's events.
 
+## Autoscaling: the HPA and KEDA
+
+A Deployment component scales with the chart's HorizontalPodAutoscaler (`autoscaling`,
+[ADR-0052](../adr/0052-hpa-targets-measure-the-main-container-with-sidecars.md),
+[ADR-0055](../adr/0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md)) or with a KEDA ScaledObject (`keda`,
+[ADR-0056](../adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)), never with both. What a consumer
+must know:
+
+- **A non-empty `autoscaling.metrics` is the whole list.** It replaces the built-in CPU and memory targets: restate the
+  CPU target in it to keep it, and set `targetMemoryUtilizationPercentage: null` (the render fails otherwise). It is
+  rendered as written: a `Resource` entry on a component with sidecars measures the whole pod, a `ContainerResource`
+  entry with `container: <alias>` the main container. A `Pods`, `Object` or `External` metric needs an adapter that
+  serves it (prometheus-adapter, a cloud adapter); the chart cannot see whether one does.
+- **`behavior`** shapes the scaling in Kubernetes' own form, on the chart's HPA (`autoscaling.behavior`) or on the HPA
+  KEDA creates (`keda.behavior`); the API server stores it as rendered, and fills Kubernetes' defaults into a direction
+  that sets `selectPolicy` alone (measured on kube-apiserver 1.33.0 and 1.37.0). What the HPA controller does with it
+  is Kubernetes source reading, not run.
+- **KEDA owns an HPA of its own**, `keda-hpa-<fullname>`, which is not part of the release (it carries the
+  ScaledObject's labels and annotations): with `keda.enabled` the resource name is at most 54 characters. The
+  operator's finalizer must be removed by the operator: with the operator down, `helm uninstall --wait` fails at its
+  timeout and a switch back to the HPA leaves the ScaledObject `Terminating` (measured with KEDA 2.21.0 when 0.10.0
+  was designed).
+- **Helm 4 `--wait` reads the ScaledObject's `Ready` condition** (Helm 3 does not look). A ScaledObject whose `Ready`
+  is False or Unknown when Helm reads it fails the upgrade at the `--timeout`: an upgrade that does not change it while
+  its trigger source is down fails so, and a `fallback` keeps it Ready (both measured by the 0.10.0 research with KEDA
+  2.21.0's operator; KEDA then feeds `fallback.replicas` to its HPA after `failureThreshold` failed polls: KEDA's
+  source). A new or changed ScaledObject can pass before KEDA's operator has reported (measured: an invalid one alone
+  in its release returned in 0 to 1 s, exit 0), so `--wait` is no proof that it is Ready: gate on
+  `kubectl wait --for=condition=Ready`, as the kind e2e does. A scaler that connects when KEDA builds it (`rabbitmq`)
+  keeps the ScaledObject not Ready while its source cannot be reached (measured with KEDA 2.21.0's operator against
+  kube-apiserver 1.33.0 and 1.37.0).
+- **A `...FromEnv` parameter reads the main container's environment** (the pod's first container): its `envFrom`, the
+  component's Secret included while `externalSecret.envFrom` is true, and its `env`, a `secretKeyRef` or an
+  `externalSecretKeyRef` included (measured). Under KEDA's restricted Secret access (`KEDA_RESTRICT_SECRET_ACCESS`, the
+  KEDA chart's `permissions.operator.restrict.secret`) the operator reads no Secret of the namespace and the scaler
+  fails (measured): use an `authenticationRef` to a ClusterTriggerAuthentication then. While `<fullname>-secrets` does
+  not exist yet, the ScaledObject stays not Ready until the operator's next retry after External Secrets has synced
+  (KEDA source reading). The chart checks neither a scaler's metadata nor the variable a `...FromEnv` names.
+- **`cpu` and `memory` triggers** measure the whole pod, sidecars included, unless `metadata.containerName` names the
+  main container (the alias) or a non-null sidecar; they need `metricType` `Utilization` or `AverageValue`, and they
+  cannot scale from zero: a component scaled only by them keeps `minReplicaCount` at 1 or more (the render fails
+  otherwise).
+- **Scale to zero is written on purpose** (`minReplicaCount: 0`; the chart's default is 1, KEDA's own 0). At zero the
+  component has no pod behind its Service or route. The PodDisruptionBudget is not checked against the minimum: with
+  `minReplicaCount: 0` the workload often runs one pod, and any integer `pdb.minAvailable` of 1 or more then blocks a
+  node drain (the default `maxUnavailable: 1` does not; [roadmap](../roadmap.md#open-decisions)).
+- **A native sidecar's usage is reported** by metrics-server next to the main container's (source reading of the
+  kubelet's CRI stats provider at v1.33.12 and v1.37.0 and of metrics-server 0.9.0; the kind e2e asserts it), so a
+  `ContainerResource` metric or a `containerName` may name a sidecar. An init container cannot be named: it has exited
+  before a metric is read.
+- **Switching a running component** between the chart's HPA and KEDA follows the
+  [upgrade guide](../upgrading.md#09x--0100): from the HPA to KEDA in one upgrade is denied by KEDA's webhook, and from
+  KEDA back to the HPA at zero replicas leaves the component at zero.
+
 ## Failure behavior
 
 What fails **before the cluster is touched**, at `helm template` and at `helm install` / `helm upgrade` alike
@@ -494,13 +580,28 @@ release name and `--namespace`, not on `helm lint`
   one of them or `.`; `items` or `defaultMode` while nothing mounts the Secret; `readOnly: false` on an entry's mount of
   `external-secret`. And, while the block is disabled too: an `externalSecretKeyRef`, and an entry's mount of
   `external-secret`.
+- The guards of `autoscaling` and `keda` ([ADR-0055](../adr/0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md), [ADR-0056](../adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)): `autoscaling.enabled` and
+  `keda.enabled` together; while `autoscaling` is enabled, `targetMemoryUtilizationPercentage` next to a non-empty
+  `metrics` list, and a `ContainerResource` container that is not the main container or a non-null sidecar; while
+  `keda` is enabled, a resource name longer than 54 characters, `minReplicaCount` above `maxReplicaCount`, no non-null
+  trigger, a `cpu` or `memory` trigger without `metricType` `Utilization` or `AverageValue`, or with a
+  `metadata.containerName` that is not the main container or a non-null sidecar, `Utilization` on another trigger,
+  `useCachedMetrics: true` on a `cron`, `cpu` or `memory` trigger, only `cpu` and `memory` triggers with
+  `minReplicaCount: 0`, a `fallback` without another trigger or with `replicas` above `maxReplicaCount`, and
+  `cooldownPeriod` or `initialCooldownPeriod` with a `minReplicaCount` other than 0. With `keda.enabled`, the guard of
+  an existing `ReadWriteOnce` or `ReadWriteOncePod` claim on a Deployment reads `keda.maxReplicaCount`, never
+  `replicas`.
 
 What fails **at install or upgrade**, when Helm talks to the cluster (rendering does not need the CRD,
 so `helm template` and `helm lint` do not catch it):
 
 - A kind whose CRD is not installed (HTTPRoute, ExternalSecret, ServiceMonitor, PodMonitor,
-  PrometheusRule): Helm cannot build the object, so the release fails cleanly. chart-base does not skip
+  PrometheusRule, ScaledObject): Helm cannot build the object, so the release fails cleanly. chart-base does not skip
   such objects ([ADR-0012](../adr/0012-no-capabilities-gating.md)).
+- Where KEDA's admission webhook runs (the KEDA chart's default), a ScaledObject for a Deployment that an HPA already
+  scales: the webhook denies it (`the workload '<fullname>' of type 'apps/v1.Deployment' is already managed by the hpa
+  '<fullname>'`) and the release fails; that is a one-upgrade switch from the chart's HPA to KEDA (measured with KEDA
+  2.21.0's webhook; the [upgrade guide](../upgrading.md#switching-to-keda) has the paths that work).
 - A Role or a RoleBinding that grants a permission the deployer does not hold (unless it may `escalate` or `bind`):
   the API server rejects it with `is attempting to grant RBAC permissions not currently held`, a RoleBinding whose
   Role was rejected fails too (`not found`), and the release fails; the objects already created stay. An upgrade that

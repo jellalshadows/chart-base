@@ -1,0 +1,26 @@
+# KEDA: a Deployment without a Service and without an ExternalSecret, scaled by a ScaledObject (the kind e2e installs
+# KEDA's chart). One cron trigger whose window is active one minute a year (1 January, 00:00 to 00:01 UTC) and
+# minReplicaCount 0: KEDA scales the Deployment to zero. lint/template/snapshot/kubeconform + kind e2e.
+image:
+  repository: registry.k8s.io/e2e-test-images/agnhost
+  tag: "2.66.1"
+args: ["pause"]
+service:
+  enabled: false
+resources:
+  requests:
+    cpu: 10m
+    memory: 16Mi
+config:
+  APP_MODE: keda
+keda:
+  enabled: true
+  minReplicaCount: 0
+  triggers:
+    window:
+      type: cron
+      metadata:
+        timezone: Etc/UTC
+        start: "0 0 1 1 *"
+        end: "1 0 1 1 *"
+        desiredReplicas: "1"

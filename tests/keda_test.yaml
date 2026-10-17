@@ -1,0 +1,255 @@
+suite: keda (the ScaledObject)
+templates:
+  - templates/scaledobject.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+values:
+  - values/base.yaml
+tests:
+  - it: renders no ScaledObject by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders no ScaledObject for keda null
+    set:
+      keda: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the ScaledObject of the contract, named <release>-<component>, with the chart's labels
+    set:
+      keda.enabled: true
+      keda.minReplicaCount: 0
+      keda.maxReplicaCount: 10
+      keda.cooldownPeriod: 600
+      keda.fallback: {failureThreshold: 3, replicas: 2}
+      keda.behavior: {scaleDown: {stabilizationWindowSeconds: 600}}
+      keda.triggers:
+        queue: {type: rabbitmq, metricType: AverageValue, metadata: {queueName: orders, mode: QueueLength, value: "20", hostFromEnv: RABBITMQ_URL}}
+    asserts:
+      - isAPIVersion:
+          of: keda.sh/v1alpha1
+      - isKind:
+          of: ScaledObject
+      - equal:
+          path: metadata.name
+          value: vending-chart-base
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: chart-base
+      - equal:
+          path: spec
+          value:
+            scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: vending-chart-base}
+            minReplicaCount: 0
+            maxReplicaCount: 10
+            cooldownPeriod: 600
+            fallback: {failureThreshold: 3, replicas: 2}
+            advanced: {horizontalPodAutoscalerConfig: {behavior: {scaleDown: {stabilizationWindowSeconds: 600}}}}
+            triggers:
+              - name: queue
+                type: rabbitmq
+                metricType: AverageValue
+                metadata: {hostFromEnv: RABBITMQ_URL, mode: QueueLength, queueName: orders, value: "20"}
+
+  - it: renders minReplicaCount 0, the periods 0 and a fallback of 0 and 0 (a zero is a value, not an absent field)
+    set:
+      keda.enabled: true
+      keda.minReplicaCount: 0
+      keda.cooldownPeriod: 0
+      keda.initialCooldownPeriod: 0
+      keda.fallback: {failureThreshold: 0, replicas: 0}
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - equal:
+          path: spec.fallback.failureThreshold
+          value: 0
+      - equal:
+          path: spec.fallback.replicas
+          value: 0
+      - equal:
+          path: spec.minReplicaCount
+          value: 0
+      - equal:
+          path: spec.cooldownPeriod
+          value: 0
+      - equal:
+          path: spec.initialCooldownPeriod
+          value: 0
+
+  - it: renders the chart's defaults explicitly (minReplicaCount 1, maxReplicaCount 10) and no optional field
+    set:
+      keda.enabled: true
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - equal:
+          path: spec
+          value:
+            scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: vending-chart-base}
+            minReplicaCount: 1
+            maxReplicaCount: 10
+            triggers:
+              - name: window
+                type: cron
+                metadata: {desiredReplicas: "1", end: "1 0 1 1 *", start: "0 0 1 1 *", timezone: Etc/UTC}
+
+  - it: renders pollingInterval and initialCooldownPeriod when set
+    set:
+      keda.enabled: true
+      keda.minReplicaCount: 0
+      keda.pollingInterval: 15
+      keda.initialCooldownPeriod: 120
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - equal:
+          path: spec.pollingInterval
+          value: 15
+      - equal:
+          path: spec.initialCooldownPeriod
+          value: 120
+      - notExists:
+          path: spec.cooldownPeriod
+
+  - it: renders the triggers in key order, each key as its name
+    set:
+      keda.enabled: true
+      keda.triggers:
+        zeta: {type: cron, metadata: {timezone: Etc/UTC, start: "0 8 * * *", end: "0 18 * * *", desiredReplicas: "2"}}
+        alpha: {type: prometheus, metadata: {serverAddress: "http://prometheus:9090", query: up, threshold: "1"}}
+    asserts:
+      - equal:
+          path: spec.triggers[0].name
+          value: alpha
+      - equal:
+          path: spec.triggers[1].name
+          value: zeta
+
+  - it: renders every string of a trigger quoted (a name true, a type 1, an authenticationRef name 123, a metadata value 007)
+    set:
+      keda.enabled: true
+      keda.triggers:
+        "true": {type: "1", authenticationRef: {name: "123", kind: ClusterTriggerAuthentication}, metadata: {queueName: "007"}}
+    asserts:
+      - equal:
+          path: spec.triggers[0]
+          value:
+            name: "true"
+            type: "1"
+            authenticationRef: {name: "123", kind: ClusterTriggerAuthentication}
+            metadata: {queueName: "007"}
+
+  - it: renders metadata numbers and booleans as strings, without an exponent
+    set:
+      keda.enabled: true
+      keda.triggers.queue: {type: rabbitmq, metadata: {value: 10000000, unsafeSsl: true, timeout: 7, ratio: 0.5}}
+    asserts:
+      - equal:
+          path: spec.triggers[0].metadata
+          value: {ratio: "0.5", timeout: "7", unsafeSsl: "true", value: "10000000"}
+
+  - it: renders every metadata key quoted (a key true and a key 1 stay strings; the values x and z are strings in YAML 1.1 and 1.2)
+    set:
+      keda.enabled: true
+      keda.triggers.queue: {type: rabbitmq, metadata: {"true": x, "1": z}}
+    asserts:
+      - equal:
+          path: spec.triggers[0].metadata
+          value: {"1": "z", "true": "x"}
+
+  - it: renders large integers without an exponent (maxReplicaCount, cooldownPeriod, fallback.failureThreshold)
+    set:
+      keda.enabled: true
+      keda.minReplicaCount: 0
+      keda.maxReplicaCount: 1000000
+      keda.cooldownPeriod: 1000000
+      keda.fallback: {failureThreshold: 1000000, replicas: 2}
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - equal:
+          path: spec.maxReplicaCount
+          value: 1000000
+      - equal:
+          path: spec.cooldownPeriod
+          value: 1000000
+      - equal:
+          path: spec.fallback.failureThreshold
+          value: 1000000
+
+  - it: renders no null anywhere for null fields and entries of keda.triggers (an override removes them)
+    set:
+      keda.enabled: true
+      keda.triggers:
+        gone: null
+        queue: {type: rabbitmq, metricType: null, useCachedMetrics: null, authenticationRef: null, metadata: {queueName: orders, host: null}}
+    asserts:
+      - equal:
+          path: spec.triggers
+          value:
+            - name: queue
+              type: rabbitmq
+              metadata: {queueName: orders}
+
+  - it: renders metadata {} when pruning empties it (KEDA's CRD requires the key)
+    set:
+      keda.enabled: true
+      keda.triggers.queue: {type: rabbitmq, metadata: {host: null}}
+    asserts:
+      - equal:
+          path: spec.triggers[0]
+          value:
+            name: queue
+            type: rabbitmq
+            metadata: {}
+
+  - it: renders authenticationRef without kind for kind null (KEDA's default TriggerAuthentication)
+    set:
+      keda.enabled: true
+      keda.triggers.queue: {type: rabbitmq, authenticationRef: {name: rabbit-auth, kind: null}, metadata: {queueName: orders}}
+    asserts:
+      - equal:
+          path: spec.triggers[0].authenticationRef
+          value: {name: rabbit-auth}
+
+  - it: renders useCachedMetrics true as a boolean and not false (KEDA's default), and metricType when set
+    set:
+      keda.enabled: true
+      keda.triggers:
+        a: {type: prometheus, useCachedMetrics: true, metricType: Value, metadata: {serverAddress: "http://prometheus:9090", query: up, threshold: "1"}}
+        b: {type: prometheus, useCachedMetrics: false, metadata: {serverAddress: "http://prometheus:9090", query: up, threshold: "1"}}
+    asserts:
+      - equal:
+          path: spec.triggers[0].useCachedMetrics
+          value: true
+      - equal:
+          path: spec.triggers[0].metricType
+          value: Value
+      - notExists:
+          path: spec.triggers[1].useCachedMetrics
+
+  - it: renders advanced only with a behavior (one direction as written)
+    set:
+      keda.enabled: true
+      keda.behavior: {scaleUp: {policies: [{type: Pods, value: 4, periodSeconds: 60}], selectPolicy: Max}}
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - equal:
+          path: spec.advanced
+          value:
+            horizontalPodAutoscalerConfig:
+              behavior:
+                scaleUp:
+                  policies: [{type: Pods, value: 4, periodSeconds: 60}]
+                  selectPolicy: Max
+
+  - it: renders no ScaledObject while keda.enabled is false, with triggers (a base values file may keep them)
+    set:
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - hasDocuments:
+          count: 0

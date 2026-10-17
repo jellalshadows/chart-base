@@ -561,6 +561,165 @@ machines-consumer:
     requests: {cpu: 100m, memory: 256Mi}
 ```
 
+### A worker scaled by its queue (KEDA, scale to zero)
+
+A RabbitMQ consumer that runs while its queue holds messages and has no pod otherwise
+([ADR-0056](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)).
+KEDA reads the broker's URL from the main container's environment (`hostFromEnv`), here the component's Secret,
+injected whole:
+
+```yaml
+orders-consumer:
+  image: {repository: ghcr.io/acme/orders, tag: "2.4.0"}
+  args: ["--mode=consumer"]
+  ports: []
+  service:
+    enabled: false
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+  externalSecret:                          # ESO -> Secret vending-orders-consumer-secrets -> envFrom
+    enabled: true
+    secretStoreRef: {kind: ClusterSecretStore, name: gcp-sm}
+    data:
+      RABBITMQ_URL: {key: orders-rabbitmq-url}   # amqp://user:password@rabbitmq.messaging:5672/orders
+  keda:
+    enabled: true
+    minReplicaCount: 0                     # scale to zero, written on purpose (the chart's default is 1)
+    maxReplicaCount: 20
+    cooldownPeriod: 120                    # seconds without messages before 0 (only with minReplicaCount: 0)
+    triggers:
+      orders:                              # the trigger's name
+        type: rabbitmq
+        metadata:
+          queueName: orders
+          mode: QueueLength
+          value: 50                        # messages per pod, rendered "50"
+          hostFromEnv: RABBITMQ_URL        # a variable of the main container
+```
+
+The same consumer with its Secret not injected whole (`externalSecret.envFrom: false`): one variable references one
+key, and KEDA resolves that reference too:
+
+```yaml
+orders-consumer:
+  image: {repository: ghcr.io/acme/orders, tag: "2.4.0"}
+  args: ["--mode=consumer"]
+  ports: []
+  service:
+    enabled: false
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+  externalSecret:
+    enabled: true
+    secretStoreRef: {kind: ClusterSecretStore, name: gcp-sm}
+    envFrom: false
+    data:
+      rabbitmq-url: {key: orders-rabbitmq-url}   # no variable name needed: the Secret is not injected
+  env:
+    RABBITMQ_URL: {valueFrom: {externalSecretKeyRef: {key: rabbitmq-url}}}
+  keda:
+    enabled: true
+    minReplicaCount: 0
+    maxReplicaCount: 20
+    cooldownPeriod: 120
+    triggers:
+      orders:
+        type: rabbitmq
+        metadata: {queueName: orders, mode: QueueLength, value: 50, hostFromEnv: RABBITMQ_URL}
+```
+
+KEDA resolves a `...FromEnv` parameter in the main container (the pod's first container): its `envFrom` and its
+`env`, a `secretKeyRef` included (measured with KEDA 2.21.0's operator). Under KEDA's restricted Secret access (the
+KEDA chart's `permissions.operator.restrict.secret`) it reads no Secret of the namespace (measured): reference a
+ClusterTriggerAuthentication instead (`authenticationRef: {name: <name>, kind: ClusterTriggerAuthentication}`). The
+chart checks neither the scaler's metadata nor that the variable exists. A `rabbitmq` scaler connects when KEDA builds
+it: while the broker cannot be reached the ScaledObject is not Ready (measured with KEDA 2.21.0's operator), and Helm 4
+`--wait` then fails at its timeout once it reads the condition (measured by the 0.10.0 research with other trigger
+errors; the [consuming guide](https://github.com/jellalshadows/chart-base/blob/main/docs/guides/consuming.md#autoscaling-the-hpa-and-keda) has the rest).
+
+### An API that scales up fast and down slowly (HPA `behavior`)
+
+```yaml
+sales:
+  image: {repository: ghcr.io/acme/sales, tag: "1.4.2"}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 30
+    behavior:                              # Kubernetes' spec.behavior, closed: a misspelt field fails the render
+      scaleUp:
+        policies: [{type: Percent, value: 100, periodSeconds: 30}]   # at most double every 30 seconds
+      scaleDown:
+        stabilizationWindowSeconds: 600    # 10 minutes of stabilization before scaling in
+        policies: [{type: Pods, value: 1, periodSeconds: 60}]        # then one pod per minute
+```
+
+`behavior` is rendered as written, and the API server fills Kubernetes' defaults into a direction that leaves fields
+out (measured for a `scaleUp` with `selectPolicy` alone, on kube-apiserver 1.33.0 and 1.37.0). `tolerance` is not
+offered: Kubernetes 1.33 and 1.34 drop it without a word (source reading of each release's `kube_features.go`). An
+override file merges into `behavior` field by field and cannot remove one direction; `behavior: null` removes the
+whole block
+([ADR-0055](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md)).
+
+### Scaling on the main container next to sidecars (`ContainerResource`, `containerName`)
+
+The built-in CPU and memory targets measure the main container once there is a sidecar (decision 52). A `metrics`
+list is rendered as written, so it names the main container itself:
+
+```yaml
+sales:
+  image: {repository: ghcr.io/acme/sales, tag: "1.4.2"}
+  resources:
+    requests: {cpu: 500m, memory: 512Mi}
+  sidecars:
+    proxy:
+      image: {repository: ghcr.io/acme/auth-proxy, tag: "1.2.0"}
+      resources: {requests: {cpu: 100m, memory: 64Mi}}
+  autoscaling:
+    enabled: true
+    metrics:                               # the whole list: no built-in target is rendered next to it
+      - type: ContainerResource
+        containerResource:
+          name: cpu
+          container: sales                 # the main container is named after the alias
+          target: {type: Utilization, averageUtilization: 70}
+```
+
+With KEDA, a `cpu` trigger measures the whole pod unless `containerName` names a container:
+
+```yaml
+sales:
+  image: {repository: ghcr.io/acme/sales, tag: "1.4.2"}
+  resources:
+    requests: {cpu: 500m, memory: 512Mi}
+  sidecars:
+    proxy:
+      image: {repository: ghcr.io/acme/auth-proxy, tag: "1.2.0"}
+      resources: {requests: {cpu: 100m, memory: 64Mi}}
+  keda:
+    enabled: true
+    minReplicaCount: 2                     # a cpu trigger cannot scale from zero
+    maxReplicaCount: 20
+    triggers:
+      cpu:
+        type: cpu
+        metricType: Utilization
+        metadata: {value: "70", containerName: sales}
+      office-hours:                        # at least 4 pods on weekdays from 08:00 to 20:00, Madrid time
+        type: cron
+        metadata: {timezone: Europe/Madrid, start: "0 8 * * 1-5", end: "0 20 * * 1-5", desiredReplicas: "4"}
+```
+
+A `Resource` entry of `metrics`, or a `cpu` or `memory` trigger without `containerName`, measures the whole pod: the
+main container's and the sidecars' requests and usage. A name that is neither the main container nor a non-null
+sidecar fails the render, because the API server and KEDA accept any name (measured on kube-apiserver 1.33.0 and
+1.37.0 and with KEDA 2.21.0). A sidecar can be named too: metrics-server reports a native sidecar's usage next to the
+main container's (source reading of the kubelet and of metrics-server 0.9.0; the kind e2e asserts it). Moving a
+running component from the HPA to KEDA: the
+[upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md#switching-to-keda).
+
 ### CronJob
 
 ```yaml
@@ -888,7 +1047,8 @@ code, official docs) and local renders.
     [ADR-0049](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)
 50. **An existing claim on a Deployment declares its access mode; `strategy.rollingUpdate: null` is absent.** A
     `persistentVolumeClaim` entry declared `ReadWriteOnce` (the default) or `ReadWriteOncePod` requires a Deployment
-    that never runs two pods: `replicas` 0 or 1, no autoscaling, and `strategy: {type: Recreate}` or a rolling update
+    that never runs two pods: `replicas` 0 or 1, no autoscaling (with KEDA, `keda.maxReplicaCount: 1`: decision 56), and
+    `strategy: {type: Recreate}` or a rolling update
     with `maxSurge: 0`. The message names the remedy for a Deployment that already exists, because with Helm 4 the API
     refuses a switch to Recreate in one upgrade of a Deployment created without `strategy` (measured).
     `strategy.rollingUpdate: null` is accepted and never
@@ -911,7 +1071,8 @@ code, official docs) and local renders.
     [ADR-0051](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)
 52. **With a sidecar, the HPA's built-in targets measure the main container.** The CPU and memory targets render as
     `ContainerResource` metrics of the main container once the component has a non-null sidecar, and as today's
-    pod-wide `Resource` metrics otherwise: the percentage keeps meaning percent of the main container's requests.
+    pod-wide `Resource` metrics otherwise: the percentage keeps meaning percent of the main container's requests. It
+    holds for the built-in targets only: a non-empty `autoscaling.metrics` replaces them (decision 55).
     *Rejected:* pod-wide utilization with sidecars (the sidecar moves the threshold), a key to choose.
     [ADR-0052](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0052-hpa-targets-measure-the-main-container-with-sidecars.md)
 53. **The ExternalSecret takes `dataFrom`, a curated template and a file mount, and its injection is a switch.** Still
@@ -934,6 +1095,28 @@ code, official docs) and local renders.
     `optional`. *Rejected:* hand-written `secretKeyRef` names (they dangle under another release name or alias), a
     generated key list.
     [ADR-0054](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0054-env-externalsecretkeyref-references-the-components-own-secret.md)
+55. **The HPA's `behavior` and `metrics` are validated pass-throughs, and a non-empty `metrics` list replaces the
+    built-in targets.** `autoscaling.behavior` is Kubernetes' `spec.behavior`, closed at every level (no `tolerance`;
+    `{}` and an empty direction fail; not a converted map: a `null` inside fails the schema, except in an umbrella's own
+    values on Helm 4.3 while nothing is passed for the alias, where Helm drops it). `autoscaling.metrics` is Kubernetes'
+    list, each item validated per `type`, with the target type tied to its value field. A non-empty list is the whole
+    list, rendered as written (never switched to `ContainerResource`), and the memory target next to it fails; `[]` and
+    `null` keep the built-in targets, so `spec.metrics` is never empty. A `ContainerResource` entry must name the main
+    container or a non-null sidecar. It amends decision 52. *Rejected:* curated knobs, an unvalidated pass-through, a
+    list added to the built-in targets, `tolerance`, `minReplicas: 0`.
+    [ADR-0055](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md)
+56. **KEDA: a curated ScaledObject block with a triggers map, in place of the HPA.** `keda.enabled` renders one
+    ScaledObject `<fullname>` for a Deployment, exclusive with `autoscaling.enabled`: `minReplicaCount` (1 by default,
+    not KEDA's 0) and `maxReplicaCount`, both required, the polling and cooldown periods, `fallback`, `behavior` and
+    `triggers`, a map keyed by the trigger's name where a `null` entry, optional field or metadata key is absent and
+    the metadata values are rendered as strings. Authentication by reference only (`authenticationRef`, or a
+    `...FromEnv` parameter on the main container's variables). No `spec.replicas` while KEDA is on; guards for what
+    KEDA's webhook or operator would reject, and 0.7.0's claim guard reads `keda.maxReplicaCount` (it amends decision
+    50). No KEDA annotation on
+    the chart's HPA: switching a running release is documented. *Rejected:* a pass-through of the ScaledObject spec,
+    `triggers` as KEDA's list, KEDA's `minReplicaCount` default, an annotation on every HPA, a chart-rendered
+    TriggerAuthentication.
+    [ADR-0056](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)
 
 ## Versioning and releases
 
@@ -991,8 +1174,16 @@ cosign verify ghcr.io/jellalshadows/charts/chart-base:X.Y.Z \
   ClusterRole can grant no more than `admin` holds. In `clusterRoles` no ClusterRole's rules are checked, and only
   `cluster-admin` is rejected for what it grants (and `*`, which a `roleRef` reads as a name): any other ClusterRole
   is granted as it is, so read its rules before you bind it.
-- **Turning on `autoscaling` for a running component** removes `spec.replicas`: Kubernetes scales it to 1
-  once, then the HPA scales it back up.
+- **KEDA** (`keda`) needs KEDA's CRDs, its operator and its metrics API server (the KEDA chart installs them, and its
+  admission webhook, by default; the e2e runs KEDA 2.21.0): without the CRDs the whole release fails at install,
+  without the operator a ScaledObject cannot be deleted (its finalizer), and without the metrics API server the HPA
+  KEDA creates reads no trigger but `cpu` and `memory` (it serves `external.metrics.k8s.io`: source reading of the
+  KEDA chart 2.21.0). The admission webhook is optional; it is what denies a second autoscaler of a Deployment.
+  `autoscaling.enabled` and `keda.enabled` fail together: switching a running component between the HPA and KEDA
+  follows the
+  [upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md#09x--0100).
+- **Turning on `autoscaling` or `keda` for a running component** removes `spec.replicas`: Kubernetes scales it to 1
+  once, then the autoscaler scales it.
 - **Quote image tags** (`tag: "1.10"`): the schema only accepts strings, so an unquoted `1.10` fails
   instead of silently becoming `1.1`.
 

@@ -2,8 +2,9 @@
 
 Before 1.0, a breaking release bumps the minor version and its pull request title carries `!`
 (`feat!:` or `fix!:`). This page lists, for every breaking release, what to change in your values, and for a fix
-release that changes rendered objects (0.4.1), which objects change. Releases that are not listed here need
-no change to your values; the [changelog](../CHANGELOG.md) has every release.
+release that changes rendered objects (0.4.1), which objects change, and for 0.10.0 how to switch a running component
+between the chart's HPA and KEDA. Releases that are not listed here need no change to your values; the
+[changelog](../CHANGELOG.md) has every release.
 
 ## Every upgrade: a direct install must not use `--reuse-values`
 
@@ -50,6 +51,9 @@ in any order: from 0.4.x, `missing properties 'rbac', 'networkPolicy'` and `'/ex
 'envFrom', 'template'`; from 0.5.x, `missing property 'rbac'` and that line; from 0.6.x and 0.7.x, that line alone
 (measured with `helm upgrade --reuse-values` from the release commits on kube-apiserver 1.37.0, and by rendering the
 0.9.0 chart with each release's `values.yaml` as its defaults, Helm 4.3.0 and 3.22.0).
+0.10.0 adds no required key outside its new `keda` block, so from 0.9.x a `--reuse-values` upgrade works (see
+`0.9.x → 0.10.0`), and straight to 0.10.0 from 0.4.x to 0.8.x it fails with the same lines as straight to 0.9.0
+(measured by rendering the 0.10.0 chart with each release's `values.yaml` as its defaults, Helm 4.3.0 and 3.22.0).
 Use `--reset-then-reuse-values` (available in Helm 3.22 and 4.3), which starts from the new chart's
 defaults and applies your previous values on top, or pass your values files again. Umbrellas are not
 affected.
@@ -421,7 +425,7 @@ nothing alone and fails the same way with both charts). `externalSecret.template
 `externalSecret` defaults, which lack the two keys, and the upgrade writes no revision (measured with a real upgrade
 from the published 0.8.0 on kube-apiserver 1.37.0, Helm 4.3.0 and 3.22.0), unlike the upgrade to 0.8.0 (its section
 above). Use `--reset-then-reuse-values`, which upgrades (measured the same way); an umbrella is not affected (measured
-the same way: its revision 2 renders 0.8.0's manifests byte for byte).
+the same way: its revision 2 renders 0.8.0's manifests byte for byte, but for the `helm.sh/chart` label).
 
 - **Two relaxations.** A key of `externalSecret.data` that is not an environment variable name (`tls.crt`) is accepted
   while the Secret is not injected (`envFrom: false`, or a disabled block) and in a block templated with
@@ -446,3 +450,94 @@ the same way: its revision 2 renders 0.8.0's manifests byte for byte).
   `null` `property`, `version` or `decodingStrategy` of an entry.
 - `secretStoreRef.kind: null` still fails while the block is enabled, as in 0.7.0; what External Secrets would do
   with a missing kind was never verified.
+
+## 0.9.x → 0.10.0
+
+Nothing to change: 0.10.0 adds `autoscaling.behavior`, `autoscaling.metrics` and the `keda` block, and no required key
+outside the new block ([ADR-0055](adr/0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md),
+[ADR-0056](adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)). A values file without them renders the
+same manifests as 0.9.0 (measured on the six `ci/` scenarios of 0.9.0, the `full` scenario with its sidecar removed,
+its shared test values and its README recipes, on Helm 4.3.0 and 3.22.0; one recipe block, `# values-production.yaml`,
+is an overlay that renders the same over the block before it and fails alone with both charts, with the same errors).
+A direct install upgraded with
+`--reuse-values` from 0.9.x upgrades too: the reused values have no `keda` key, no `autoscaling.behavior` and no
+`autoscaling.metrics`, and the chart reads that as KEDA off and the built-in targets (measured with a real upgrade from
+the published 0.9.0 on kube-apiserver 1.37.0, Helm 4.3.0 and 3.22.0, with and without `autoscaling`: revision 2
+renders revision 1's manifest byte for byte, but for the `helm.sh/chart` label). From 0.4.x to 0.8.x,
+`--reuse-values` still fails with the lines of 0.9.0 (`Every upgrade`, above).
+
+- **`keda.minReplicaCount` and `keda.maxReplicaCount` are required inside `keda`.** A `null` fails with `at '/keda':
+  missing property 'minReplicaCount'` (or `'maxReplicaCount'`), also while `keda.enabled` is false, except in the
+  umbrella's own values on Helm 4.3 while nothing is passed for the alias, where Helm drops it and the default stays
+  (measured by the alias contract). `keda: null` from any values layer means KEDA off.
+- **Turning KEDA on in a direct install upgraded with `--reuse-values`** fails with `at '/keda': missing properties
+  'minReplicaCount', 'maxReplicaCount'`: the reused values are 0.9.x's, which have no `keda` block, so the chart's `keda`
+  defaults are not read. Write `keda.minReplicaCount` and `keda.maxReplicaCount` in that upgrade too, or use
+  `--reset-then-reuse-values` (measured by the plan review from the published 0.9.0 on kube-apiserver 1.37.0, Helm 4.3.0
+  and 3.22.0; an umbrella upgraded with `--reuse-values` reads the defaults and is not affected).
+- **The memory target next to a non-empty `autoscaling.metrics` fails** while autoscaling is enabled (a non-empty list
+  replaces the built-in targets): set `autoscaling.targetMemoryUtilizationPercentage: null`.
+
+### Switching to KEDA
+
+A Deployment has one autoscaler: `autoscaling.enabled` and `keda.enabled` together fail the render. An existing release
+with the chart's HPA cannot switch in one upgrade where KEDA's admission webhook runs (the KEDA chart's default): Helm
+creates the ScaledObject before it deletes the HPA, and the webhook denies it, with this message (Helm 3.22; Helm 4.3
+adds `server-side apply failed for object <namespace>/<fullname> keda.sh/v1alpha1, Kind=ScaledObject:` after
+`failed to create resource:`):
+
+```text
+Error: UPGRADE FAILED: failed to create resource: admission webhook "vscaledobject.kb.io" denied the request: the workload '<fullname>' of type 'apps/v1.Deployment' is already managed by the hpa '<fullname>'
+```
+
+The release is then `failed`, and a retry fails the same way (measured on kube-apiserver 1.33.0 and 1.37.0 with KEDA
+2.21.0's webhook, Helm 4.3.0 and 3.22.0). Two paths work, in this order of preference:
+
+1. **Delete the HPA, then upgrade:** `kubectl delete hpa <fullname>`, then the upgrade with `keda.enabled: true` and
+   `autoscaling.enabled: false` in the same values layer. The replica count is kept (measured, both Helm versions).
+   Between the two commands nothing scales the workload.
+2. **Two upgrades**, for a pipeline that cannot run `kubectl`: first `autoscaling.enabled: false`, which renders
+   `replicas` again (the chart's default is 1: set `replicas` to the current count in that upgrade, or the count drops
+   to it), then `keda.enabled: true`, which removes `replicas` from the manifest: the API server then sets the count to
+   1 (measured on both API servers with both Helm versions: 5 replicas, then 5 with `replicas: 5` restated, then 1),
+   until the HPA KEDA creates raises it to `minReplicaCount` and scales on the triggers (source reading). On Helm 4 the first
+   upgrade fails with an apply conflict on `.spec.replicas` when the count was changed through the scale subresource
+   while the release still rendered `replicas` (before the HPA existed); restating the current count resolves it
+   (measured with Helm 4.3.0; an HPA's own scaling after the switch did not cause it). `--force-conflicts` also applies
+   the upgrade, but with the rendered count, not the live one (measured by the 0.10.0 research).
+
+Before the switch, read what does not carry over (below).
+
+### Switching back to the HPA
+
+KEDA to the chart's HPA (`keda.enabled: false`, `autoscaling.enabled: true`) works in one upgrade while the workload
+has at least one replica (measured: the count is kept, and the ScaledObject is deleted). At zero replicas it does not
+come back: the HPA controller never scales a target up from 0 while `minReplicas` is 1 or more (it reports
+`ScalingActive` False, reason `ScalingDisabled`: Kubernetes source at v1.33.12 and v1.37.0, asserted by the kind e2e),
+the chart renders no `replicas` while `autoscaling.enabled`, and KEDA does not restore the count when its
+ScaledObject is deleted. The upgrade succeeds and the component stays at zero pods. Two ways out:
+
+- raise the count first, with an upgrade that sets `keda.minReplicaCount: 1` or more and, where they are set,
+  `keda.cooldownPeriod: null` and `keda.initialCooldownPeriod: null` (KEDA reads them only on the step to zero, and
+  next to a minimum of 1 or more the render fails while they are set: measured on Helm 4.3.0 and 3.22.0 with the
+  README's scale-to-zero recipes); KEDA raises the count at its next poll (KEDA 2.21.0 source reading); switch once
+  the Deployment has a pod;
+- or switch first and, once the ScaledObject is gone, run `kubectl scale deployment <fullname> --replicas=<n>`: nothing
+  scales it back to zero then, and the HPA scales from there (source reading: no KEDA loop runs without the
+  ScaledObject, and the chart renders no `replicas` while `autoscaling.enabled`, so Helm does not reset it).
+
+A `kubectl scale` while KEDA still holds the component at zero is undone at KEDA's next poll: the condition that took
+it to zero still holds (KEDA 2.21.0 source reading). Switching KEDA off to fixed replicas
+(`autoscaling.enabled: false`) is not affected: the chart renders `replicas` again. The chart cannot see the live
+count.
+
+### What does not carry over
+
+- **The minimum.** `keda.minReplicaCount` defaults to 1, `autoscaling.minReplicas` to 2: restate the minimum in `keda`.
+  With the PDB's `maxUnavailable: 1`, a component that runs one pod has that pod evicted by a node drain.
+- **The meaning of a CPU or memory percentage with sidecars.** The HPA's built-in targets measure the main container
+  once the component has a sidecar ([ADR-0052](adr/0052-hpa-targets-measure-the-main-container-with-sidecars.md)); a
+  KEDA `cpu` or `memory` trigger without `metadata.containerName` measures the whole pod: set `containerName` to the
+  alias to keep the meaning.
+- **`spec.replicas`.** Neither autoscaler renders it; turning either on for a running component that had fixed
+  replicas drops the count to 1 once (the API server's default), then the autoscaler scales it.
