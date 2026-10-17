@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/jellalshadows/chart-base/compare/v0.9.0...v0.10.0) (2026-10-17)
+
+
+### Features
+
+* HPA behavior and custom metrics, and KEDA ScaledObject ([#25](https://github.com/jellalshadows/chart-base/issues/25)) ([c2eb649](https://github.com/jellalshadows/chart-base/commit/c2eb649c8226db722ff150e0a2d5c18242c233be))
+
 ## [0.9.0](https://github.com/jellalshadows/chart-base/compare/v0.8.0...v0.9.0) (2026-10-11)
 
 
