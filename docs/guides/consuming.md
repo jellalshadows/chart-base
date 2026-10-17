@@ -217,9 +217,9 @@ release fails at install, as for every CRD kind ([ADR-0012](../adr/0012-no-capab
 operator a ScaledObject cannot be deleted (its finalizer); without the metrics API server, which serves
 `external.metrics.k8s.io`, the HPA KEDA creates reads no trigger but `cpu` and `memory` (source reading of the KEDA
 chart 2.21.0). The admission webhook is optional (the KEDA chart's `webhooks.enabled`; its `failurePolicy` is
-`Ignore`); it is what denies a second autoscaler of a Deployment. `autoscaling.enabled` and `keda.enabled` together fail the render,
-and an existing release cannot switch from the chart's HPA to KEDA in one upgrade where KEDA's webhook runs: the
-[upgrade guide](../upgrading.md#09x--0100) has the paths that work, in both directions
+`Ignore`); it is what denies a second autoscaler of a Deployment. `autoscaling.enabled` and `keda.enabled` together
+fail the render, and an existing release cannot switch from the chart's HPA to KEDA in one upgrade where KEDA's
+webhook runs: the [upgrade guide](../upgrading.md#09x--0100) has the paths that work, in both directions
 ([ADR-0056](../adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md); more in
 [Autoscaling: the HPA and KEDA](#autoscaling-the-hpa-and-keda)).
 
@@ -488,8 +488,9 @@ must know:
   2.21.0's operator; KEDA then feeds `fallback.replicas` to its HPA after `failureThreshold` failed polls: KEDA's
   source). A new or changed ScaledObject can pass before KEDA's operator has reported (measured: an invalid one alone
   in its release returned in 0 to 1 s, exit 0), so `--wait` is no proof that it is Ready: gate on
-  `kubectl wait --for=condition=Ready`, as the kind e2e does. A scaler that connects when KEDA builds it (`rabbitmq`) keeps the ScaledObject not Ready while its source cannot be reached
-  (measured with KEDA 2.21.0's operator against kube-apiserver 1.33.0 and 1.37.0).
+  `kubectl wait --for=condition=Ready`, as the kind e2e does. A scaler that connects when KEDA builds it (`rabbitmq`)
+  keeps the ScaledObject not Ready while its source cannot be reached (measured with KEDA 2.21.0's operator against
+  kube-apiserver 1.33.0 and 1.37.0).
 - **A `...FromEnv` parameter reads the main container's environment** (the pod's first container): its `envFrom`, the
   component's Secret included while `externalSecret.envFrom` is true, and its `env`, a `secretKeyRef` or an
   `externalSecretKeyRef` included (measured). Under KEDA's restricted Secret access (`KEDA_RESTRICT_SECRET_ACCESS`, the

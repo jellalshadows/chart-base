@@ -517,8 +517,11 @@ come back: the HPA controller never scales a target up from 0 while `minReplicas
 the chart renders no `replicas` while `autoscaling.enabled`, and KEDA does not restore the count when its
 ScaledObject is deleted. The upgrade succeeds and the component stays at zero pods. Two ways out:
 
-- raise the count first, with an upgrade that sets `keda.minReplicaCount: 1` or more (KEDA raises the count at its
-  next poll: KEDA 2.21.0 source reading), and switch once the Deployment has a pod;
+- raise the count first, with an upgrade that sets `keda.minReplicaCount: 1` or more and, where they are set,
+  `keda.cooldownPeriod: null` and `keda.initialCooldownPeriod: null` (KEDA reads them only on the step to zero, and
+  next to a minimum of 1 or more the render fails while they are set: measured on Helm 4.3.0 and 3.22.0 with the
+  README's scale-to-zero recipes); KEDA raises the count at its next poll (KEDA 2.21.0 source reading); switch once
+  the Deployment has a pod;
 - or switch first and, once the ScaledObject is gone, run `kubectl scale deployment <fullname> --replicas=<n>`: nothing
   scales it back to zero then, and the HPA scales from there (source reading: no KEDA loop runs without the
   ScaledObject, and the chart renders no `replicas` while `autoscaling.enabled`, so Helm does not reset it).
