@@ -17,7 +17,7 @@ These apply to every release.
 
 ## Releases
 
-Each numbered release row is one squash-merged `feat:` PR, which is a minor release while the chart is pre-1.0, except 0.7.0: it is two PRs released together by one Release PR, first a `fix!:` PR with the fixes of released defects, then the volumes `feat:` PR. The docs backfill row is a `docs:` PR that makes no release, and the signing row changes only the publish job, with no contract change.
+On 2026-11-02 the roadmap was cut to one more release before 1.0 (see [Cut before 1.0](#cut-before-10)). Each numbered release row is one squash-merged `feat:` PR, which is a minor release while the chart is pre-1.0, except 0.7.0: it is two PRs released together by one Release PR, first a `fix!:` PR with the fixes of released defects, then the volumes `feat:` PR. The docs backfill row is a `docs:` PR that makes no release, and the signing row changes only the publish job, with no contract change.
 
 | Release | Scope | Contract (summary) | Tested in the e2e with | Status |
 |---|---|---|---|---|
@@ -32,13 +32,11 @@ Each numbered release row is one squash-merged `feat:` PR, which is a minor rele
 | 0.8.0 | Native sidecars and init containers | `initContainers` and `sidecars`: maps keyed by the container name, rendered into the pod's `initContainers` in one start order (`order`, default 0 for an init container and 1000 for a sidecar; a sidecar with `restartPolicy: Always`), a `null` entry or optional field absent at any depth (not inside a list or an env variable's `valueFrom`, a probe's `httpGet` or `exec`; a required field stays a schema error); each entry `image`, `resources` (requests required), `command`, `args`, `securityContext` (merged over the chart's hardened default, not the component's), `env` (references; `inheritEnv` for exactly the main container's) and `volumeMounts`, a sidecar also pod-internal `ports` and closed `probes`; names, ports, probe port names, mounts and UID 0 guarded; a sidecar on a `job`/`cronjob` needs `job.activeDeadlineSeconds`; the entries' references feed the Reloader; `volumes.<name>.mountPath` optional for a volume another container mounts; with a sidecar the HPA's built-in targets are `ContainerResource` of the main container | kind: the start order (an init container placed after a sidecar reaches it at its first attempt), an `emptyDir` filled by an init container and read-only in the main container, a hook Job that completes with a sidecar, the fronting-proxy recipe through the Service and a NetworkPolicy named port with the bypass denied, the HPA's stored metrics | Released (2026-10-09) |
 | 0.9.0 | ExternalSecret `dataFrom`, templates and file mounts | Still one ExternalSecret and one Secret per component. `externalSecret.dataFrom` (External Secrets' list: `extract` with an optional `rewrite`, closed; the list order is the precedence, `data` wins), `.template` (`data`: keys rendered by External Secrets, at least one action each; `mergePolicy`, `Merge` by default, required), `.envFrom` (a required switch: `false` stops injecting the Secret whole), `.mountPath`, `.items`, `.defaultMode` (the volume `external-secret`, read-only, also mountable by an init container or a sidecar), `data.<KEY>.version` and `.decodingStrategy`, a `null` entry of `data` and of `template.data` absent; `env.<NAME>.valueFrom.externalSecretKeyRef: {key}`, a `secretKeyRef` on `<fullname>-secrets` resolved by the chart; while the Secret is injected its keys are variable names and no source decodes content, unless the block is templated with `Replace` (the sources are then template inputs only) | ESO fake provider: an extract next to `data` (the key set, the value both bring, a templated value, the chart's labels on the Secret, a key that is no variable name in the environment), the file in a pod and in a hook Job, a component that reads a decoded `dataFrom`-only Secret through `items` and `externalSecretKeyRef` without `envFrom` | Released (2026-10-12) |
 | 0.10.0 | HPA behavior and custom metrics, and KEDA ScaledObject | `autoscaling.behavior` (Kubernetes' `spec.behavior`, closed, no `tolerance`, not a converted map) and `autoscaling.metrics` (Kubernetes' list, validated per type; a non-empty list is the whole list, rendered as written, and a `ContainerResource` container must be the main container or a non-null sidecar; `[]` and `null` keep 0.8.0's built-in targets, `ContainerResource` of the main container once there is a sidecar, [ADR-0052](adr/0052-hpa-targets-measure-the-main-container-with-sidecars.md)); `keda: {enabled, minReplicaCount, maxReplicaCount, pollingInterval, cooldownPeriod, initialCooldownPeriod, fallback, behavior, triggers}`: a ScaledObject `<fullname>` for a Deployment, `minReplicaCount` 1 by default and required with `maxReplicaCount`, `triggers` a map keyed by the trigger's name (a `null` entry, optional field or metadata key absent; metadata rendered as strings), authentication by reference; exclusive with `autoscaling.enabled`, no `spec.replicas` while either is on; guards for what KEDA's webhook and operator reject, and 0.7.0's claim guard reads `keda.maxReplicaCount` ([ADR-0055](adr/0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md), [ADR-0056](adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)) | KEDA's chart and metrics-server: a ScaledObject with a `cron` window active one minute a year (1 January, 00:00 to 00:01 UTC) becomes Ready and scales its Deployment to zero, a second upgrade at zero, the switch back to the chart's HPA at zero (`ScalingDisabled`); the stored `behavior` of the `full` HPA; a native sidecar's usage reported by metrics-server | Released (2026-10-17) |
-| 0.11.0 | GRPCRoute and HTTPRoute rules | `grpcRoute: {...}`, `httpRoute.rules` (replaces `matches`), `ports[].appProtocol` | Gateway API CRDs (already in CI) | Planned |
-| 0.12.0 | Common labels, Service annotations and `extraObjects` | Labels and annotations common to every object, `service.annotations`, `extraObjects` with guards (name prefixed with `<fullname>`, no foreign namespace); the common labels also join the ExternalSecret's `template.metadata.labels` (0.9.0, [ADR-0053](adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md)), the common annotations do not (External Secrets executes those values as templates) | n/a | Planned |
-| 0.13.0 | StatefulSet workload type | `workload.type: statefulset`, `statefulset: {volumeClaimTemplates, podManagementPolicy, persistentVolumeClaimRetentionPolicy}`, headless Service, 52-character name guard; its claim templates share the `volumes` name space ([ADR-0049](adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)), and their shape belongs to the 0.13.0 design | kind's local-path-provisioner | Planned |
+| 0.11.0 | Common labels and annotations, Service annotations and `extraObjects` | `commonLabels` and `commonAnnotations` (on every object the chart renders, never in a selector; a per-object map wins; they reject the chart's own label keys, the checksum annotations and Helm's hook and `meta.helm.sh` keys; the common annotations do not join the ExternalSecret's template metadata, because External Secrets executes those values as templates), `service.annotations`, `extraObjects` (objects the chart does not offer, each named with the `<fullname>` prefix, in the release namespace, not a built-in workload, a Secret or a cluster-scoped built-in kind; on a `job` component hooks of its phase) | The objects reach the cluster with the common labels | Planned |
 
 ## Open decisions
 
-- **A chart-wide "a `null` entry means absent" rule** (a 0.12.0 candidate, decided with that design). Today the rule
+- **A chart-wide "a `null` entry means absent" rule** (cut before 1.0 on 2026-11-02; a candidate after it). Today the rule
   holds per map only: in 0.7.0 `configFiles.files`, the content of a map-form file, `resources`, `volumes` and
   `strategy.rollingUpdate` ([ADR-0045](adr/0045-null-in-configfiles-and-resources-is-absent.md), [ADR-0049](adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md),
   [ADR-0050](adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md)), in 0.8.0 `initContainers` and `sidecars` for optional fields at any depth but inside a list, an env
@@ -49,7 +47,7 @@ Each numbered release row is one squash-merged `feat:` PR, which is a minor rele
   `strategy.rollingUpdate.maxSurge` and `.maxUnavailable`, `dnsConfig.nameservers`, `.searches`, `.options`), schema errors today; a key inside a
   pass-through object (`probes.<probe>.<key>`, `affinity.<key>`, the keys of `podSecurityContext` and
   `securityContext` that `values.yaml` does not define), rendered as `null` today, so converting it changes the
-  manifest; `httpRoute.matches` (0.11.0 replaces it); the maps that 0.11.0 and 0.12.0 add. Converting a map
+  manifest; `httpRoute.matches`; the maps that 0.11.0 adds. Converting a map
   converts its template readers and guards with
   it.
 - **`ingress.className: null`** renders an Ingress without a class ([upgrade guide](upgrading.md)): close it with
@@ -91,7 +89,11 @@ Each numbered release row is one squash-merged `feat:` PR, which is a minor rele
   mount that names no `items[].path` (an empty directory is mounted; 0.8.0 checks it for init containers and sidecars);
   UID 0 with `runAsNonRoot: true` on the main container (0.8.0 checks it for init containers and sidecars); the main
   container's `probes` closed like a sidecar's (`definitions.probe`: no `host`, no misspelt field; until the 1.0 contract
-  freeze the chart has two probe contracts, [ADR-0051](adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)).
+  freeze the chart has two probe contracts, [ADR-0051](adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)); `podLabels`
+  rejecting the chart's own label keys, `podAnnotations` rejecting the checksum annotations (overriding one silently
+  stops config changes from rolling the pods), and `ingress.annotations` and `serviceAccount.annotations` rejecting
+  Helm's `helm.sh/hook*` and `meta.helm.sh/*` keys (one there turns the object into a Helm hook): the new common maps of
+  0.11.0 reject them from the start.
 
 The decision whether NetworkPolicy becomes on by default after 0.5.0 was taken with 0.5.0: it stays off.
 On a CNI that does not enforce it, a policy changes nothing, and its rules depend on facts of each cluster (the
@@ -100,7 +102,7 @@ namespaces of the Gateway and of Prometheus, the cluster DNS); turning it on wou
 
 ## 1.0.0 criteria
 
-1. All twelve feature releases above (0.2.0 to 0.13.0) and the cosign signing step are published, each with its e2e green on Kubernetes 1.33 and 1.37 (or the supported versions current at that time).
+1. All feature releases above (0.2.0 to 0.11.0) and the cosign signing step are published, each with its e2e green on Kubernetes 1.33 and 1.37 (or the supported versions current at that time).
 2. The chart is validated by the first real domain umbrella, deployed with helmfile. Whatever that use reveals is fixed before 1.0.
 3. The contract is frozen: selector labels and key names. From 1.0 on, only additive changes (`feat:`) or explicit majors.
 4. The README carries a comparison matrix (dated, with the versions checked) that backs the positioning above, re-verified against the current versions of the other charts before it is published.
@@ -113,7 +115,7 @@ Rejected features, with the reason:
 - **SealedSecrets, plain Secrets and SecretProviderClass.** They would add a second path for secrets next to External Secrets Operator.
 - **cert-manager Certificate.** TLS is terminated at the Gateway.
 - **ClusterRole and ClusterRoleBinding.** Cluster-scoped RBAC breaks multi-tenancy.
-- **A chart-created PersistentVolumeClaim for Deployments.** It causes Multi-Attach errors; use an `ephemeral` volume or a StatefulSet. An existing claim can be mounted (`volumes`, 0.7.0); on a Deployment, one declared `ReadWriteOnce` requires one pod at a time ([ADR-0050](adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md)).
+- **A chart-created PersistentVolumeClaim for Deployments.** It causes Multi-Attach errors; use an `ephemeral` volume, or a StatefulSet outside this chart. An existing claim can be mounted (`volumes`, 0.7.0); on a Deployment, one declared `ReadWriteOnce` requires one pod at a time ([ADR-0050](adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md)).
 - **Several workloads, or non-native containers, per alias.** It breaks the one-workload-per-alias model.
 - **Helm tests.** The e2e already validates the chart and Argo CD does not run them.
 - **`nameOverride` and `fullnameOverride`.** See [ADR-0009](adr/0009-no-name-overrides.md).
@@ -121,7 +123,21 @@ Rejected features, with the reason:
 - **Resource presets.** See [ADR-0014](adr/0014-resource-requests-required.md).
 - **`diagnosticMode`.** `kubectl debug` already covers diagnosis.
 
-Only with real demand, and only after 1.0: VPA, Argo Rollouts, KEDA ScaledJob, TLS/TCP/UDP Routes and ListenerSet.
+Only with real demand, and only after 1.0: VPA, Argo Rollouts, KEDA ScaledJob, TLS/TCP/UDP Routes and ListenerSet, and the
+work cut before 1.0 (below).
+
+## Cut before 1.0
+
+On 2026-11-02 the owner cut the roadmap to what any company needs from a generic application chart; the rest waits
+for a real umbrella to ask for it, after 1.0. `extraObjects` (0.11.0) lets a consumer render what the chart does not
+offer in the meantime.
+
+- **GRPCRoute, HTTPRoute rules and `ports[].appProtocol`** (the former 0.11.0), and the stricter checks of the existing
+  `httpRoute` fields that made it breaking: the API server already rejects those values at install.
+- **A chart-wide "a `null` entry means absent" rule** (part of the former 0.12.0; see [Open decisions](#open-decisions)).
+- **The StatefulSet workload type** (the former 0.13.0): stateful systems usually run under their own operators.
+- **Closing the existing label and annotation maps** to the chart's and Helm's own keys (part of the former 0.12.0):
+  breaking, so it joins the checks listed for the 1.0 contract freeze.
 
 ## How each release is made
 
