@@ -286,6 +286,28 @@ tests:
             example.com/owner: platform
             service.beta.kubernetes.io/aws-load-balancer-scheme: internal
 
+  - it: lets an empty service.annotations value win over a common annotation (T10)
+    template: templates/service.yaml
+    set:
+      commonAnnotations: {example.com/owner: a}
+      service.annotations: {example.com/owner: ""}
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            example.com/owner: ""
+
+  - it: lets an empty serviceAccount.annotations value win over a common annotation (T10)
+    template: templates/serviceaccount.yaml
+    set:
+      commonAnnotations: {example.com/owner: a}
+      serviceAccount.annotations: {example.com/owner: ""}
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            example.com/owner: ""
+
   - it: lets a job's hook annotations win over serviceAccount.annotations on its ServiceAccount, next to the common ones (T10)
     template: templates/serviceaccount.yaml
     set:

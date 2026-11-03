@@ -59,12 +59,14 @@ app.kubernetes.io/managed-by are deliberately excluded (ADR-0010): only a values
 
 {{/*
 chart-base.overCommon: a per-object map (own) merged over a common map (common: commonLabels or commonAnnotations), as
-YAML with sorted keys, or nothing when both are empty; nil counts as empty. The per-object value wins on a shared key.
-merge writes into a deep copy, never into .Values (a later template would read the merged map).
+YAML with sorted keys, or nothing when both are empty; nil counts as empty. The per-object value wins on a shared key,
+an empty one ("") included: each per-object key is set over a deep copy of the common map (merge would fill an empty
+per-object value from the common map), never into .Values (a later template would read the merged map).
 Usage: include "chart-base.overCommon" (dict "own" <a map, or nil> "common" <a map, or nil>)
 */}}
 {{- define "chart-base.overCommon" -}}
-{{- $merged := merge (deepCopy (.own | default dict)) (.common | default dict) -}}
+{{- $merged := deepCopy (.common | default dict) -}}
+{{- range $k, $v := (.own | default dict) }}{{ $_ := set $merged $k $v }}{{ end -}}
 {{- with $merged }}{{ toYaml . }}{{ end -}}
 {{- end -}}
 

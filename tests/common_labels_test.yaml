@@ -333,6 +333,31 @@ tests:
           path: metadata.labels.team
           value: payments
 
+  - it: lets an empty podLabels value win over a common label on the Deployment's pod template (T3)
+    template: templates/deployment.yaml
+    set:
+      commonLabels: {team: a}
+      podLabels: {team: ""}
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels.team
+          value: ""
+
+  - it: lets an empty metrics.labels value win over a common label on the ServiceMonitor (T6)
+    template: templates/servicemonitor.yaml
+    values:
+      - ../ci/full-values.yaml
+    set:
+      commonLabels: {team: a}
+      metrics.labels.team: ""
+    asserts:
+      - equal:
+          path: metadata.labels.team
+          value: ""
+      - equal:
+          path: metadata.labels.release
+          value: e2e
+
   - it: renders the chart's labels alone without a commonLabels key (the --reuse-values shape of a 0.10.x release) (T22)
     set:
       commonLabels: null
