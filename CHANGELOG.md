@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/jellalshadows/chart-base/compare/v0.10.0...v0.11.0) (2026-11-03)
+
+
+### Features
+
+* common labels and annotations, Service annotations and extraObjects ([#27](https://github.com/jellalshadows/chart-base/issues/27)) ([e82fbc6](https://github.com/jellalshadows/chart-base/commit/e82fbc6ca2ad4449aba9321ace007dfc4246c26e))
+
 ## [0.10.0](https://github.com/jellalshadows/chart-base/compare/v0.9.0...v0.10.0) (2026-10-17)
 
 
