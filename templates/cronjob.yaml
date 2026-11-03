@@ -5,6 +5,10 @@ metadata:
   name: {{ include "chart-base.fullname" . }}
   labels:
     {{- include "chart-base.labels" . | nindent 4 }}
+  {{- with include "chart-base.annotations" (dict "ctx" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   schedule: {{ .Values.cronjob.schedule | quote }}
   {{- with .Values.cronjob.timeZone }}

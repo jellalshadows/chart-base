@@ -6,6 +6,10 @@ metadata:
   name: {{ $fullname }}
   labels:
     {{- include "chart-base.labels" . | nindent 4 }}
+  {{- with include "chart-base.annotations" (dict "ctx" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   parentRefs:
     {{- toYaml .Values.httpRoute.parentRefs | nindent 4 }}

@@ -325,6 +325,12 @@ service:
   enabled: true
   # -- Service type.
   type: ClusterIP
+  # -- Annotations of the Service, e.g. a cloud load balancer's settings
+  # (`service.beta.kubernetes.io/aws-load-balancer-scheme: internal`). Values are strings: quote a number (`"60"`), an
+  # unquoted one fails the schema with `got number, want string`. They win over `commonAnnotations` on a shared key.
+  # `helm.sh/hook*`, `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files` fail the schema. Not rendered
+  # when no Service is (`service.enabled: false`, a `cronjob` or a `job`).
+  annotations: {}
 
 probes:
   # -- Startup probe (Kubernetes probe object). Empty = not rendered. A port given by name must be a `ports` name.
@@ -697,6 +703,19 @@ rbac:
 # at an unrelated path. A change changes the pod template: it rolls a Deployment's pods, and the next CronJob run and
 # the next Job get it. Per alias (`global` is not read).
 commonLabels: {}
+
+# -- Annotations added to the metadata of every object the chart renders for this component (`extraObjects` included),
+# e.g. `{example.com/owner: team-payments}`. Never to a template's metadata: not the pod templates (that is
+# `podAnnotations`), the CronJob's job template, an `ephemeral` claim template, or the ExternalSecret's
+# `template.metadata` (External Secrets executes those values as templates). A per-object map wins on a shared key:
+# `ingress.annotations`, `serviceAccount.annotations`, `service.annotations`, an extra object's `metadata.annotations`.
+# Values are strings. The keys Helm or the chart writes fail the schema (`invalid propertyName '<key>'`, reported at an
+# unrelated path): `helm.sh/hook*`, `meta.helm.sh/*`, `checksum/config-env`, `checksum/config-files`,
+# `secret.reloader.stakater.com/reload` and `configmap.reloader.stakater.com/reload` (other Reloader keys, such as
+# `reloader.stakater.com/auto`, are allowed). `helm.sh/resource-policy: keep` keeps the regular objects on uninstall,
+# never a `job` component's hooks (Helm deletes a hook without reading it). A change rolls nothing. Per alias (`global`
+# is not read).
+commonAnnotations: {}
 
 # -- Extra pod annotations.
 podAnnotations: {}

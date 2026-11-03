@@ -118,6 +118,11 @@
       "propertyNames": { "not": { "enum": ["app.kubernetes.io/name", "app.kubernetes.io/instance", "app.kubernetes.io/part-of", "app.kubernetes.io/component", "app.kubernetes.io/version", "app.kubernetes.io/managed-by", "helm.sh/chart"] } },
       "additionalProperties": { "type": "string" }
     },
+    "extraAnnotations": {
+      "description": "Annotations of an object that also carries the chart's: Helm's hook keys (helm.sh/hook*), Helm's ownership keys (meta.helm.sh/*) and the chart's checksums (checksum/config-env, checksum/config-files) are rejected (a hook key would turn the object into a Helm hook). Values are strings.",
+      "type": "object", "additionalProperties": { "type": "string" },
+      "propertyNames": { "not": { "anyOf": [{ "pattern": "^helm\\.sh/hook" }, { "pattern": "^meta\\.helm\\.sh/" }, { "enum": ["checksum/config-env", "checksum/config-files"] }] } }
+    },
     "nonEmptyDuration": {
       "description": "A Prometheus duration that is not empty (the CRDs' NonEmptyDuration): the operator writes an empty for or group interval to Prometheus, whose duration parser rejects it.",
       "allOf": [{ "$ref": "#/definitions/duration" }],
@@ -889,7 +894,8 @@
       "required": ["enabled", "type"],
       "properties": {
         "enabled": { "type": "boolean" },
-        "type": { "enum": ["ClusterIP", "NodePort", "LoadBalancer"] }
+        "type": { "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
+        "annotations": { "$ref": "#/definitions/extraAnnotations" }
       }
     },
     "probes": {
@@ -1201,6 +1207,10 @@
       "additionalProperties": { "type": "string" }
     },
     "commonLabels": { "$ref": "#/definitions/extraLabels" },
+    "commonAnnotations": {
+      "description": "extraAnnotations, and the two Reloader keys the chart computes on the Deployment (a common one would render the key twice).",
+      "allOf": [{ "$ref": "#/definitions/extraAnnotations" }, { "propertyNames": { "not": { "enum": ["secret.reloader.stakater.com/reload", "configmap.reloader.stakater.com/reload"] } } }]
+    },
     "podSecurityContext": { "type": "object" },
     "securityContext": { "type": "object" },
     "nodeSelector": { "type": "object", "additionalProperties": { "type": "string" } },

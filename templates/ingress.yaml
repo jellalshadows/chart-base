@@ -7,9 +7,9 @@ metadata:
   name: {{ $fullname }}
   labels:
     {{- include "chart-base.labels" . | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
+  {{- with include "chart-base.annotations" (dict "ctx" . "object" .Values.ingress.annotations) }}
   annotations:
-    {{- toYaml . | nindent 4 }}
+    {{- . | nindent 4 }}
   {{- end }}
 spec:
   ingressClassName: {{ .Values.ingress.className | quote }}

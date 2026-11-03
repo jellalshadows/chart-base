@@ -67,3 +67,20 @@ Usage: include "chart-base.overCommon" (dict "own" <a map, or nil> "common" <a m
 {{- $merged := merge (deepCopy (.own | default dict)) (.common | default dict) -}}
 {{- with $merged }}{{ toYaml . }}{{ end -}}
 {{- end -}}
+
+{{/*
+chart-base.annotations: the annotations of an object's metadata, as the lines under its annotations key, or nothing:
+the chart's own annotations first (own: the text a template rendered before 0.11.0, i.e. the hook annotations of
+chart-base.supportHookAnnotations, or the Reloader annotations; "" when none), then the per-object map (object:
+ingress.annotations, service.annotations, an extra object's metadata.annotations; nil when none) merged over
+commonAnnotations (chart-base.overCommon: the per-object value wins). Only an object's metadata: a pod template, the
+CronJob's job template, an ephemeral claim template and the ExternalSecret's template take no common annotation.
+Usage: {{- with include "chart-base.annotations" (dict "ctx" $ "own" <text> "object" <a map>) }} annotations: {{- . | nindent 4 }}
+*/}}
+{{- define "chart-base.annotations" -}}
+{{- $own := .own | default "" -}}
+{{- $merged := include "chart-base.overCommon" (dict "own" .object "common" .ctx.Values.commonAnnotations) -}}
+{{- $own -}}
+{{- if and $own $merged }}{{ "\n" }}{{ end -}}
+{{- $merged -}}
+{{- end -}}

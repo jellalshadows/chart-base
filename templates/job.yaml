@@ -9,6 +9,9 @@ metadata:
     helm.sh/hook: {{ include "chart-base.jobHooks" . }}
     helm.sh/hook-weight: "0"
     helm.sh/hook-delete-policy: before-hook-creation
+    {{- with include "chart-base.annotations" (dict "ctx" .) }}
+    {{- . | nindent 4 }}
+    {{- end }}
 spec:
   backoffLimit: {{ .Values.job.backoffLimit }}
   {{- with .Values.job.activeDeadlineSeconds }}
