@@ -121,11 +121,11 @@ pinned by one check of the alias contract, on both Helm versions
 | a chart default the schema requires ([ADR-0027](../adr/0027-required-keys-in-the-schema.md): `serviceAccount.automountToken`, `job.ttlSecondsAfterFinished`, `podSecurityContext`, `keda.minReplicaCount` and `keda.maxReplicaCount`) | Helm removes it; the render fails (`missing property`) | ignored: the default stays (nothing fails when the default is valid; `resources` and `image.repository` then fail the schema like the next row) |
 | a key that an enabled block needs ([ADR-0047](../adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md): `cronjob.schedule`, `externalSecret.secretStoreRef.kind` and `.name`, `httpRoute.parentRefs`, `ingress.hosts`) | Helm removes it; the render fails (`missing property`) | ignored: the default (`""`, `[]`) stays and fails the schema (`minLength: got 0, want 1`, `minItems`); for `secretStoreRef.kind` the default `ClusterSecretStore` stays and renders |
 | any other chart default (`podSecurityContext.runAsUser`, `securityContext.readOnlyRootFilesystem`, `ingress.className`) | the default is gone | ignored: the default stays |
-| a whole map that the chart's `values.yaml` defines (`config`, `env`, `podLabels`, `podAnnotations`, `nodeSelector`, `configFiles.files`, `volumes`, `initContainers`, `sidecars`, `keda`), and `autoscaling.behavior` and the list `autoscaling.metrics` | cleared (`keda: null` is KEDA off; `metrics: null` renders the built-in targets) | same result |
+| a whole map that the chart's `values.yaml` defines (`config`, `env`, `podLabels`, `podAnnotations`, `nodeSelector`, `configFiles.files`, `volumes`, `initContainers`, `sidecars`, `keda`, `commonLabels`, `commonAnnotations`, `service.annotations`, `extraObjects`), and `autoscaling.behavior` and the list `autoscaling.metrics` | cleared (`keda: null` is KEDA off; `metrics: null` renders the built-in targets) | same result |
 | a whole map that the chart's `values.yaml` does not define (`resources.requests`) | schema error `got null, want object` | Helm drops it, and the required `requests` is then missing (`missing property 'requests'`) |
-| one entry of a typed map (`config.<KEY>`, `env.<NAME>`, labels, annotations, `nodeSelector.<key>`), or an optional member of a closed object (`lifecycle.postStart`, `strategy.rollingUpdate.maxSurge`, `dnsConfig.options`, `autoscaling.behavior.scaleUp`); a field inside an init container's or a sidecar's env `valueFrom` or probe `httpGet` or `exec` (definitions shared with the main container) | schema error `got null, want …` | Helm drops the entry |
+| one entry of a typed map (`config.<KEY>`, `env.<NAME>`, labels, annotations, `commonLabels.<key>`, `commonAnnotations.<key>`, `service.annotations.<key>`, `nodeSelector.<key>`), or an optional member of a closed object (`lifecycle.postStart`, `strategy.rollingUpdate.maxSurge`, `dnsConfig.options`, `autoscaling.behavior.scaleUp`); a field inside an init container's or a sidecar's env `valueFrom` or probe `httpGet` or `exec` (definitions shared with the main container) | schema error `got null, want …` | Helm drops the entry |
 | a key inside a pass-through object (`affinity.<key>`, a key of a main-container probe) | rendered as `null` in the manifest | dropped |
-| a file of `configFiles.files` or a key of a map-form file (maps reached through maps); an entry of `resources.limits`, an entry of `resources.requests` other than `cpu` and `memory`, or `resources.limits` itself; an entry of `volumes` or a field of an entry; `strategy.rollingUpdate`; an entry of `initContainers` or `sidecars`, or an optional field of an entry at any depth, not inside a list (`env.<NAME>`, a mount, a probe, a `securityContext` field: the hardened default comes back); an entry of `externalSecret.data` or an optional field of one (`property`, `version`, `decodingStrategy`), and an entry of `externalSecret.template.data`; an entry of `keda.triggers`, or an optional field or a metadata key of one | removed by chart-base ([ADR-0045](../adr/0045-null-in-configfiles-and-resources-is-absent.md), [ADR-0049](../adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md), [ADR-0050](../adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md), [ADR-0051](../adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md), [ADR-0053](../adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md), [ADR-0056](../adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)) | removed |
+| a file of `configFiles.files` or a key of a map-form file (maps reached through maps); an entry of `resources.limits`, an entry of `resources.requests` other than `cpu` and `memory`, or `resources.limits` itself; an entry of `volumes` or a field of an entry; `strategy.rollingUpdate`; an entry of `initContainers` or `sidecars`, or an optional field of an entry at any depth, not inside a list (`env.<NAME>`, a mount, a probe, a `securityContext` field: the hardened default comes back); an entry of `externalSecret.data` or an optional field of one (`property`, `version`, `decodingStrategy`), and an entry of `externalSecret.template.data`; an entry of `keda.triggers`, or an optional field or a metadata key of one; an entry of `extraObjects`, or a field of one at any depth through maps (a list kept as written) | removed by chart-base ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md), [ADR-0045](../adr/0045-null-in-configfiles-and-resources-is-absent.md), [ADR-0049](../adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md), [ADR-0050](../adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md), [ADR-0051](../adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md), [ADR-0053](../adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md), [ADR-0056](../adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)) | removed |
 
 `externalSecret.data: null` with `externalSecret.enabled: true` and no `dataFrom` entry is cleared and then fails the
 source guard ([ADR-0047](../adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md)). In `externalSecret.data` a `null` entry, and a `null`
@@ -143,7 +143,9 @@ overlay changes a volume's type by setting the previous type's fields to `null`
 depth (a list is kept as written, and a required field such as a mount's `mountPath` or a probe's `port` stays a schema error), except inside an env variable's `valueFrom` and a probe's `httpGet` or `exec`, which the main container shares:
 replace or remove such an object whole ([ADR-0051](../adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)). So a sidecar's `env.<NAME>: null` removes the
 variable, while the main container's `env.<NAME>: null` stays a schema error (row 6) until a chart-wide rule ships.
-These are rules of these maps, not of every map. An environment that removes an entry with `null` must not pass a
+These are rules of these maps (`configFiles.files`, `resources`, `volumes`, `initContainers`, `sidecars`,
+`externalSecret.data` and `template.data`, `keda.triggers`, `extraObjects`), not of every map. An environment that
+removes an entry with `null` must not pass a
 `--set` below that entry: Helm itself fails (`failed parsing --set data: unable to parse key: interface conversion:
 interface {} is nil, not map[string]interface {}`, measured on Helm 4.3.0 and 3.22.0).
 
@@ -165,9 +167,19 @@ the final review of 0.10.0 on both versions, and the unit tests pin the schema r
 ([ADR-0055](../adr/0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md),
 [ADR-0056](../adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)).
 
+In `extraObjects` a `null` entry and a `null` field at any depth through maps are absent, and a list inside an object is
+kept as written (a `null` item too): an overlay removes an extra object with `extraObjects.<key>: null` and one of its
+fields with its path set to `null`, the same in every layer; `extraObjects: null` renders none. `apiVersion` and `kind`
+are required: an `-f` `extraObjects.<key>.kind: null` fails `helm template` with `got null, want string` (and passes an
+umbrella's `helm lint`: [failure behavior](#failure-behavior)). The entries of `commonLabels`, `commonAnnotations` and
+`service.annotations` are strings: a `null` entry fails the schema with `got null, want string` (row 6; Helm 4.3 drops
+one written in the umbrella's own values while nothing is passed for the alias), and `commonLabels: null` clears the
+map (row 4). The alias contract measures, on Helm 4.3.0 and 3.22.0, a `null` extra object and a `null` field of one, the
+map and the entry of `commonLabels` ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)).
+
 An overlay can add entries to a map, and can clear with `null` a whole map that the chart's `values.yaml` defines; it
 cannot remove one entry, except where this guide says so per map (in 0.7.0: a file of `configFiles.files`, a key of a
-map-form file, an entry of `resources.limits` or `resources.requests`, other than `requests.cpu` and `requests.memory`, which stay required, and an entry of `volumes` or one of its fields; in 0.8.0 an entry of `initContainers` or `sidecars` or one of its fields; in 0.9.0 an entry of `externalSecret.data` or one of its optional fields, and an entry of `externalSecret.template.data`; in 0.10.0 an entry of `keda.triggers`, or an optional field or a metadata key of one): keep the entries that differ per
+map-form file, an entry of `resources.limits` or `resources.requests`, other than `requests.cpu` and `requests.memory`, which stay required, and an entry of `volumes` or one of its fields; in 0.8.0 an entry of `initContainers` or `sidecars` or one of its fields; in 0.9.0 an entry of `externalSecret.data` or one of its optional fields, and an entry of `externalSecret.template.data`; in 0.10.0 an entry of `keda.triggers`, or an optional field or a metadata key of one; in 0.11.0 an entry of `extraObjects` or a field of one at any depth through maps, a list kept as written): keep the entries that differ per
 environment in the overlays. On Helm 4, lint and template an umbrella with the same `-f`/`--set` values the deploy
 uses: a `null` in the umbrella's own values is ignored until a value is passed for that component.
 
@@ -345,6 +357,15 @@ documentation says for a strict network policy, `169.254.169.252/32` on port 988
 with Dataplane V2. IRSA's AWS STS and Azure's Microsoft Entra ID endpoints are outside the cluster; this guide does not
 cover them.
 
+**`extraObjects`: named by the chart, in the release namespace, checked only by kind.**
+An extra object is named `<release>-<alias>.<key>` and installed in the release namespace; nothing below `apiVersion`,
+`kind` and `metadata` is checked, and it is rendered as written, never as a template. A built-in workload, a `Service`,
+`Endpoints`, an `EndpointSlice`, a `Secret`, a list and a cluster-scoped built-in kind fail the render; on a `job`
+component every extra object is a hook of the Job's phase. A custom kind needs its CRD in the cluster, or the whole
+release fails, and `validate-manifests.sh`'s kubeconform needs a schema location for it (add one, or pass
+`-ignore-missing-schemas` in your own pipeline). An extra autoscaler or budget of the component's own pods fights the
+chart: use `autoscaling`, `keda` and `pdb` ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)).
+
 **Job components: expect them to run as Helm hooks.**
 A component with `workload.type: job` is rendered as a Helm hook (`job.phase: pre-deploy` by default,
 or `post-deploy`), and its ServiceAccount, ConfigMaps, ExternalSecret, NetworkPolicy, Role and RoleBindings are hooks
@@ -514,6 +535,55 @@ must know:
   [upgrade guide](../upgrading.md#09x--0100): from the HPA to KEDA in one upgrade is denied by KEDA's webhook, and from
   KEDA back to the HPA at zero replicas leaves the component at zero.
 
+## Common labels and annotations, and extra objects
+
+`commonLabels` and `commonAnnotations` are per alias (`global` is not read). The common labels join every labels map the
+chart writes (every object's metadata, the pod templates, the CronJob's job template, an `ephemeral` claim template and
+the ExternalSecret's `template.metadata.labels`), never a selector; the common annotations join every object's
+metadata, never a template's. A per-object map wins on a shared key. `extraObjects` renders objects the chart does not
+offer ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)). What to know:
+
+1. **The first mistakes and what to write.** A list fails with `at '/extraObjects': got array, want null or object`:
+   write a map keyed by the object's key. A `metadata.name` fails with `at '/extraObjects/<key>/metadata': additional
+   properties 'name' not allowed`: the chart names the object `<fullname>.<key>` (`vending-api.settings`), and
+   `metadata` takes `labels` and `annotations` only (no `namespace`: the release namespace).
+2. **ADR-0044's gap reaches the new required fields.** An `-f` `extraObjects.<key>.kind: null` (or `apiVersion: null`)
+   passes `helm lint` of an umbrella and fails `helm template` with `got null, want string`. Every other rule of the
+   new maps fails `helm lint` directly and through an umbrella, from its own values, an `-f` file or `--set` (measured
+   by the design's critique on Helm 4.3.0 and 3.22.0).
+3. **An extra autoscaler on the component's Deployment fights the chart**, with the chart's autoscalers off too: the
+   chart then renders `spec.replicas`, which Helm 3 resets at every upgrade and Helm 4 can conflict on. Use
+   `autoscaling` or `keda`; likewise `pdb` for a budget of the component's own pods.
+4. **`helm.sh/resource-policy: keep` in `commonAnnotations`** keeps the regular objects on uninstall, never a `job`
+   component's hooks: Helm deletes a hook without reading it
+   ([ADR-0042](../adr/0042-existing-serviceaccount-and-namespaced-rbac.md)).
+5. **A controller may refuse an extra object's name**: one that copies the name into a label value (63 characters) or
+   a DNS label may refuse its `.` or its length (up to 127 characters), and fails at reconcile, not at install
+   (unverified in general).
+6. **An extra object is an open pass-through below `apiVersion`, `kind` and `metadata`.** The chart checks nothing else
+   and gives it none of what it gives its own objects: no Reloader entry unless the component references it (a mounted
+   or `envFrom` ConfigMap is watched like any referenced one), no checksum, no validation of its content. It passes
+   kinds the chart does not offer as features (a SealedSecret, a SecretProviderClass, a cert-manager Certificate, a
+   PersistentVolumeClaim); the chart's integrated secret path stays `externalSecret`, and a plain `Secret` is rejected.
+   Values are rendered as written, never as templates.
+7. **A reserved key's message names the key at an unrelated path** (`invalid propertyName '<key>'`, at a path such as
+   `'/prometheusRule'` that moves between Helm versions). Which maps reject which keys: `commonLabels`, `podLabels`
+   (the two selector labels only), `metrics.labels`, `prometheusRule.labels` and an extra object's own labels reject the
+   chart's label keys (`app.kubernetes.io/name`, `instance`, `part-of`, `component`, `version`, `managed-by`,
+   `helm.sh/chart`); `commonAnnotations`, `service.annotations` and an extra object's own annotations reject
+   `helm.sh/hook*`, `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files`, and `commonAnnotations` also
+   the two Reloader keys the chart computes (`secret.reloader.stakater.com/reload`,
+   `configmap.reloader.stakater.com/reload`). `podAnnotations`, `ingress.annotations` and `serviceAccount.annotations`
+   reject nothing yet (the 1.0 contract freeze).
+8. **Changing `commonLabels` rolls a Deployment's pods** (the pod template changes); the next CronJob run and the next
+   Job get them. `commonAnnotations` roll nothing.
+
+The rejected kinds, each failing the render with a remedy and then `set extraObjects.<key>: null`: the built-in
+workloads, `Service`, `Endpoints`, `EndpointSlice`, `Secret`, `List`, a kind ending in `List` and any object with a
+top-level `items`, a `RoleBinding` keyed like an entry of `rbac.clusterRoles`, and the cluster-scoped built-in kinds
+(compared by API group and kind, case-insensitively, any version). Not detected: a cluster-scoped custom kind, a custom
+workload kind. On a `job` component every extra object is a hook of the Job's phase, like its support resources.
+
 ## Failure behavior
 
 What fails **before the cluster is touched**, at `helm template` and at `helm install` / `helm upgrade` alike
@@ -549,6 +619,12 @@ release name and `--namespace`, not on `helm lint`
   `automountToken: true` (unless no ClusterRole is bound and `use` is the only verb of every rule), `cluster-admin` in
   `rbac.clusterRoles`, and, in a rule with `resourceNames`, a `deletecollection`, or a `create` on a resource when that
   rule grants neither `patch` nor `update`.
+- The guards of `extraObjects` ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)): a key that is not a DNS-1123 label of at most 63
+  characters; a rejected kind (a built-in workload, `Service`, `Endpoints`, `EndpointSlice`, `Secret`, a cluster-scoped
+  built-in kind); a list (`List`, a kind ending in `List`, a top-level `items`); a `RoleBinding` keyed like an entry of
+  `rbac.clusterRoles`. The schema rules of the new maps (the reserved keys, an extra object's `apiVersion`, `kind` and
+  closed `metadata`) fail `helm lint` too, but for a `null` from `-f` that deletes `apiVersion` or `kind` in an umbrella
+  (see [extra objects](#common-labels-and-annotations-and-extra-objects)).
 - The guards of `volumes` ([ADR-0049](../adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md), [ADR-0050](../adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md)): a volume
   name that is not a DNS-1123 label or that chart-base reserves; a field of another type, or a `null` in a type's
   required field; a mount path that is another mount's once normalized, `/`, or the token directory; a `subPath` or

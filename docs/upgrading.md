@@ -54,6 +54,9 @@ in any order: from 0.4.x, `missing properties 'rbac', 'networkPolicy'` and `'/ex
 0.10.0 adds no required key outside its new `keda` block, so from 0.9.x a `--reuse-values` upgrade works (see
 `0.9.x → 0.10.0`), and straight to 0.10.0 from 0.4.x to 0.8.x it fails with the same lines as straight to 0.9.0
 (measured by rendering the 0.10.0 chart with each release's `values.yaml` as its defaults, Helm 4.3.0 and 3.22.0).
+0.11.0 adds no required key: from 0.9.x and 0.10.x a `--reuse-values` upgrade works (see `0.10.x → 0.11.0`), and from
+0.4.x to 0.8.x it fails with the lines of 0.9.0 (measured by rendering the 0.11.0 chart with each release's
+`values.yaml` as its defaults, Helm 4.3.0 and 3.22.0).
 Use `--reset-then-reuse-values` (available in Helm 3.22 and 4.3), which starts from the new chart's
 defaults and applies your previous values on top, or pass your values files again. Umbrellas are not
 affected.
@@ -541,3 +544,21 @@ count.
   alias to keep the meaning.
 - **`spec.replicas`.** Neither autoscaler renders it; turning either on for a running component that had fixed
   replicas drops the count to 1 once (the API server's default), then the autoscaler scales it.
+
+## 0.10.x → 0.11.0
+
+Nothing to change: 0.11.0 adds `commonLabels`, `commonAnnotations`, `service.annotations` and `extraObjects`, all
+optional and empty by default ([ADR-0057](adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)). A values file without them renders the same manifests as 0.10.0
+(measured on the seven `ci/` scenarios of 0.10.0, its shared test values and its README recipes, on Helm 4.3.0 and
+3.22.0), and a direct install upgraded with `--reuse-values` from 0.10.x upgrades too, and may set the new keys in that
+upgrade: none is required (measured with real upgrades from the published 0.10.0 on kube-apiserver 1.37.0, Helm 4.3.0 and
+3.22.0, six direct installs and an umbrella: revision 2's manifest is revision 1's but the `helm.sh/chart` label).
+
+- **Turning `commonLabels` on rolls a Deployment's pods**: the labels join the pod template (and an `ephemeral` claim
+  template); the next CronJob run and the next Job get them. `commonAnnotations` and `service.annotations` roll nothing.
+- **An extra object of a custom kind needs its CRD** in the cluster before the release (otherwise the whole release
+  fails), and kubeconform a schema location for that kind.
+- **An extra object is named `<release>-<alias>.<key>`** (up to 127 characters); another field that references it (a
+  `volumes` entry, `envFrom`) writes that full name.
+- **An object you render today in the umbrella's own templates** and move into `extraObjects` gets a new name: Helm
+  deletes the old object and creates the new one in the same upgrade.

@@ -608,7 +608,7 @@
       }
     },
     "sidecarPort": {
-      "description": "A port of a sidecar, TCP: pod-internal, a target of the sidecar's own probes only (not in the Service, the NetworkPolicy or metrics). A definition of its own, apart from the component's ports (0.11.0 adds appProtocol to the Service's ports only).",
+      "description": "A port of a sidecar, TCP: pod-internal, a target of the sidecar's own probes only (not in the Service, the NetworkPolicy or metrics). A definition of its own, apart from the component's ports.",
       "type": "object", "additionalProperties": false, "required": ["name", "containerPort"],
       "properties": {
         "name": { "type": "string", "pattern": "^[a-z]([-a-z0-9]*[a-z0-9])?$", "maxLength": 15 },

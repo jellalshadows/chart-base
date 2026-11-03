@@ -720,6 +720,38 @@ main container's (source reading of the kubelet and of metrics-server 0.9.0; the
 running component from the HPA to KEDA: the
 [upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md#switching-to-keda).
 
+### Team labels, an internal load balancer and an object the chart does not render
+
+The team's labels on every object, pod and claim of the component, an owner annotation on every object, the Service's
+own annotations for a cloud load balancer, and a ConfigMap the chart does not offer, named `<release>-<alias>.<key>`
+and mounted by the component (by its full name, which ties these values to the release name `vending`)
+([ADR-0057](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)):
+
+```yaml
+payments:
+  image: {repository: ghcr.io/acme/payments, tag: "2.3.0"}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+  commonLabels: {team: payments, cost-center: cc-42}   # changing them rolls the pods
+  commonAnnotations: {example.com/owner: team-payments}   # every object's metadata, never a pod's
+  service:
+    type: LoadBalancer
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-scheme: internal
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-interval: "10"   # quoted: annotation values are strings
+  extraObjects:
+    settings:                                   # the ConfigMap vending-payments.settings
+      apiVersion: v1
+      kind: ConfigMap
+      data: {region: eu-west-1, currency: EUR}
+  volumes:
+    settings: {type: configMap, mountPath: /etc/payments, name: vending-payments.settings}
+```
+
+An extra object is rendered as written below `apiVersion`, `kind` and `metadata` (which takes `labels` and
+`annotations` only); a workload, a `Service`, a `Secret` (use `externalSecret`), a list or a cluster-scoped built-in
+kind fails the render with what to write instead.
+
 ### CronJob
 
 ```yaml
@@ -767,6 +799,8 @@ sales-migrations:
 | autoscaling.targetCPUUtilizationPercentage | int | `80` | Target average CPU utilization, in percent of the main container's CPU request. With a sidecar the HPA measures the main container alone (a `ContainerResource` metric for it); without one, the pod (`Resource`), which is the same while the main container is the pod's only long-running container (a plain init container has exited, and its requests never count: source reading). Adding the first sidecar changes the metric's kind in that upgrade, and removing the last one changes it back. Not used when `metrics` is non-empty: the list replaces the built-in targets (this key keeps its default, which the list wins over). |
 | autoscaling.targetMemoryUtilizationPercentage | int | `nil` | Target average memory utilization, in percent of the main container's memory request, measured like the CPU target (see `targetCPUUtilizationPercentage`). `null` = not used. |
 | command | list | `[]` | Container command (overrides the image ENTRYPOINT). |
+| commonAnnotations | object | `{}` | Annotations added to the metadata of every object the chart renders for this component (`extraObjects` included), e.g. `{example.com/owner: team-payments}`. Never to a template's metadata: not the pod templates (that is `podAnnotations`), the CronJob's job template, an `ephemeral` claim template, or the ExternalSecret's `template.metadata` (External Secrets executes those values as templates). A per-object map wins on a shared key: `ingress.annotations`, `serviceAccount.annotations`, `service.annotations`, an extra object's `metadata.annotations`. Values are strings. The keys Helm or the chart writes fail the schema (`invalid propertyName '<key>'`, reported at an unrelated path): `helm.sh/hook*`, `meta.helm.sh/*`, `checksum/config-env`, `checksum/config-files`, `secret.reloader.stakater.com/reload` and `configmap.reloader.stakater.com/reload` (other Reloader keys, such as `reloader.stakater.com/auto`, are allowed). `helm.sh/resource-policy: keep` keeps the regular objects on uninstall, never a `job` component's hooks (Helm deletes a hook without reading it). A change rolls nothing. Per alias (`global` is not read). |
+| commonLabels | object | `{}` | Labels added to every labels map the chart writes for this component: the metadata of every object it renders (`extraObjects` included), the pod templates, the CronJob's job template, an `ephemeral` volume's claim template and the ExternalSecret's `template.metadata.labels` (so the Secret that External Secrets writes carries them too), e.g. `{team: payments, cost-center: cc-42}`. Never a selector: the selectors keep the chart's two selector labels. A per-object map wins on a shared key: `podLabels`, `metrics.labels`, `prometheusRule.labels`, an extra object's `metadata.labels`. Values are strings. The chart's own keys (`app.kubernetes.io/name`, `instance`, `part-of`, `component`, `version`, `managed-by`, `helm.sh/chart`) fail the schema with `invalid propertyName '<key>'`, reported at an unrelated path. A change changes the pod template: it rolls a Deployment's pods, and the next CronJob run and the next Job get it. Per alias (`global` is not read). |
 | config | object | `{}` | Environment variables. Rendered into ConfigMap `<fullname>-env` and injected with `envFrom`. Quote a name that YAML 1.1 reads as a boolean (`ON`, `OFF`, `YES`, `NO`, `Y`, `N`): unquoted it becomes `true` or `false`. |
 | configFiles.files | object | `{}` | Files rendered into ConfigMap `<fullname>-files`. A string value is written verbatim; a map value is rendered with `toYaml` (so it can be merged per environment). A file set to `null` (also a bare `name:`) is no file, `files: null` removes every file, and an empty file is `""`. In a map-form file every key whose value is `null` or empty (`key:`) is removed, in maps reached through maps, from every values layer and on Helm 3 and 4 alike (Helm 4 already drops such keys from an umbrella's own values while nothing is passed for the component): write `key: {}` or `key: ""` to keep one, or the string form of the file for a literal `null`. A list is rendered as written, with everything inside it, and a map left empty stays `{}`. |
 | configFiles.mountPath | string | `"/config"` | Directory where `configFiles.files` are mounted read-only. Rendered as written. Must not be `/tmp` or `/` once normalized (`//tmp` and `/tmp/.` are `/tmp`), nor the ServiceAccount token directory `/var/run/secrets/kubernetes.io/serviceaccount` while `serviceAccount.automountToken` is true. |
@@ -793,6 +827,7 @@ sales-migrations:
 | externalSecret.secretStoreRef.name | string | `""` | Name of the secret store. Required when enabled. |
 | externalSecret.template.data | object | `{}` | Keys of the Secret that External Secrets renders from the keys `data` and `dataFrom` bring: a map of `<secret key>: <template>`, each value an External Secrets template string with at least one action, e.g. `DATABASE_URL: "postgres://{{ .DB_USER }}:{{ .DB_PASSWORD }}@db/sales"` (a key with a dash or a dot is read with `index`). While the block is enabled, a value without `{{` fails the render: it would be a constant written into the Secret (put a constant in `config` or `configFiles`; a non-secret constant that must be a key of this Secret is written as an action, `'{{ "value" }}'`). Write a template quoted in a values file (unquoted, a value that starts with `{{` is a YAML error), never with `--set` (`--set-literal` and `--set-json` carry it), and in a helmfile `.gotmpl` values file as ``{{ `{{ .DB_PASSWORD }}` }}`` (unescaped, helmfile fails before the chart runs: measured on helmfile 1.4.4 and 1.8.0). Only External Secrets' default delimiters `{{` and `}}` are supported. In `template.data` a `null` entry is absent; with `null` or only `null` entries no template is rendered. A template is not part of the deploy's rollout (the pod template's checksums cover `config` and `configFiles` only): editing one changes the ExternalSecret alone, Helm returns without rolling a pod, and the change reaches the pods later through Reloader (never for variables without Reloader or with `reloadOnChange: false`); for a file the deploy must roll and wait for, prefer `configFiles` with `${VAR}` placeholders. A template that calls a non-deterministic function (`bcrypt`, `htpasswd`, `randAlphaNum`, `randBytes`, `uuidv4`, `now`, `genPrivateKey`) changes the Secret at every `refreshInterval`, which restarts a Deployment through Reloader each time (source reading). Quote a key that YAML 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`, `off`, lowercase, capitalized or uppercase): unquoted it is renamed to `"true"` or `"false"` (measured). |
 | externalSecret.template.mergePolicy | string | `"Merge"` | `Merge` (the chart's default) or `Replace`. With `Merge` the templated keys join the keys of `data` and `dataFrom` and win on a key of the same name; with `Replace` only the templated keys reach the Secret, and the keys of `data` and `dataFrom` are the template's inputs only (External Secrets 2.11.0 source reading, and its code run in a harness). External Secrets' own default is `Replace`, which the chart never leaves to it: whenever a template is rendered, `mergePolicy` is rendered from this value. While the block is enabled, `Replace` without a templated key fails the render. Required: `template: null` and `template.mergePolicy: null` fail the schema (on Helm 4.3 a `null` in an umbrella's own values, with nothing passed for the alias, keeps the default: see the consuming guide). |
+| extraObjects | object | `{}` | Objects the chart does not offer, rendered by the chart for this component: a map keyed by the object's key, a lowercase DNS-1123 label, each `{apiVersion, kind, metadata: {labels, annotations}, <every other top-level field as written>}`, e.g. `{settings: {apiVersion: v1, kind: ConfigMap, data: {mode: fast}}}`. The chart names the object `<fullname>.<key>` (`vending-api.settings`) and installs it in the release namespace: `metadata` takes `labels` and `annotations` only (the object's own win over `commonLabels` and `commonAnnotations`, and the chart's labels are added). A `null` entry is absent, and so is a `null` field at any depth through maps (a list is kept as written). Values are rendered as written, never as templates (`{{ }}` reaches the cluster as written). The first mistakes fail the schema: a list (`got array, want null or object`: write a map keyed by the object's key), a `metadata.name` (`additional properties 'name' not allowed`: the chart names it). Nothing below `apiVersion`, `kind` and `metadata` is checked, and an extra object gets none of what the chart gives its own objects: no Reloader entry unless the component references it, no checksum, no validation of its content (the chart's secret path stays `externalSecret`). Rejected by the render, with a remedy: the built-in workloads, `Service`, `Endpoints`, `EndpointSlice`, `Secret`, `List`, a kind ending in `List` and any object with a top-level `items` field, a `RoleBinding` keyed like an entry of `rbac.clusterRoles`, and the cluster-scoped built-in kinds. Not detected: a cluster-scoped custom kind, a custom workload kind, and an extra autoscaler on the component's Deployment, which fights the chart (with `autoscaling` and `keda` off the chart renders `spec.replicas`): use `autoscaling` or `keda`. A controller that copies the name into a label value or a DNS label may refuse its `.` or its length (up to 127 characters) at reconcile, not at install. On a `job` component every extra object is a hook of the Job's phase. A kind the cluster does not serve fails the release; kubeconform needs a schema location for a custom kind. `apiVersion` and `kind` are required: an `-f` `extraObjects.<key>.kind: null` fails `helm template` (`got null, want string`) but passes `helm lint` of an umbrella. |
 | hostAliases | list | `[]` | Extra `/etc/hosts` entries of the pods (`hostAliases`), e.g. `[{ip: 10.0.0.5, hostnames: [legacy-db.internal]}]`. |
 | httpRoute.enabled | bool | `false` | Render a Gateway API HTTPRoute (gateway.networking.k8s.io/v1). Requires `service.enabled`. |
 | httpRoute.hostnames | list | `[]` | Hostnames matched by the route. |
@@ -871,6 +906,7 @@ sales-migrations:
 | revisionHistoryLimit | int | `nil` | Old ReplicaSets kept for `kubectl rollout undo` (`spec.revisionHistoryLimit`). `null` = Kubernetes default (10). Deployments only. |
 | runtimeClassName | string | `nil` | RuntimeClass of the pods (`runtimeClassName`), e.g. `gvisor`; it must exist. `null` = the default runtime handler. |
 | securityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true,"runAsNonRoot":true}` | Container security context. `readOnlyRootFilesystem` is extra hardening (an emptyDir is always mounted at `/tmp`). |
+| service.annotations | object | `{}` | Annotations of the Service, e.g. a cloud load balancer's settings (`service.beta.kubernetes.io/aws-load-balancer-scheme: internal`). Values are strings: quote a number (`"60"`), an unquoted one fails the schema with `got number, want string`. They win over `commonAnnotations` on a shared key. `helm.sh/hook*`, `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files` fail the schema. Not rendered when no Service is (`service.enabled: false`, a `cronjob` or a `job`). |
 | service.enabled | bool | `true` | Render a Service (deployments only). Set `false` for workers. |
 | service.type | string | `"ClusterIP"` | Service type. |
 | serviceAccount.annotations | object | `{}` | Annotations of the ServiceAccount the chart creates (e.g. GKE Workload Identity's `iam.gke.io/gcp-service-account`, EKS IRSA's `eks.amazonaws.com/role-arn`). With `create: false` they fail the render: the owner of an existing ServiceAccount sets its annotations. An override file clears inherited annotations with `annotations: null`, not `{}` (maps are merged). |
@@ -922,8 +958,8 @@ code, official docs) and local renders.
    [ADR-0006](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0006-checksum-for-config-reloader-for-secrets.md)
 7. **`workload.type: job` is a Helm hook (`job.phase`).** A Job pod template is immutable, so a plain
    Job fails on the second deploy with `field is immutable`. Its ServiceAccount, ConfigMaps,
-   ExternalSecret, NetworkPolicy (decision 41), Role and RoleBindings (decision 43) are hooks too (weight `-10`) so
-   they exist, with the new content, before the Job.
+   ExternalSecret, NetworkPolicy (decision 41), Role and RoleBindings (decision 43) and its extra objects (decision 57)
+   are hooks too (weight `-10`) so they exist, with the new content, before the Job.
    *Rejected:* a plain Job; a Job named after the release revision (no ordering, not blocking).
    [ADR-0007](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0007-jobs-as-helm-hooks.md)
 8. **Names are always `<release>-<alias>`, and too-long names fail.** Uniqueness is guaranteed; names
@@ -934,7 +970,8 @@ code, official docs) and local renders.
    that neither `helm lint` nor `helm template` detect. The alias is the identity.
    *Rejected:* keeping them.
    [ADR-0009](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0009-no-name-overrides.md)
-10. **Bumping `chart-base` never restarts pods by itself.** `helm.sh/chart` is never a pod label, and the
+10. **Bumping `chart-base` never restarts pods by itself.** `helm.sh/chart` is never a pod label (the pod labels
+    change only with the values: `podLabels`, `commonLabels`, decision 57), and the
     config checksums hash only the ConfigMaps' `data` (their metadata carries `helm.sh/chart`). Otherwise
     every chart release would restart every pod of the domain without any real change. A breaking release
     that changes the pod template on purpose restarts the pods once and says so in the upgrade guide
@@ -1169,7 +1206,8 @@ code, official docs) and local renders.
     its mount. In this map a `null` entry or field is absent, so an overlay changes a volume's type by setting the
     previous type's fields to `null`. The schema closes the list of fields and a guard rejects a field of another type;
     mount paths are compared normalized with every other mount of the container; ConfigMap and Secret mounts are
-    read-only; the ephemeral claim template carries only the selector labels; the mounted ConfigMaps and Secrets feed
+    read-only; the ephemeral claim template carries only the selector labels and `commonLabels` (decision 57); the
+    mounted ConfigMaps and Secrets feed
     the Reloader annotations. *Rejected:* a list (an overlay replaces it whole), a schema `oneOf` per type (it blocks
     the type change), the name in `propertyNames` (its error names another path).
     [ADR-0049](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)
@@ -1207,7 +1245,8 @@ code, official docs) and local renders.
     one ExternalSecret and one Secret per component. `dataFrom` is External Secrets' own list, limited to `extract` and
     `rewrite` and closed at every level (its order is the precedence; `data` wins over it); `template.data` builds keys
     from the others, with `mergePolicy` `Merge` by default (External Secrets' `Replace` would drop every other key) and
-    the chart's labels on the Secret; `mountPath`, `items` and `defaultMode` mount the Secret read-only as the volume
+    the chart's labels and `commonLabels` (decision 57) on the Secret; `mountPath`, `items` and `defaultMode` mount the
+    Secret read-only as the volume
     `external-secret`, which an init container or a sidecar can mount too; `envFrom: false` stops injecting the Secret
     whole. In `data` and `template.data` a `null` entry is absent (and a `null` optional field of a `data` entry);
     `dataFrom` is a list, where a `null` is a schema error. While the Secret is injected its keys must be variable names
@@ -1245,6 +1284,19 @@ code, official docs) and local renders.
     `triggers` as KEDA's list, KEDA's `minReplicaCount` default, an annotation on every HPA, a chart-rendered
     TriggerAuthentication.
     [ADR-0056](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)
+57. **Common labels and annotations, Service annotations and `extraObjects`.** `commonLabels` join every labels map the
+    chart writes (every object's metadata, the pod templates, the CronJob's job template, an `ephemeral` claim template,
+    the ExternalSecret's `template.metadata.labels`), never a selector, so changing them rolls a Deployment's pods;
+    `commonAnnotations` join every object's metadata, never a template's. A per-object map wins on a shared key, and the
+    keys the chart or Helm writes fail the schema. `service.annotations` annotate the Service. `extraObjects` renders
+    objects the chart does not offer, a map keyed by the object's key: named `<fullname>.<key>`, in the release
+    namespace, `metadata` closed to `labels` and `annotations`, a `null` entry or field absent at any depth through
+    maps, values rendered as written and nothing else checked; the built-in workloads, `Service`, `Endpoints`,
+    `EndpointSlice`, `Secret`, lists, a RoleBinding named like the chart's and the cluster-scoped built-in kinds fail the
+    render, each with a remedy; on a `job` component every extra object is a hook of the Job's phase. It amends
+    decisions 7, 10, 41, 49 and 53. *Rejected:* common annotations on pods, the reserved keys as guards, a list, a
+    consumer-written name, another separator, `tpl`, an allowlist of kinds.
+    [ADR-0057](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)
 
 ## Versioning and releases
 
@@ -1312,6 +1364,10 @@ cosign verify ghcr.io/jellalshadows/charts/chart-base:X.Y.Z \
   [upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md#09x--0100).
 - **Turning on `autoscaling` or `keda` for a running component** removes `spec.replicas`: Kubernetes scales it to 1
   once, then the autoscaler scales it.
+- **`extraObjects`** are named `<release>-<alias>.<key>` and installed in the release namespace; a custom kind needs
+  its CRD in the cluster (or the whole release fails) and a kubeconform schema location; nothing below `apiVersion`,
+  `kind` and `metadata` is checked, so an extra autoscaler or PodDisruptionBudget of the component's own pods fights the
+  chart: use `autoscaling`, `keda` and `pdb`. Changing `commonLabels` rolls a Deployment's pods.
 - **Quote image tags** (`tag: "1.10"`): the schema only accepts strings, so an unquoted `1.10` fails
   instead of silently becoming `1.1`.
 
