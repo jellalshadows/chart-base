@@ -547,26 +547,34 @@ offer ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-
    write a map keyed by the object's key. A `metadata.name` fails with `at '/extraObjects/<key>/metadata': additional
    properties 'name' not allowed`: the chart names the object `<fullname>.<key>` (`vending-api.settings`), and
    `metadata` takes `labels` and `annotations` only (no `namespace`: the release namespace).
-2. **ADR-0044's gap reaches the new required fields.** An `-f` `extraObjects.<key>.kind: null` (or `apiVersion: null`)
-   passes `helm lint` of an umbrella and fails `helm template` with `got null, want string`. Every other rule of the
-   new maps fails `helm lint` directly and through an umbrella, from its own values, an `-f` file or `--set` (measured
-   by the design's critique on Helm 4.3.0 and 3.22.0).
-3. **An extra autoscaler on the component's Deployment fights the chart**, with the chart's autoscalers off too: the
+2. **Quote a key that YAML 1.1 reads as a boolean.** From a values file, an unquoted key `y`, `n`, `yes`, `no`, `on` or
+   `off` (lowercase, capitalized or uppercase) reaches the chart as `true` or `false`: the object is named
+   `<fullname>.true` or `<fullname>.false`, the key guard passes it (`ON` included, which it rejects as written), and
+   two such keys make one object, the later entry winning, without an error. A quoted key (`"on":`) and a `--set` path
+   (`extraObjects.on.kind=ConfigMap`) keep the word (measured with `helm template` on Helm 4.3.0 and 3.22.0).
+3. **ADR-0044's gap reaches the new required fields.** An `-f` `extraObjects.<key>.kind: null` (or `apiVersion: null`)
+   passes `helm lint` of an umbrella and fails `helm template` with `got null, want string`. Every other schema rule of
+   the new maps (a reserved key, a value that is not a string, a `metadata` field other than `labels` and
+   `annotations`, `extraObjects` as a list) fails `helm lint` directly and through an umbrella, from its own values, an
+   `-f` file or `--set` (measured by the design's critique on Helm 4.3.0 and 3.22.0); the guards of `extraObjects` (the
+   key, the rejected kinds, a list kind or `items`, the RoleBinding) fail `helm template` and only print an INFO line
+   under `helm lint` ([ADR-0044](../adr/0044-guards-fail-the-render-helm-lint-reports-them.md)).
+4. **An extra autoscaler on the component's Deployment fights the chart**, with the chart's autoscalers off too: the
    chart then renders `spec.replicas`, which Helm 3 resets at every upgrade and Helm 4 can conflict on. Use
    `autoscaling` or `keda`; likewise `pdb` for a budget of the component's own pods.
-4. **`helm.sh/resource-policy: keep` in `commonAnnotations`** keeps the regular objects on uninstall, never a `job`
+5. **`helm.sh/resource-policy: keep` in `commonAnnotations`** keeps the regular objects on uninstall, never a `job`
    component's hooks: Helm deletes a hook without reading it
    ([ADR-0042](../adr/0042-existing-serviceaccount-and-namespaced-rbac.md)).
-5. **A controller may refuse an extra object's name**: one that copies the name into a label value (63 characters) or
+6. **A controller may refuse an extra object's name**: one that copies the name into a label value (63 characters) or
    a DNS label may refuse its `.` or its length (up to 127 characters), and fails at reconcile, not at install
    (unverified in general).
-6. **An extra object is an open pass-through below `apiVersion`, `kind` and `metadata`.** The chart checks nothing else
+7. **An extra object is an open pass-through below `apiVersion`, `kind` and `metadata`.** The chart checks nothing else
    and gives it none of what it gives its own objects: no Reloader entry unless the component references it (a mounted
    or `envFrom` ConfigMap is watched like any referenced one), no checksum, no validation of its content. It passes
    kinds the chart does not offer as features (a SealedSecret, a SecretProviderClass, a cert-manager Certificate, a
    PersistentVolumeClaim); the chart's integrated secret path stays `externalSecret`, and a plain `Secret` is rejected.
    Values are rendered as written, never as templates.
-7. **A reserved key's message names the key at an unrelated path** (`invalid propertyName '<key>'`, at a path such as
+8. **A reserved key's message names the key at an unrelated path** (`invalid propertyName '<key>'`, at a path such as
    `'/prometheusRule'` that moves between Helm versions). Which maps reject which keys: `commonLabels`, `podLabels`
    (the two selector labels only), `metrics.labels`, `prometheusRule.labels` and an extra object's own labels reject the
    chart's label keys (`app.kubernetes.io/name`, `instance`, `part-of`, `component`, `version`, `managed-by`,
@@ -575,7 +583,7 @@ offer ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-
    the two Reloader keys the chart computes (`secret.reloader.stakater.com/reload`,
    `configmap.reloader.stakater.com/reload`). `podAnnotations`, `ingress.annotations` and `serviceAccount.annotations`
    reject nothing yet (the 1.0 contract freeze).
-8. **Changing `commonLabels` rolls a Deployment's pods** (the pod template changes); the next CronJob run and the next
+9. **Changing `commonLabels` rolls a Deployment's pods** (the pod template changes); the next CronJob run and the next
    Job get them. `commonAnnotations` roll nothing.
 
 The rejected kinds, each failing the render with a remedy and then `set extraObjects.<key>: null`: the built-in

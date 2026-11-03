@@ -548,11 +548,12 @@ count.
 ## 0.10.x → 0.11.0
 
 Nothing to change: 0.11.0 adds `commonLabels`, `commonAnnotations`, `service.annotations` and `extraObjects`, all
-optional and empty by default ([ADR-0057](adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)). A values file without them renders the same manifests as 0.10.0
-(measured on the seven `ci/` scenarios of 0.10.0, its shared test values and its README recipes, on Helm 4.3.0 and
-3.22.0), and a direct install upgraded with `--reuse-values` from 0.10.x upgrades too, and may set the new keys in that
-upgrade: none is required (measured with real upgrades from the published 0.10.0 on kube-apiserver 1.37.0, Helm 4.3.0 and
-3.22.0, six direct installs and an umbrella: revision 2's manifest is revision 1's but the `helm.sh/chart` label).
+optional and empty by default ([ADR-0057](adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)).
+A values file without them renders the same manifests as 0.10.0 but for the `helm.sh/chart` label (measured on the
+seven `ci/` scenarios of 0.10.0, its shared test values and its README recipes, on Helm 4.3.0 and 3.22.0), and a direct
+install upgraded with `--reuse-values` from 0.10.x upgrades too, and may set the new keys in that upgrade: none is
+required (measured with real upgrades from the published 0.10.0 on kube-apiserver 1.37.0, Helm 4.3.0 and 3.22.0, six
+direct installs and an umbrella: revision 2's manifest is revision 1's but the `helm.sh/chart` label).
 
 - **Turning `commonLabels` on rolls a Deployment's pods**: the labels join the pod template (and an `ephemeral` claim
   template); the next CronJob run and the next Job get them. `commonAnnotations` and `service.annotations` roll nothing.

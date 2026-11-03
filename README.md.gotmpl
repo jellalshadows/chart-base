@@ -1160,8 +1160,8 @@ code, official docs) and local renders.
     objects the chart does not offer, a map keyed by the object's key: named `<fullname>.<key>`, in the release
     namespace, `metadata` closed to `labels` and `annotations`, a `null` entry or field absent at any depth through
     maps, values rendered as written and nothing else checked; the built-in workloads, `Service`, `Endpoints`,
-    `EndpointSlice`, `Secret`, lists, a RoleBinding named like the chart's and the cluster-scoped built-in kinds fail the
-    render, each with a remedy; on a `job` component every extra object is a hook of the Job's phase. It amends
+    `EndpointSlice`, `Secret`, lists, a RoleBinding named like the chart's and the cluster-scoped built-in kinds fail
+    the render, each with a remedy; on a `job` component every extra object is a hook of the Job's phase. It amends
     decisions 7, 10, 41, 49 and 53. *Rejected:* common annotations on pods, the reserved keys as guards, a list, a
     consumer-written name, another separator, `tpl`, an allowlist of kinds.
     [ADR-0057](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)

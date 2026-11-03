@@ -43,9 +43,9 @@ SealedSecret). The facts that shape the contract:
 
 1. **`feat:`, not breaking.** The four keys are new (each a schema error on 0.10.0), none is required, every reader
    takes a missing key or `null` as empty, and their defaults (`{}`) render nothing: a values file of 0.10.0 renders
-   the same bytes, and a direct install upgraded with `--reuse-values` from 0.10.x renders 0.10.x's manifests (measured:
-   the seven `ci/` scenarios, the shared test values and the README recipes of 0.10.0, both Helm versions, and real
-   upgrades from the published 0.10.0).
+   the same bytes but for the `helm.sh/chart` label, and a direct install upgraded with `--reuse-values` from 0.10.x
+   renders 0.10.x's manifests but for that label (measured: the seven `ci/` scenarios, the shared test values and the
+   README recipes of 0.10.0, both Helm versions, and real upgrades from the published 0.10.0).
 2. **`commonLabels`** (per alias; `global` is not read) join every labels map the chart writes: every object's
    `metadata.labels` (`extraObjects` included), the pod templates of the Deployment, the CronJob and the Job, the
    CronJob's `jobTemplate.metadata.labels`, an `ephemeral` volume's claim template (the selector labels and the common
@@ -59,12 +59,13 @@ SealedSecret). The facts that shape the contract:
    claim template, not the ExternalSecret's `template.metadata`. A change rolls nothing (the checksums hash the
    ConfigMaps' `data` only).
 4. **Precedence and rendering.** In every labels and annotations map the chart writes, the chart's own keys come
-   first, in their order (the labels, the hook annotations, the Reloader annotations), then one map with sorted keys:
-   the per-object map merged over the common map, the per-object value winning on a shared key (`podLabels`,
-   `metrics.labels`, `prometheusRule.labels`, `ingress.annotations`, `serviceAccount.annotations`,
-   `service.annotations`, an extra object's own `metadata`). On a `job`'s ServiceAccount the hook annotations win over
-   `serviceAccount.annotations`, which win over the common ones. `chart-base.labelsWith` and `chart-base.annotations`
-   render them; `chart-base.overCommon` merges into a deep copy, never into `.Values`.
+   first, in their order (the labels, the hook annotations, the Reloader annotations; on the ServiceAccount, one sorted
+   map, as before), then one map with sorted keys: the per-object map merged over the common map, the per-object value
+   winning on a shared key, an empty one (`""`) included (`podLabels`, `metrics.labels`, `prometheusRule.labels`,
+   `ingress.annotations`, `serviceAccount.annotations`, `service.annotations`, an extra object's own `metadata`). On a
+   `job`'s ServiceAccount the hook annotations win over `serviceAccount.annotations`, which win over the common ones.
+   `chart-base.labelsWith` and `chart-base.annotations` render them; `chart-base.overCommon` sets each per-object key
+   over a deep copy of the common map (`merge` would fill an empty per-object value from it), never into `.Values`.
 5. **`service.annotations`**: a map of strings on the component's Service, winning over `commonAnnotations`; not
    rendered, without a guard, when no Service is.
 6. **The reserved keys are schema rules** (`propertyNames`). Labels: `definitions.extraLabels`, the seven keys the chart
@@ -89,8 +90,8 @@ SealedSecret). The facts that shape the contract:
    `discovery.k8s.io` `EndpointSlice`, `Secret` (its data would sit in the values,
    [ADR-0004](0004-env-in-configmap-secrets-through-externalsecret.md)), and the 40 cluster-scoped built-in kinds (every
    type marked `+genclient:nonNamespaced` in `k8s.io/api` v0.35.3 and v0.37.0, plus `CustomResourceDefinition` and
-   `APIService`). Besides the table: `kind: List`, a kind ending in `List` and any object with a top-level `items`, and a
-   `rbac.authorization.k8s.io` `RoleBinding` whose key is an entry of `rbac.clusterRoles` (the name of the chart's
+   `APIService`). Besides the table: `kind: List`, a kind ending in `List` and any object with a top-level `items`, and
+   a `rbac.authorization.k8s.io` `RoleBinding` whose key is an entry of `rbac.clusterRoles` (the name of the chart's
    binding). **Below `apiVersion`, `kind` and `metadata` an extra object is an open pass-through:** the chart checks
    nothing else and gives it none of what it gives its own objects (no Reloader entry unless the component references
    it, no checksum, no validation of its content). It passes kinds the roadmap's "Out of scope" list rejects as chart
@@ -123,8 +124,8 @@ common labels, as it announced).
 - A consumer renders a missing kind without a fork or a second chart, and keeps the alias contract: names follow the
   release and the alias, objects stay in the release namespace, and a `job` component's extra objects follow its phase.
 - `extraObjects` is a pass-through: an extra autoscaler, PodDisruptionBudget, RoleBinding to a broad ClusterRole or
-  ExternalSecret writing `<fullname>-secrets` is not caught. An extra autoscaler on the component's Deployment fights the
-  chart even with the chart's autoscalers off (the chart then renders `spec.replicas`): use `autoscaling` or `keda`.
+  ExternalSecret writing `<fullname>-secrets` is not caught. An extra autoscaler on the component's Deployment fights
+  the chart even with the chart's autoscalers off (the chart then renders `spec.replicas`): use `autoscaling` or `keda`.
   Not detected either: a cluster-scoped custom kind, a custom workload kind, a cluster-scoped built-in kind added after
   Kubernetes 1.37 (the table is regenerated with the floor).
 - `helm.sh/resource-policy: keep` in `commonAnnotations` keeps the regular objects on uninstall, never a `job`
