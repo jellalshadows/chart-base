@@ -225,3 +225,20 @@ rbac:
       resources: [pods/log]
       verbs: [get]
   clusterRoles: [view]
+
+# Common metadata and an extra object (0.11.0): the e2e reads every object of the release back from the cluster with the
+# common label and annotation, the Service's own annotation, the label on the pods and on the Secret that External
+# Secrets writes from the templated ExternalSecret, and the ConfigMap full-chart-base.settings (a "." in its name).
+commonLabels:
+  team: e2e
+commonAnnotations:
+  e2e.example.com/owner: platform
+service:
+  annotations:
+    e2e.example.com/lb: internal
+extraObjects:
+  settings:
+    apiVersion: v1
+    kind: ConfigMap
+    data:
+      mode: e2e

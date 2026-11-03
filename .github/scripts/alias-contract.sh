@@ -705,6 +705,83 @@ for rel in vending vending-staging; do
 done
 pass "the ScaledObject is named <release>-<alias> and targets the Deployment of its alias, for the releases vending and vending-staging"
 
+# commonLabels, commonAnnotations and extraObjects (0.11.0): an extra object is named <release>-<alias>.<key>, so two
+# aliases with the same key never share a name, and an alias's common maps stay its own. In extraObjects a null entry and
+# a null field at any depth through maps are absent in every layer (null table row 8); commonLabels: null clears the map
+# (row 4), and a null entry of commonLabels fails the schema (row 6; Helm 4.3 drops the umbrella's own null in U0).
+twin="$work/twin"
+make_umbrella "$twin" api worker
+cat > "$twin/values.yaml" <<'EOF'
+api:
+  image: {repository: ghcr.io/acme/sales, tag: "1.0.0"}
+  resources: {requests: {cpu: 10m, memory: 32Mi}}
+  commonLabels: {team: payments}
+  commonAnnotations: {example.com/owner: payments}
+  extraObjects:
+    settings: {apiVersion: v1, kind: ConfigMap, data: {mode: api}}
+worker:
+  image: {repository: ghcr.io/acme/sales, tag: "1.0.0"}
+  resources: {requests: {cpu: 10m, memory: 32Mi}}
+  service: {enabled: false}
+  extraObjects:
+    settings: {apiVersion: v1, kind: ConfigMap, data: {mode: worker}}
+EOF
+twin_out="$(helm template vending "$twin" --namespace platform --kube-version 1.33.0 2>&1)" || fail "an umbrella of two aliases with the same extraObjects key must render, got: $(seen "$twin_out" "")"
+got="$(echo "$twin_out" | yq -N 'select(.kind == "ConfigMap") | .metadata.name + "=" + .data.mode' - | tr '\n' ' ')"
+[ "$got" = "vending-api.settings=api vending-worker.settings=worker " ] || fail "the extra object settings of api and of worker must be named vending-api.settings and vending-worker.settings, got '$got'"
+dups="$(echo "$twin_out" | yq -N '.kind + "/" + .metadata.name' - | grep -v '^/$' | sort | uniq -d)"
+[ -z "$dups" ] || fail "no two objects of the umbrella may share a kind and a name, got: $dups"
+for alias in api worker; do
+  got="$(echo "$twin_out" | yq -N "select(.metadata.name | test(\"^vending-$alias\")) | (.metadata.labels.team // \"-\") + \"/\" + (.metadata.annotations[\"example.com/owner\"] // \"-\")" - | LC_ALL=C sort -u | tr '\n' ' ')"
+  want="payments/payments "; [ "$alias" = worker ] && want="-/- "
+  [ "$got" = "$want" ] || fail "api's commonLabels and commonAnnotations must reach every object of api and no object of worker: the label team and the annotation example.com/owner of $alias's objects must be '$want', got '$got'"
+done
+pass "extraObjects under two aliases: the same key renders vending-api.settings and vending-worker.settings (no shared kind and name), and api's commonLabels and commonAnnotations stay on api's objects"
+
+eo_get() { echo "$1" | yq -N 'select(.kind == "ConfigMap") | .metadata.name + " " + (.data | @json) + " " + (.metadata.labels.tier // "-")' - 2>/dev/null | tr '\n' ' ' || true; }
+eo_nulled='  extraObjects:
+    gone: null
+    settings: {apiVersion: v1, kind: ConfigMap, data: {mode: fast, retired: null}, metadata: {labels: {tier: null}}}'
+eo_full='  extraObjects:
+    gone: {apiVersion: v1, kind: ConfigMap, data: {a: b}}
+    settings: {apiVersion: v1, kind: ConfigMap, data: {mode: fast, retired: old}, metadata: {labels: {tier: config}}}'
+bad_layers=""
+for layer in U0 U1 F S; do
+  case $layer in
+    U0) out="$(lrender "$eo_nulled")" ;;
+    U1) out="$(lrender "$eo_nulled" --set api.replicas=2)" ;;
+    F) out="$(lrender "$eo_full" -f "$(over '  extraObjects: {gone: null, settings: {data: {retired: null}, metadata: {labels: {tier: null}}}}')")" ;;
+    S) out="$(lrender "$eo_full" --set api.extraObjects.gone=null --set api.extraObjects.settings.data.retired=null --set api.extraObjects.settings.metadata.labels.tier=null)" ;;
+  esac
+  got="$(eo_get "$out")"
+  case "$(echo "$out" | yq -N 'select(.kind == "ConfigMap")' - 2>/dev/null || true)" in *null*) got="$got(a null in an extra object)" ;; esac
+  [ "$got" = 'vending-api.settings {"mode":"fast"} - ' ] || bad_layers="$bad_layers $layer (got: $(seen "$out" "$got"))"
+done
+[ -z "$bad_layers" ] || fail "extraObjects: a null entry (gone) and a null field (data.retired, metadata.labels.tier) must be absent, the same in every layer; differs in:$bad_layers"
+pass "extraObjects: a null entry and a null field at any depth through maps are absent in U0, U1, F and S (null table row 8)"
+
+bad_layers=""
+for layer in U0 U1 F S; do
+  case $layer in
+    U0) out="$(lrender '  commonLabels: null')" ;;
+    U1) out="$(lrender '  commonLabels: null' --set api.replicas=2)" ;;
+    F) out="$(lrender '  commonLabels: {team: payments}' -f "$(over '  commonLabels: null')")" ;;
+    S) out="$(lrender '  commonLabels: {team: payments}' --set api.commonLabels=null)" ;;
+  esac
+  got="$(echo "$out" | yq -N 'select(.kind == "Deployment") | (.metadata.labels.team // "-") + "/" + (.spec.template.metadata.labels.team // "-")' - 2>/dev/null || true)"
+  [ "$got" = "-/-" ] || bad_layers="$bad_layers $layer (got: $(seen "$out" "$got"))"
+done
+[ -z "$bad_layers" ] || fail "commonLabels: null must leave no common label on the Deployment and its pod template (F and S over values that set one), the same in every layer; differs in:$bad_layers"
+pass "commonLabels: null clears the map in U0, U1, F and S (null table row 4)"
+cl_entry='  commonLabels: {team: payments, tier: null}'
+out="$(lrender "$cl_entry")"
+if $helm4; then [ "$(echo "$out" | yq -N 'select(.kind == "Deployment") | .metadata.labels.team + "/" + (.metadata.labels.tier // "-")' - 2>/dev/null || true)" = "payments/-" ] || fail "commonLabels.tier null in U0: Helm 4.3 drops the umbrella's own null, got $(seen "$out" "")"
+else expect_fail "$out" "got null, want string" "commonLabels.tier null, Helm 3 U0"; fi
+expect_fail "$(lrender "$cl_entry" --set api.replicas=2)" "got null, want string" "commonLabels.tier null, U1"
+expect_fail "$(lrender '  commonLabels: {team: payments, tier: backend}' -f "$(over '  commonLabels: {tier: null}')")" "got null, want string" "commonLabels.tier null, F"
+expect_fail "$(lrender '  commonLabels: {team: payments, tier: backend}' --set api.commonLabels.tier=null)" "got null, want string" "commonLabels.tier null, S"
+pass "commonLabels: a null entry fails the schema (U1, F, S$($helm4 || echo ', U0')); Helm 4.3 U0 drops the umbrella's own null (null table row 6)"
+
 bad="$work/bad"
 make_umbrella "$bad" Sales
 cat > "$bad/values.yaml" <<'EOF'

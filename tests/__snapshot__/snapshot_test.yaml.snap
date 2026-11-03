@@ -410,6 +410,8 @@ full scenario:
       SPRING_CONFIG_ADDITIONAL_LOCATION: optional:file:/config/
     kind: ConfigMap
     metadata:
+      annotations:
+        e2e.example.com/owner: platform
       labels:
         app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
@@ -418,6 +420,7 @@ full scenario:
         app.kubernetes.io/part-of: vending
         app.kubernetes.io/version: 2.66.1
         helm.sh/chart: chart-base-0.0.0-test
+        team: e2e
       name: vending-chart-base-env
   2: |
     apiVersion: v1
@@ -433,6 +436,8 @@ full scenario:
         </configuration>
     kind: ConfigMap
     metadata:
+      annotations:
+        e2e.example.com/owner: platform
       labels:
         app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
@@ -441,6 +446,7 @@ full scenario:
         app.kubernetes.io/part-of: vending
         app.kubernetes.io/version: 2.66.1
         helm.sh/chart: chart-base-0.0.0-test
+        team: e2e
       name: vending-chart-base-files
   3: |
     apiVersion: apps/v1
@@ -448,6 +454,7 @@ full scenario:
     metadata:
       annotations:
         configmap.reloader.stakater.com/reload: e2e-rules
+        e2e.example.com/owner: platform
         secret.reloader.stakater.com/reload: e2e-files,e2e-shared,vending-chart-base-secrets
       labels:
         app.kubernetes.io/component: deployment
@@ -457,6 +464,7 @@ full scenario:
         app.kubernetes.io/part-of: vending
         app.kubernetes.io/version: 2.66.1
         helm.sh/chart: chart-base-0.0.0-test
+        team: e2e
       name: vending-chart-base
     spec:
       minReadySeconds: 5
@@ -484,6 +492,7 @@ full scenario:
             app.kubernetes.io/part-of: vending
             app.kubernetes.io/version: 2.66.1
             example.com/tier: backend
+            team: e2e
         spec:
           automountServiceAccountToken: true
           containers:
@@ -643,6 +652,8 @@ full scenario:
     apiVersion: external-secrets.io/v1
     kind: ExternalSecret
     metadata:
+      annotations:
+        e2e.example.com/owner: platform
       labels:
         app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
@@ -651,6 +662,7 @@ full scenario:
         app.kubernetes.io/part-of: vending
         app.kubernetes.io/version: 2.66.1
         helm.sh/chart: chart-base-0.0.0-test
+        team: e2e
       name: vending-chart-base-secrets
     spec:
       data:
@@ -680,10 +692,15 @@ full scenario:
               app.kubernetes.io/part-of: vending
               app.kubernetes.io/version: 2.66.1
               helm.sh/chart: chart-base-0.0.0-test
+              team: e2e
   5: |
-    apiVersion: autoscaling/v2
-    kind: HorizontalPodAutoscaler
+    apiVersion: v1
+    data:
+      mode: e2e
+    kind: ConfigMap
     metadata:
+      annotations:
+        e2e.example.com/owner: platform
       labels:
         app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
@@ -692,6 +709,23 @@ full scenario:
         app.kubernetes.io/part-of: vending
         app.kubernetes.io/version: 2.66.1
         helm.sh/chart: chart-base-0.0.0-test
+        team: e2e
+      name: vending-chart-base.settings
+  6: |
+    apiVersion: autoscaling/v2
+    kind: HorizontalPodAutoscaler
+    metadata:
+      annotations:
+        e2e.example.com/owner: platform
+      labels:
+        app.kubernetes.io/component: deployment
+        app.kubernetes.io/instance: vending
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: chart-base
+        app.kubernetes.io/part-of: vending
+        app.kubernetes.io/version: 2.66.1
+        helm.sh/chart: chart-base-0.0.0-test
+        team: e2e
       name: vending-chart-base
     spec:
       behavior:
@@ -728,10 +762,12 @@ full scenario:
         apiVersion: apps/v1
         kind: Deployment
         name: vending-chart-base
-  6: |
+  7: |
     apiVersion: gateway.networking.k8s.io/v1
     kind: HTTPRoute
     metadata:
+      annotations:
+        e2e.example.com/owner: platform
       labels:
         app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
@@ -740,6 +776,7 @@ full scenario:
         app.kubernetes.io/part-of: vending
         app.kubernetes.io/version: 2.66.1
         helm.sh/chart: chart-base-0.0.0-test
+        team: e2e
       name: vending-chart-base
     spec:
       hostnames:
@@ -756,10 +793,12 @@ full scenario:
             - path:
                 type: PathPrefix
                 value: /
-  7: |
+  8: |
     apiVersion: networking.k8s.io/v1
     kind: Ingress
     metadata:
+      annotations:
+        e2e.example.com/owner: platform
       labels:
         app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
@@ -768,6 +807,7 @@ full scenario:
         app.kubernetes.io/part-of: vending
         app.kubernetes.io/version: 2.66.1
         helm.sh/chart: chart-base-0.0.0-test
+        team: e2e
       name: vending-chart-base
     spec:
       ingressClassName: internal
@@ -782,10 +822,12 @@ full scenario:
                       name: http
                 path: /
                 pathType: Prefix
-  8: |
+  9: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
+      annotations:
+        e2e.example.com/owner: platform
       labels:
         app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
@@ -794,6 +836,7 @@ full scenario:
         app.kubernetes.io/part-of: vending
         app.kubernetes.io/version: 2.66.1
         helm.sh/chart: chart-base-0.0.0-test
+        team: e2e
       name: vending-chart-base
     spec:
       egress:
@@ -887,10 +930,12 @@ full scenario:
       policyTypes:
         - Ingress
         - Egress
-  9: |
+  10: |
     apiVersion: policy/v1
     kind: PodDisruptionBudget
     metadata:
+      annotations:
+        e2e.example.com/owner: platform
       labels:
         app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
@@ -899,6 +944,7 @@ full scenario:
         app.kubernetes.io/part-of: vending
         app.kubernetes.io/version: 2.66.1
         helm.sh/chart: chart-base-0.0.0-test
+        team: e2e
       name: vending-chart-base
     spec:
       maxUnavailable: 1
@@ -907,10 +953,12 @@ full scenario:
           app.kubernetes.io/instance: vending
           app.kubernetes.io/name: chart-base
       unhealthyPodEvictionPolicy: AlwaysAllow
-  10: |
+  11: |
     apiVersion: monitoring.coreos.com/v1
     kind: PrometheusRule
     metadata:
+      annotations:
+        e2e.example.com/owner: platform
       labels:
         app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
@@ -920,6 +968,7 @@ full scenario:
         app.kubernetes.io/version: 2.66.1
         helm.sh/chart: chart-base-0.0.0-test
         release: e2e
+        team: e2e
       name: vending-chart-base
     spec:
       groups:
@@ -932,10 +981,12 @@ full scenario:
               for: 5m
               labels:
                 severity: critical
-  11: |
+  12: |
     apiVersion: rbac.authorization.k8s.io/v1
     kind: Role
     metadata:
+      annotations:
+        e2e.example.com/owner: platform
       labels:
         app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
@@ -944,6 +995,7 @@ full scenario:
         app.kubernetes.io/part-of: vending
         app.kubernetes.io/version: 2.66.1
         helm.sh/chart: chart-base-0.0.0-test
+        team: e2e
       name: vending-chart-base
     rules:
       - apiGroups:
@@ -972,10 +1024,12 @@ full scenario:
           - pods/log
         verbs:
           - get
-  12: |
+  13: |
     apiVersion: rbac.authorization.k8s.io/v1
     kind: RoleBinding
     metadata:
+      annotations:
+        e2e.example.com/owner: platform
       labels:
         app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
@@ -984,6 +1038,7 @@ full scenario:
         app.kubernetes.io/part-of: vending
         app.kubernetes.io/version: 2.66.1
         helm.sh/chart: chart-base-0.0.0-test
+        team: e2e
       name: vending-chart-base
     roleRef:
       apiGroup: rbac.authorization.k8s.io
@@ -993,10 +1048,12 @@ full scenario:
       - kind: ServiceAccount
         name: vending-chart-base
         namespace: vending
-  13: |
+  14: |
     apiVersion: rbac.authorization.k8s.io/v1
     kind: RoleBinding
     metadata:
+      annotations:
+        e2e.example.com/owner: platform
       labels:
         app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
@@ -1005,6 +1062,7 @@ full scenario:
         app.kubernetes.io/part-of: vending
         app.kubernetes.io/version: 2.66.1
         helm.sh/chart: chart-base-0.0.0-test
+        team: e2e
       name: vending-chart-base.view
     roleRef:
       apiGroup: rbac.authorization.k8s.io
@@ -1014,10 +1072,13 @@ full scenario:
       - kind: ServiceAccount
         name: vending-chart-base
         namespace: vending
-  14: |
+  15: |
     apiVersion: v1
     kind: Service
     metadata:
+      annotations:
+        e2e.example.com/lb: internal
+        e2e.example.com/owner: platform
       labels:
         app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
@@ -1026,6 +1087,7 @@ full scenario:
         app.kubernetes.io/part-of: vending
         app.kubernetes.io/version: 2.66.1
         helm.sh/chart: chart-base-0.0.0-test
+        team: e2e
       name: vending-chart-base
     spec:
       ports:
@@ -1037,12 +1099,13 @@ full scenario:
         app.kubernetes.io/instance: vending
         app.kubernetes.io/name: chart-base
       type: ClusterIP
-  15: |
+  16: |
     apiVersion: v1
     automountServiceAccountToken: true
     kind: ServiceAccount
     metadata:
       annotations:
+        e2e.example.com/owner: platform
         iam.gke.io/gcp-service-account: sales@acme.iam.gserviceaccount.com
       labels:
         app.kubernetes.io/component: deployment
@@ -1052,11 +1115,14 @@ full scenario:
         app.kubernetes.io/part-of: vending
         app.kubernetes.io/version: 2.66.1
         helm.sh/chart: chart-base-0.0.0-test
+        team: e2e
       name: vending-chart-base
-  16: |
+  17: |
     apiVersion: monitoring.coreos.com/v1
     kind: ServiceMonitor
     metadata:
+      annotations:
+        e2e.example.com/owner: platform
       labels:
         app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
@@ -1066,6 +1132,7 @@ full scenario:
         app.kubernetes.io/version: 2.66.1
         helm.sh/chart: chart-base-0.0.0-test
         release: e2e
+        team: e2e
       name: vending-chart-base
     spec:
       endpoints:
