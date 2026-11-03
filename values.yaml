@@ -770,3 +770,26 @@ hostAliases: []
 # which an app that reads `REDIS_PORT` without the component setting it gets instead of a port. `KUBERNETES_SERVICE_HOST`/`_PORT`
 # are injected either way. Set `true` to restore Kubernetes' behavior.
 enableServiceLinks: false
+
+# -- (object) Objects the chart does not offer, rendered by the chart for this component: a map keyed by the object's
+# key, a lowercase DNS-1123 label, each `{apiVersion, kind, metadata: {labels, annotations}, <every other top-level
+# field as written>}`, e.g. `{settings: {apiVersion: v1, kind: ConfigMap, data: {mode: fast}}}`. The chart names the
+# object `<fullname>.<key>` (`vending-api.settings`) and installs it in the release namespace: `metadata` takes
+# `labels` and `annotations` only (the object's own win over `commonLabels` and `commonAnnotations`, and the chart's
+# labels are added). A `null` entry is absent, and so is a `null` field at any depth through maps (a list is kept as
+# written). Values are rendered as written, never as templates (`{{ }}` reaches the cluster as written). The first
+# mistakes fail the schema: a list (`got array, want null or object`: write a map keyed by the object's key), a
+# `metadata.name` (`additional properties 'name' not allowed`: the chart names it). Nothing below `apiVersion`, `kind`
+# and `metadata` is checked, and an extra object gets none of what the chart gives its own objects: no Reloader entry
+# unless the component references it, no checksum, no validation of its content (the chart's secret path stays
+# `externalSecret`). Rejected by the render, with a remedy: the built-in workloads, `Service`, `Endpoints`,
+# `EndpointSlice`, `Secret`, `List`, a kind ending in `List` and any object with a top-level `items` field, a
+# `RoleBinding` keyed like an entry of `rbac.clusterRoles`, and the cluster-scoped built-in kinds. Not detected: a
+# cluster-scoped custom kind, a custom workload kind, and an extra autoscaler on the component's Deployment, which
+# fights the chart (with `autoscaling` and `keda` off the chart renders `spec.replicas`): use `autoscaling` or `keda`.
+# A controller that copies the name into a label value or a DNS label may refuse its `.` or its length (up to 127
+# characters) at reconcile, not at install. On a `job` component every extra object is a hook of the Job's phase. A
+# kind the cluster does not serve fails the release; kubeconform needs a schema location for a custom kind. `apiVersion`
+# and `kind` are required: an `-f` `extraObjects.<key>.kind: null` fails `helm template` (`got null, want string`) but
+# passes `helm lint` of an umbrella.
+extraObjects: {}

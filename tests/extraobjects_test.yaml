@@ -1,0 +1,347 @@
+suite: extraObjects (objects the chart does not offer, rendered as written)
+templates:
+  - templates/extraobjects.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+values:
+  - values/base.yaml
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: names an extra object <fullname>.<key>, in no namespace, with the chart's labels, the common ones and its own (own wins), every other field as written, in key order (T13)
+    set:
+      commonLabels: {team: payments, tier: shared}
+      commonAnnotations: {example.com/owner: platform, example.com/contact: "#payments"}
+      extraObjects:
+        settings:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            labels: {tier: config}
+            annotations: {example.com/owner: team-a}
+          data: {mode: fast, retries: "3"}
+        budget:
+          apiVersion: policy/v1
+          kind: PodDisruptionBudget
+          spec: {maxUnavailable: 1, selector: {matchLabels: {app.kubernetes.io/name: worker}}}
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: metadata.name
+          value: vending-chart-base.budget
+        documentIndex: 0
+      - equal:
+          path: spec
+          value: {maxUnavailable: 1, selector: {matchLabels: {app.kubernetes.io/name: worker}}}
+        documentIndex: 0
+      - isKind:
+          of: ConfigMap
+        documentIndex: 1
+      - isAPIVersion:
+          of: v1
+        documentIndex: 1
+      - equal:
+          path: metadata
+          value:
+            name: vending-chart-base.settings
+            labels:
+              app.kubernetes.io/name: chart-base
+              app.kubernetes.io/instance: vending
+              app.kubernetes.io/part-of: vending
+              app.kubernetes.io/component: deployment
+              app.kubernetes.io/version: "1.4.2"
+              app.kubernetes.io/managed-by: Helm
+              helm.sh/chart: chart-base-0.0.0-test
+              team: payments
+              tier: config
+            annotations:
+              example.com/contact: "#payments"
+              example.com/owner: team-a
+        documentIndex: 1
+      - equal:
+          path: data
+          value: {mode: fast, retries: "3"}
+        documentIndex: 1
+
+  - it: renders an extra object of a custom kind (a cert-manager Certificate) as written (T13)
+    set:
+      extraObjects:
+        tls:
+          apiVersion: cert-manager.io/v1
+          kind: Certificate
+          spec: {secretName: sales-tls, dnsNames: [sales.example.com], issuerRef: {kind: ClusterIssuer, name: letsencrypt}}
+    asserts:
+      - isKind:
+          of: Certificate
+      - equal:
+          path: metadata.name
+          value: vending-chart-base.tls
+      - equal:
+          path: spec
+          value: {secretName: sales-tls, dnsNames: [sales.example.com], issuerRef: {kind: ClusterIssuer, name: letsencrypt}}
+
+  - it: takes the release and the alias in the name (release staging) (T13)
+    release:
+      name: staging
+    set:
+      extraObjects:
+        settings: {apiVersion: v1, kind: ConfigMap, data: {mode: fast}}
+    asserts:
+      - equal:
+          path: metadata.name
+          value: staging-chart-base.settings
+
+  - it: drops a null entry and a null field at any depth through maps, keeps a list as written, and keeps a map emptied by the pruning (T14)
+    set:
+      extraObjects:
+        gone: null
+        widget:
+          apiVersion: example.com/v1
+          kind: Widget
+          metadata:
+            labels: {team: null}
+            annotations: {example.com/owner: null}
+          spec:
+            replicas: 2
+            drop: null
+            nested: {gone: null, keep: x, zero: 0, disabled: false, empty: ""}
+            emptied: {only: null}
+            list: [a, null, {k: null}]
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec
+          value:
+            replicas: 2
+            nested: {keep: x, zero: 0, disabled: false, empty: ""}
+            emptied: {}
+            list: [a, null, {k: null}]
+      - notExists:
+          path: metadata.labels.team
+      - notExists:
+          path: metadata.annotations
+
+  - it: renders nothing for extraObjects null (T14)
+    set:
+      extraObjects: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders a value with a template action as written, never as a template (T21)
+    set:
+      extraObjects:
+        rule:
+          apiVersion: monitoring.coreos.com/v1
+          kind: PrometheusRule
+          spec: {groups: [{name: g, rules: [{alert: A, expr: up == 0, annotations: {summary: "{{ $labels.pod }} of {{ .Release.Name }}"}}]}]}
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[0].annotations.summary
+          value: "{{ $labels.pod }} of {{ .Release.Name }}"
+
+  - it: makes every extra object of a pre-deploy job a hook of the Job's phase (T19)
+    set:
+      workload.type: job
+      ports: []
+      commonAnnotations: {example.com/owner: platform}
+      extraObjects:
+        settings: {apiVersion: v1, kind: ConfigMap, metadata: {annotations: {example.com/note: n}}, data: {mode: migrate}}
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            helm.sh/hook: pre-install,pre-upgrade
+            helm.sh/hook-weight: "-10"
+            helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+            example.com/note: n
+            example.com/owner: platform
+
+  - it: makes every extra object of a post-deploy job a hook of the Job's phase (T19)
+    set:
+      workload.type: job
+      ports: []
+      job.phase: post-deploy
+      extraObjects:
+        settings: {apiVersion: v1, kind: ConfigMap, data: {mode: migrate}}
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            helm.sh/hook: post-install,post-upgrade
+            helm.sh/hook-weight: "-10"
+            helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+
+  - it: keeps an extra object of a deployment a regular object (no hook annotation) (T19)
+    set:
+      extraObjects:
+        settings: {apiVersion: v1, kind: ConfigMap, data: {mode: fast}}
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  - it: keeps an extra object of a cronjob a regular object (no hook annotation) (T19)
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      ports: []
+      extraObjects:
+        settings: {apiVersion: v1, kind: ConfigMap, data: {mode: fast}}
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  - it: renders an extra ExternalSecret, the Secret row's remedy (T17)
+    set:
+      extraObjects:
+        db:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          spec:
+            secretStoreRef: {kind: ClusterSecretStore, name: vault}
+            target: {name: vending-chart-base.db, creationPolicy: Owner}
+            data: [{secretKey: password, remoteRef: {key: sales/db}}]
+    asserts:
+      - isKind:
+          of: ExternalSecret
+      - equal:
+          path: spec.target.name
+          value: vending-chart-base.db
+
+  - it: renders an extra object with the chart's labels alone without the common keys (the --reuse-values shape of a 0.10.x release, without commonLabels and commonAnnotations) (T22)
+    set:
+      commonLabels: null
+      commonAnnotations: null
+      extraObjects:
+        settings: {apiVersion: v1, kind: ConfigMap, data: {mode: fast}}
+    asserts:
+      - equal:
+          path: metadata.labels
+          value:
+            app.kubernetes.io/name: chart-base
+            app.kubernetes.io/instance: vending
+            app.kubernetes.io/part-of: vending
+            app.kubernetes.io/component: deployment
+            app.kubernetes.io/version: "1.4.2"
+            app.kubernetes.io/managed-by: Helm
+            helm.sh/chart: chart-base-0.0.0-test
+      - notExists:
+          path: metadata.annotations
+
+  - it: rejects extraObjects as a list (a map keyed by the object's key) (T20)
+    set:
+      extraObjects: [{apiVersion: v1, kind: ConfigMap, metadata: {name: settings}}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "/extraObjects': got array, want null or object"
+
+  - it: requires apiVersion (T20)
+    set:
+      extraObjects.settings: {kind: ConfigMap}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/extraObjects/settings': missing property 'apiVersion'"
+
+  - it: requires kind (T20)
+    set:
+      extraObjects.settings: {apiVersion: v1}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/extraObjects/settings': missing property 'kind'"
+
+  - it: rejects an empty apiVersion (T20)
+    set:
+      extraObjects.settings: {apiVersion: "", kind: ConfigMap}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/extraObjects/settings/apiVersion': '' does not match pattern"
+
+  - it: rejects an empty kind (T20)
+    set:
+      extraObjects.settings: {apiVersion: v1, kind: ""}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/extraObjects/settings/kind': '' does not match pattern"
+
+  - it: rejects an apiVersion with an upper-case group (T20)
+    set:
+      extraObjects.settings: {apiVersion: Apps/v1, kind: ConfigMap}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/extraObjects/settings/apiVersion': 'Apps/v1' does not match pattern"
+
+  - it: rejects a kind that is not a name (T20)
+    set:
+      extraObjects.settings: {apiVersion: v1, kind: Config Map}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/extraObjects/settings/kind': 'Config Map' does not match pattern"
+
+  - it: accepts a CRD's own version name (v1beta1, v2alpha1) and a group with dots and dashes (T20)
+    set:
+      extraObjects:
+        a: {apiVersion: secrets-store.csi.x-k8s.io/v1, kind: SecretProviderClass}
+        b: {apiVersion: example.com/v2alpha1, kind: Widget}
+    asserts:
+      - hasDocuments:
+          count: 2
+
+  - it: rejects a chart label key in an extra object's own labels (T20)
+    set:
+      extraObjects.settings: {apiVersion: v1, kind: ConfigMap, metadata: {labels: {helm.sh/chart: x}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'helm.sh/chart'"
+
+  - it: rejects a Helm hook key in an extra object's own annotations (T20)
+    set:
+      extraObjects.settings: {apiVersion: v1, kind: ConfigMap, metadata: {annotations: {helm.sh/hook: pre-install}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'helm.sh/hook'"
+
+  - it: rejects a number as an extra object's own label value (T20)
+    set:
+      extraObjects.settings: {apiVersion: v1, kind: ConfigMap, metadata: {labels: {replicas: 3}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/extraObjects/settings/metadata/labels/replicas': got number, want null or string"
+
+  - it: rejects metadata.name (the chart names the object) (T16)
+    set:
+      extraObjects.settings: {apiVersion: v1, kind: ConfigMap, metadata: {name: settings}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/extraObjects/settings/metadata': additional properties 'name' not allowed"
+
+  - it: rejects metadata.namespace (the release namespace only) (T16)
+    set:
+      extraObjects.settings: {apiVersion: v1, kind: ConfigMap, metadata: {namespace: other}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/extraObjects/settings/metadata': additional properties 'namespace' not allowed"
+
+  - it: rejects metadata.generateName (T16)
+    set:
+      extraObjects.settings: {apiVersion: v1, kind: ConfigMap, metadata: {generateName: settings-}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/extraObjects/settings/metadata': additional properties 'generateName' not allowed"
+
+  - it: rejects metadata.finalizers (T16)
+    set:
+      extraObjects.settings: {apiVersion: v1, kind: ConfigMap, metadata: {finalizers: [example.com/x]}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/extraObjects/settings/metadata': additional properties 'finalizers' not allowed"

@@ -123,6 +123,21 @@
       "type": "object", "additionalProperties": { "type": "string" },
       "propertyNames": { "not": { "anyOf": [{ "pattern": "^helm\\.sh/hook" }, { "pattern": "^meta\\.helm\\.sh/" }, { "enum": ["checksum/config-env", "checksum/config-files"] }] } }
     },
+    "extraObject": {
+      "description": "An entry of extraObjects: apiVersion and kind required; metadata takes labels and annotations only (the chart writes the name, <fullname>.<key>, and no namespace), with the reserved keys of extraLabels and extraAnnotations; every other top-level field is open and rendered as written. A null entry or field is absent (templates/_extraobjects.tpl).",
+      "type": ["object", "null"], "required": ["apiVersion", "kind"],
+      "properties": {
+        "apiVersion": { "type": "string", "pattern": "^([a-z0-9]([-a-z0-9.]*[a-z0-9])?/)?[a-z]([-a-z0-9]*[a-z0-9])?$" },
+        "kind": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*$" },
+        "metadata": {
+          "description": "labels and annotations only: the chart writes the name, and no namespace.",
+          "type": ["object", "null"], "additionalProperties": false, "properties": {
+            "labels": { "type": ["object", "null"], "propertyNames": { "$ref": "#/definitions/extraLabels/propertyNames" }, "additionalProperties": { "type": ["string", "null"] } },
+            "annotations": { "type": ["object", "null"], "propertyNames": { "$ref": "#/definitions/extraAnnotations/propertyNames" }, "additionalProperties": { "type": ["string", "null"] } }
+          }
+        }
+      }
+    },
     "nonEmptyDuration": {
       "description": "A Prometheus duration that is not empty (the CRDs' NonEmptyDuration): the operator writes an empty for or group interval to Prometheus, whose duration parser rejects it.",
       "allOf": [{ "$ref": "#/definitions/duration" }],
@@ -1207,6 +1222,7 @@
       "additionalProperties": { "type": "string" }
     },
     "commonLabels": { "$ref": "#/definitions/extraLabels" },
+    "extraObjects": { "type": ["object", "null"], "additionalProperties": { "$ref": "#/definitions/extraObject" } },
     "commonAnnotations": {
       "description": "extraAnnotations, and the two Reloader keys the chart computes on the Deployment (a common one would render the key twice).",
       "allOf": [{ "$ref": "#/definitions/extraAnnotations" }, { "propertyNames": { "not": { "enum": ["secret.reloader.stakater.com/reload", "configmap.reloader.stakater.com/reload"] } } }]

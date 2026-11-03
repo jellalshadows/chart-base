@@ -642,3 +642,37 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- end -}}
 {{- end -}}
 {{- end -}}
+
+{{- /* extraObjects (decisions 8 and 9): every check reads chart-base.extraObjects, so a null entry and a null field are absent before any check. The key is a DNS-1123 label (the object is named <fullname>.<key>); the kind is not one of chart-base.rejectedKinds (the API group, the part of apiVersion before the /, and the kind compared lowercase, any version), not a list, and not a RoleBinding named like the chart's binding to a ClusterRole. Each message names the entry and the object, then remedies that work where the guard fires, then the entry's null. */ -}}
+{{- $extraObjects := dict -}}
+{{- include "chart-base.extraObjects" (dict "ctx" . "out" $extraObjects) -}}
+{{- $rejectedKinds := dict -}}
+{{- range $groupKind, $reason := include "chart-base.rejectedKinds" . | fromYaml }}{{ $_ := set $rejectedKinds (lower $groupKind) $reason }}{{ end -}}
+{{- range $key, $o := $extraObjects -}}
+{{- if or (not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $key)) (gt (len $key) 63) -}}
+{{- include "chart-base.fail" (list $ (printf "extraObjects.%s: a key is a lowercase DNS-1123 label (a-z, 0-9, \"-\", at most 63 characters; the object is named %s.<key>): add the entry under such a key and set extraObjects.%s: null" $key $fullname $key)) -}}
+{{- end -}}
+{{- $group := "" -}}
+{{- if contains "/" $o.apiVersion }}{{ $group = first (splitList "/" $o.apiVersion) }}{{ end -}}
+{{- $groupKind := lower (ternary $o.kind (printf "%s/%s" $group $o.kind) (eq $group "")) -}}
+{{- $what := printf "extraObjects.%s (%s %s, named %s.%s)" $key $o.apiVersion $o.kind $fullname $key -}}
+{{- $then := printf "then set extraObjects.%s: null" $key -}}
+{{- $reason := get $rejectedKinds $groupKind -}}
+{{- if eq $reason "workload" -}}
+{{- include "chart-base.fail" (list $ (printf "%s is a built-in workload, and chart-base renders one workload per alias: render it as another alias of chart-base, or in the umbrella's own templates, %s" $what $then)) -}}
+{{- else if eq $reason "service" -}}
+{{- include "chart-base.fail" (list $ (printf "%s is a Service: chart-base renders one Service per alias, and a Service's name is a DNS-1035 label, which %s.%s is not: render it as another alias of chart-base (a deployment component), or in the umbrella's own templates, %s" $what $fullname $key $then)) -}}
+{{- else if eq $reason "endpoints" -}}
+{{- include "chart-base.fail" (list $ (printf "%s wires a Service's backends by hand, which chart-base does not render: render it in the umbrella's own templates, %s" $what $then)) -}}
+{{- else if eq $reason "secret" -}}
+{{- include "chart-base.fail" (list $ (printf "%s is a Secret, whose data would sit in the values in plain text (ADR-0004): deliver it with externalSecret, or as an extra ExternalSecret (external-secrets.io/v1), %s" $what $then)) -}}
+{{- else if eq $reason "cluster" -}}
+{{- include "chart-base.fail" (list $ (printf "%s is a cluster-scoped kind, and an extra object is installed in the release namespace (a cluster-wide name collides across namespaces, and a namespace's deployer cannot own it): render it in the umbrella's own templates or the platform's, %s" $what $then)) -}}
+{{- end -}}
+{{- if or (eq (lower $o.kind) "list") (hasSuffix "List" $o.kind) (hasKey $o "items") -}}
+{{- include "chart-base.fail" (list $ (printf "%s is a list (kind List, a kind ending in List, or a top-level items field), and Kubernetes' client installs each item without the checks of an extra object: write one entry per object, %s" $what $then)) -}}
+{{- end -}}
+{{- if and (eq $groupKind "rbac.authorization.k8s.io/rolebinding") (has $key ($.Values.rbac.clusterRoles | default list)) -}}
+{{- include "chart-base.fail" (list $ (printf "%s has the name of the chart's RoleBinding to the ClusterRole %s (rbac.clusterRoles): add the entry under another key, %s" $what $key $then)) -}}
+{{- end -}}
+{{- end -}}
