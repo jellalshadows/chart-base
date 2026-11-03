@@ -1200,6 +1200,7 @@
       "propertyNames": { "not": { "enum": ["app.kubernetes.io/name", "app.kubernetes.io/instance"] } },
       "additionalProperties": { "type": "string" }
     },
+    "commonLabels": { "$ref": "#/definitions/extraLabels" },
     "podSecurityContext": { "type": "object" },
     "securityContext": { "type": "object" },
     "nodeSelector": { "type": "object", "additionalProperties": { "type": "string" } },

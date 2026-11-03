@@ -4,10 +4,7 @@ kind: ServiceMonitor
 metadata:
   name: {{ include "chart-base.fullname" . }}
   labels:
-    {{- include "chart-base.labels" . | nindent 4 }}
-    {{- with .Values.metrics.labels }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
+    {{- include "chart-base.labelsWith" (dict "ctx" . "labels" .Values.metrics.labels) | nindent 4 }}
 spec:
   selector:
     matchLabels:

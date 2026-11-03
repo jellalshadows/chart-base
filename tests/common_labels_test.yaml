@@ -1,0 +1,431 @@
+suite: commonLabels (every labels map the chart writes, never a selector)
+templates:
+  - templates/configmap-env.yaml
+  - templates/configmap-files.yaml
+  - templates/cronjob.yaml
+  - templates/deployment.yaml
+  - templates/externalsecret.yaml
+  - templates/hpa.yaml
+  - templates/httproute.yaml
+  - templates/ingress.yaml
+  - templates/job.yaml
+  - templates/networkpolicy.yaml
+  - templates/pdb.yaml
+  - templates/podmonitor.yaml
+  - templates/prometheusrule.yaml
+  - templates/role.yaml
+  - templates/rolebinding.yaml
+  - templates/scaledobject.yaml
+  - templates/service.yaml
+  - templates/serviceaccount.yaml
+  - templates/servicemonitor.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+values:
+  - values/base.yaml
+tests:
+  - it: puts the common labels on every object of a deployment that renders every object kind (T1)
+    templates:
+      - templates/configmap-env.yaml
+      - templates/configmap-files.yaml
+      - templates/deployment.yaml
+      - templates/externalsecret.yaml
+      - templates/hpa.yaml
+      - templates/httproute.yaml
+      - templates/ingress.yaml
+      - templates/networkpolicy.yaml
+      - templates/pdb.yaml
+      - templates/prometheusrule.yaml
+      - templates/role.yaml
+      - templates/rolebinding.yaml
+      - templates/service.yaml
+      - templates/serviceaccount.yaml
+      - templates/servicemonitor.yaml
+    values:
+      - ../ci/full-values.yaml
+    set:
+      commonLabels: {team: payments, example.com/cost-center: cc-42}
+    asserts:
+      - equal:
+          path: metadata.labels.team
+          value: payments
+      - equal:
+          path: metadata.labels["example.com/cost-center"]
+          value: cc-42
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: chart-base
+
+  - it: puts the common labels on every object of a cronjob (T1)
+    templates:
+      - templates/configmap-env.yaml
+      - templates/cronjob.yaml
+      - templates/serviceaccount.yaml
+    values:
+      - ../ci/cronjob-values.yaml
+    set:
+      commonLabels: {team: payments}
+    asserts:
+      - equal:
+          path: metadata.labels.team
+          value: payments
+
+  - it: puts the common labels on every object of a job, its hooks included (T1)
+    templates:
+      - templates/configmap-env.yaml
+      - templates/configmap-files.yaml
+      - templates/externalsecret.yaml
+      - templates/job.yaml
+      - templates/networkpolicy.yaml
+      - templates/prometheusrule.yaml
+      - templates/role.yaml
+      - templates/rolebinding.yaml
+      - templates/serviceaccount.yaml
+    values:
+      - ../ci/job-values.yaml
+    set:
+      commonLabels: {team: payments}
+      networkPolicy.enabled: true
+      serviceAccount.automountToken: true
+      rbac:
+        rules: [{apiGroups: [""], resources: [configmaps], verbs: [get]}]
+        clusterRoles: [view]
+      prometheusRule:
+        enabled: true
+        groups: [{name: migrations, rules: [{alert: MigrationFailed, expr: "vector(1)"}]}]
+    asserts:
+      - equal:
+          path: metadata.labels.team
+          value: payments
+
+  - it: puts the common labels on a PodMonitor and a ScaledObject (T1)
+    templates:
+      - templates/podmonitor.yaml
+      - templates/scaledobject.yaml
+    set:
+      commonLabels: {team: payments}
+      service.enabled: false
+      ports: [{name: metrics, containerPort: 9090}]
+      metrics: {enabled: true, port: metrics}
+      keda:
+        enabled: true
+        triggers:
+          window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 8 * * *", end: "0 18 * * *", desiredReplicas: "2"}}
+    asserts:
+      - equal:
+          path: metadata.labels.team
+          value: payments
+
+  - it: renders the chart's own labels first, then the common labels (an object's whole label set)
+    template: templates/service.yaml
+    set:
+      commonLabels: {team: payments, example.com/cost-center: cc-42}
+    asserts:
+      - equal:
+          path: metadata.labels
+          value:
+            app.kubernetes.io/name: chart-base
+            app.kubernetes.io/instance: vending
+            app.kubernetes.io/part-of: vending
+            app.kubernetes.io/component: deployment
+            app.kubernetes.io/version: "1.4.2"
+            app.kubernetes.io/managed-by: Helm
+            helm.sh/chart: chart-base-0.0.0-test
+            example.com/cost-center: cc-42
+            team: payments
+
+  - it: never puts a common label in a selector (Deployment, Service, PDB, NetworkPolicy and its sibling peer, ServiceMonitor, the default topology spread) (T2)
+    values:
+      - ../ci/full-values.yaml
+    set:
+      commonLabels: {team: payments}
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels
+          value: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+        template: templates/deployment.yaml
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].labelSelector.matchLabels
+          value: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+        template: templates/deployment.yaml
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[1].labelSelector.matchLabels
+          value: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+        template: templates/deployment.yaml
+      - equal:
+          path: spec.selector
+          value: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+        template: templates/service.yaml
+      - equal:
+          path: spec.selector.matchLabels
+          value: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+        template: templates/pdb.yaml
+      - equal:
+          path: spec.podSelector.matchLabels
+          value: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+        template: templates/networkpolicy.yaml
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels
+          value: {app.kubernetes.io/name: web, app.kubernetes.io/instance: vending}
+        template: templates/networkpolicy.yaml
+      - equal:
+          path: spec.selector.matchLabels
+          value: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+        template: templates/servicemonitor.yaml
+
+  - it: never puts a common label in a PodMonitor's selector (T2)
+    template: templates/podmonitor.yaml
+    set:
+      commonLabels: {team: payments}
+      service.enabled: false
+      ports: [{name: metrics, containerPort: 9090}]
+      metrics: {enabled: true, port: metrics}
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels
+          value: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+
+  - it: puts the common labels on the Deployment's pod template, under podLabels, without helm.sh/chart or managed-by (T3)
+    template: templates/deployment.yaml
+    set:
+      commonLabels: {team: payments, tier: shared}
+      podLabels: {tier: backend}
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels
+          value:
+            app.kubernetes.io/name: chart-base
+            app.kubernetes.io/instance: vending
+            app.kubernetes.io/part-of: vending
+            app.kubernetes.io/component: deployment
+            app.kubernetes.io/version: "1.4.2"
+            team: payments
+            tier: backend
+      - equal:
+          path: metadata.labels.tier
+          value: shared
+
+  - it: puts the common labels on the CronJob's job template and pod template, under podLabels, without helm.sh/chart or managed-by (T3)
+    template: templates/cronjob.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 * * * *"
+      commonLabels: {team: payments, tier: shared}
+      podLabels: {tier: batch}
+    asserts:
+      - equal:
+          path: spec.jobTemplate.metadata.labels
+          value:
+            app.kubernetes.io/name: chart-base
+            app.kubernetes.io/instance: vending
+            app.kubernetes.io/part-of: vending
+            app.kubernetes.io/component: cronjob
+            app.kubernetes.io/version: "1.4.2"
+            team: payments
+            tier: batch
+      - equal:
+          path: spec.jobTemplate.spec.template.metadata.labels
+          value:
+            app.kubernetes.io/name: chart-base
+            app.kubernetes.io/instance: vending
+            app.kubernetes.io/part-of: vending
+            app.kubernetes.io/component: cronjob
+            app.kubernetes.io/version: "1.4.2"
+            team: payments
+            tier: batch
+
+  - it: puts the common labels on the Job's pod template, under podLabels, without helm.sh/chart or managed-by (T3)
+    template: templates/job.yaml
+    set:
+      workload.type: job
+      ports: []
+      commonLabels: {team: payments, tier: shared}
+      podLabels: {tier: batch}
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels
+          value:
+            app.kubernetes.io/name: chart-base
+            app.kubernetes.io/instance: vending
+            app.kubernetes.io/part-of: vending
+            app.kubernetes.io/component: job
+            app.kubernetes.io/version: "1.4.2"
+            team: payments
+            tier: batch
+
+  - it: labels an ephemeral volume's claim template with the selector labels and the common labels only (T4)
+    template: templates/deployment.yaml
+    set:
+      commonLabels: {team: payments}
+      podLabels: {tier: backend}
+      volumes:
+        scratch: {type: ephemeral, mountPath: /scratch, size: 1Gi}
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[1].ephemeral.volumeClaimTemplate.metadata.labels
+          value:
+            app.kubernetes.io/name: chart-base
+            app.kubernetes.io/instance: vending
+            team: payments
+
+  - it: puts the common labels in the ExternalSecret's template.metadata.labels, after the chart's labels (T5)
+    template: templates/externalsecret.yaml
+    values:
+      - ../ci/full-values.yaml
+    set:
+      commonLabels: {team: payments}
+    asserts:
+      - equal:
+          path: spec.target.template.metadata.labels
+          value:
+            app.kubernetes.io/name: chart-base
+            app.kubernetes.io/instance: vending
+            app.kubernetes.io/part-of: vending
+            app.kubernetes.io/component: deployment
+            app.kubernetes.io/version: "2.66.1"
+            app.kubernetes.io/managed-by: Helm
+            helm.sh/chart: chart-base-0.0.0-test
+            team: payments
+
+  - it: lets metrics.labels win over a common label on the ServiceMonitor, each key once (T6)
+    template: templates/servicemonitor.yaml
+    values:
+      - ../ci/full-values.yaml
+    set:
+      commonLabels: {release: common, team: payments}
+    asserts:
+      - equal:
+          path: metadata.labels.release
+          value: e2e
+      - equal:
+          path: metadata.labels.team
+          value: payments
+
+  - it: lets metrics.labels win over a common label on the PodMonitor (T6)
+    template: templates/podmonitor.yaml
+    set:
+      commonLabels: {release: common}
+      service.enabled: false
+      ports: [{name: metrics, containerPort: 9090}]
+      metrics: {enabled: true, port: metrics, labels: {release: e2e}}
+    asserts:
+      - equal:
+          path: metadata.labels.release
+          value: e2e
+
+  - it: lets prometheusRule.labels win over a common label on the PrometheusRule, each key once (T6)
+    template: templates/prometheusrule.yaml
+    values:
+      - ../ci/full-values.yaml
+    set:
+      commonLabels: {release: common, team: payments}
+    asserts:
+      - equal:
+          path: metadata.labels.release
+          value: e2e
+      - equal:
+          path: metadata.labels.team
+          value: payments
+
+  - it: renders the chart's labels alone without a commonLabels key (the --reuse-values shape of a 0.10.x release) (T22)
+    set:
+      commonLabels: null
+      volumes:
+        scratch: {type: ephemeral, mountPath: /scratch, size: 1Gi}
+    asserts:
+      - equal:
+          path: metadata.labels
+          value:
+            app.kubernetes.io/name: chart-base
+            app.kubernetes.io/instance: vending
+            app.kubernetes.io/part-of: vending
+            app.kubernetes.io/component: deployment
+            app.kubernetes.io/version: "1.4.2"
+            app.kubernetes.io/managed-by: Helm
+            helm.sh/chart: chart-base-0.0.0-test
+        template: templates/deployment.yaml
+      - equal:
+          path: spec.template.metadata.labels
+          value:
+            app.kubernetes.io/name: chart-base
+            app.kubernetes.io/instance: vending
+            app.kubernetes.io/part-of: vending
+            app.kubernetes.io/component: deployment
+            app.kubernetes.io/version: "1.4.2"
+        template: templates/deployment.yaml
+      - equal:
+          path: spec.template.spec.volumes[1].ephemeral.volumeClaimTemplate.metadata.labels
+          value:
+            app.kubernetes.io/name: chart-base
+            app.kubernetes.io/instance: vending
+        template: templates/deployment.yaml
+
+  - it: rejects app.kubernetes.io/name in commonLabels (a chart key) (T7)
+    template: templates/service.yaml
+    set:
+      commonLabels: {app.kubernetes.io/name: x}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'app.kubernetes.io/name'"
+
+  - it: rejects app.kubernetes.io/instance in commonLabels (a chart key) (T7)
+    template: templates/service.yaml
+    set:
+      commonLabels: {app.kubernetes.io/instance: x}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'app.kubernetes.io/instance'"
+
+  - it: rejects app.kubernetes.io/part-of in commonLabels (a chart key) (T7)
+    template: templates/service.yaml
+    set:
+      commonLabels: {app.kubernetes.io/part-of: x}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'app.kubernetes.io/part-of'"
+
+  - it: rejects app.kubernetes.io/component in commonLabels (a chart key) (T7)
+    template: templates/service.yaml
+    set:
+      commonLabels: {app.kubernetes.io/component: x}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'app.kubernetes.io/component'"
+
+  - it: rejects app.kubernetes.io/version in commonLabels (a chart key) (T7)
+    template: templates/service.yaml
+    set:
+      commonLabels: {app.kubernetes.io/version: x}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'app.kubernetes.io/version'"
+
+  - it: rejects app.kubernetes.io/managed-by in commonLabels (a chart key) (T7)
+    template: templates/service.yaml
+    set:
+      commonLabels: {app.kubernetes.io/managed-by: x}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'app.kubernetes.io/managed-by'"
+
+  - it: rejects helm.sh/chart in commonLabels (a chart key) (T7)
+    template: templates/service.yaml
+    set:
+      commonLabels: {helm.sh/chart: x}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'helm.sh/chart'"
+
+  - it: rejects a common label whose value is not a string (true)
+    template: templates/service.yaml
+    set:
+      commonLabels: {critical: true}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/commonLabels/critical': got boolean, want string"

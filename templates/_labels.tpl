@@ -22,17 +22,48 @@ app.kubernetes.io/version: {{ . | quote }}
 {{- end }}
 {{- end -}}
 
-{{/* Object metadata labels. helm.sh/chart hardcodes the chart name: with an alias, .Chart.Name is the alias. */}}
+{{/*
+Object metadata labels: the chart's own keys, then commonLabels. helm.sh/chart hardcodes the chart name: with an alias,
+.Chart.Name is the alias. The metadata.labels of every object, and the ExternalSecret's template.metadata.labels.
+*/}}
 {{- define "chart-base.labels" -}}
-{{ include "chart-base.baseLabels" . }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
-helm.sh/chart: {{ printf "chart-base-%s" .Chart.Version | replace "+" "_" }}
+{{- include "chart-base.labelsWith" (dict "ctx" .) -}}
 {{- end -}}
 
-{{/* Pod template labels: base labels + podLabels. helm.sh/chart is deliberately excluded. */}}
+{{/*
+chart-base.labelsWith: chart-base.labels with a per-object map (metrics.labels, prometheusRule.labels, an extra object's
+metadata.labels) merged over commonLabels: the chart's own keys first, in their order, then one map with sorted keys, in
+which the per-object value wins on a shared key. Neither map can hold a chart key (the schema rejects them).
+Usage: include "chart-base.labelsWith" (dict "ctx" $ "labels" <a map, or nil>) | nindent 4
+*/}}
+{{- define "chart-base.labelsWith" -}}
+{{ include "chart-base.baseLabels" .ctx }}
+app.kubernetes.io/managed-by: {{ .ctx.Release.Service }}
+helm.sh/chart: {{ printf "chart-base-%s" .ctx.Chart.Version | replace "+" "_" }}
+{{- with include "chart-base.overCommon" (dict "own" .labels "common" .ctx.Values.commonLabels) }}
+{{ . }}
+{{- end }}
+{{- end -}}
+
+{{/*
+Pod template labels (the pod templates of the Deployment, the CronJob and the Job, and the CronJob's job template): the
+base labels, then podLabels merged over commonLabels (podLabels wins on a shared key). helm.sh/chart and
+app.kubernetes.io/managed-by are deliberately excluded (ADR-0010): only a values change changes this set.
+*/}}
 {{- define "chart-base.podLabels" -}}
 {{ include "chart-base.baseLabels" . }}
-{{- with .Values.podLabels }}
-{{ toYaml . }}
+{{- with include "chart-base.overCommon" (dict "own" .Values.podLabels "common" .Values.commonLabels) }}
+{{ . }}
 {{- end }}
+{{- end -}}
+
+{{/*
+chart-base.overCommon: a per-object map (own) merged over a common map (common: commonLabels or commonAnnotations), as
+YAML with sorted keys, or nothing when both are empty; nil counts as empty. The per-object value wins on a shared key.
+merge writes into a deep copy, never into .Values (a later template would read the merged map).
+Usage: include "chart-base.overCommon" (dict "own" <a map, or nil> "common" <a map, or nil>)
+*/}}
+{{- define "chart-base.overCommon" -}}
+{{- $merged := merge (deepCopy (.own | default dict)) (.common | default dict) -}}
+{{- with $merged }}{{ toYaml . }}{{ end -}}
 {{- end -}}

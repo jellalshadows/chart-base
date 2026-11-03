@@ -687,6 +687,17 @@ rbac:
   # is written as a `use` rule in `rules`).
   clusterRoles: []
 
+# -- Labels added to every labels map the chart writes for this component: the metadata of every object it renders
+# (`extraObjects` included), the pod templates, the CronJob's job template, an `ephemeral` volume's claim template and
+# the ExternalSecret's `template.metadata.labels` (so the Secret that External Secrets writes carries them too), e.g.
+# `{team: payments, cost-center: cc-42}`. Never a selector: the selectors keep the chart's two selector labels. A
+# per-object map wins on a shared key: `podLabels`, `metrics.labels`, `prometheusRule.labels`, an extra object's
+# `metadata.labels`. Values are strings. The chart's own keys (`app.kubernetes.io/name`, `instance`, `part-of`,
+# `component`, `version`, `managed-by`, `helm.sh/chart`) fail the schema with `invalid propertyName '<key>'`, reported
+# at an unrelated path. A change changes the pod template: it rolls a Deployment's pods, and the next CronJob run and
+# the next Job get it. Per alias (`global` is not read).
+commonLabels: {}
+
 # -- Extra pod annotations.
 podAnnotations: {}
 
