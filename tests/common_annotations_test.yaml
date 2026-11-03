@@ -1,0 +1,515 @@
+suite: commonAnnotations and service.annotations (every object's metadata, never a template's)
+templates:
+  - templates/configmap-env.yaml
+  - templates/configmap-files.yaml
+  - templates/cronjob.yaml
+  - templates/deployment.yaml
+  - templates/externalsecret.yaml
+  - templates/hpa.yaml
+  - templates/httproute.yaml
+  - templates/ingress.yaml
+  - templates/job.yaml
+  - templates/networkpolicy.yaml
+  - templates/pdb.yaml
+  - templates/podmonitor.yaml
+  - templates/prometheusrule.yaml
+  - templates/role.yaml
+  - templates/rolebinding.yaml
+  - templates/scaledobject.yaml
+  - templates/service.yaml
+  - templates/serviceaccount.yaml
+  - templates/servicemonitor.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+values:
+  - values/base.yaml
+tests:
+  - it: puts the common annotations on every object of a deployment that renders every object kind (T8)
+    templates:
+      - templates/configmap-env.yaml
+      - templates/configmap-files.yaml
+      - templates/deployment.yaml
+      - templates/externalsecret.yaml
+      - templates/hpa.yaml
+      - templates/httproute.yaml
+      - templates/ingress.yaml
+      - templates/networkpolicy.yaml
+      - templates/pdb.yaml
+      - templates/prometheusrule.yaml
+      - templates/role.yaml
+      - templates/rolebinding.yaml
+      - templates/service.yaml
+      - templates/serviceaccount.yaml
+      - templates/servicemonitor.yaml
+    values:
+      - ../ci/full-values.yaml
+    set:
+      commonAnnotations: {example.com/owner: platform, example.com/contact: "#team-payments"}
+    asserts:
+      - equal:
+          path: metadata.annotations["example.com/owner"]
+          value: platform
+      - equal:
+          path: metadata.annotations["example.com/contact"]
+          value: "#team-payments"
+
+  - it: keeps the Deployment's Reloader annotations next to the common annotations (T8)
+    template: templates/deployment.yaml
+    values:
+      - ../ci/full-values.yaml
+    set:
+      commonAnnotations: {example.com/owner: platform}
+    asserts:
+      - equal:
+          path: metadata.annotations["secret.reloader.stakater.com/reload"]
+          value: e2e-files,e2e-shared,vending-chart-base-secrets
+      - equal:
+          path: metadata.annotations["configmap.reloader.stakater.com/reload"]
+          value: e2e-rules
+      - equal:
+          path: metadata.annotations["example.com/owner"]
+          value: platform
+
+  - it: puts the common annotations on every object of a cronjob and a worker (T8)
+    templates:
+      - templates/configmap-env.yaml
+      - templates/cronjob.yaml
+      - templates/serviceaccount.yaml
+    values:
+      - ../ci/cronjob-values.yaml
+    set:
+      commonAnnotations: {example.com/owner: platform}
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            example.com/owner: platform
+
+  - it: puts the common annotations on a PodMonitor and a ScaledObject (T8)
+    templates:
+      - templates/podmonitor.yaml
+      - templates/scaledobject.yaml
+    set:
+      commonAnnotations: {example.com/owner: platform}
+      service.enabled: false
+      ports: [{name: metrics, containerPort: 9090}]
+      metrics: {enabled: true, port: metrics}
+      keda:
+        enabled: true
+        triggers:
+          window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 8 * * *", end: "0 18 * * *", desiredReplicas: "2"}}
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            example.com/owner: platform
+
+  - it: keeps the Job's three hook annotations next to the common annotations (T8)
+    template: templates/job.yaml
+    values:
+      - ../ci/job-values.yaml
+    set:
+      commonAnnotations: {example.com/owner: platform}
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            helm.sh/hook: pre-install,pre-upgrade
+            helm.sh/hook-weight: "0"
+            helm.sh/hook-delete-policy: before-hook-creation
+            example.com/owner: platform
+
+  - it: keeps the three hook annotations of every support resource of a job next to the common annotations (T8)
+    templates:
+      - templates/configmap-env.yaml
+      - templates/configmap-files.yaml
+      - templates/externalsecret.yaml
+      - templates/networkpolicy.yaml
+      - templates/role.yaml
+      - templates/rolebinding.yaml
+      - templates/serviceaccount.yaml
+    values:
+      - ../ci/job-values.yaml
+    set:
+      commonAnnotations: {example.com/owner: platform}
+      networkPolicy.enabled: true
+      serviceAccount.automountToken: true
+      rbac:
+        rules: [{apiGroups: [""], resources: [configmaps], verbs: [get]}]
+        clusterRoles: [view]
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            helm.sh/hook: pre-install,pre-upgrade
+            helm.sh/hook-weight: "-10"
+            helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+            example.com/owner: platform
+
+  - it: puts the common annotations alone on a job's PrometheusRule, a regular object, never a hook (T8)
+    templates:
+      - templates/prometheusrule.yaml
+    values:
+      - ../ci/job-values.yaml
+    set:
+      commonAnnotations: {example.com/owner: platform}
+      job.phase: post-deploy
+      prometheusRule:
+        enabled: true
+        groups: [{name: migrations, rules: [{alert: MigrationFailed, expr: "vector(1)"}]}]
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            example.com/owner: platform
+
+  - it: never puts a common annotation on the Deployment's pod template (T9)
+    template: templates/deployment.yaml
+    values:
+      - ../ci/full-values.yaml
+    set:
+      commonAnnotations: {example.com/owner: platform}
+    asserts:
+      - notExists:
+          path: spec.template.metadata.annotations["example.com/owner"]
+      - equal:
+          path: spec.template.metadata.annotations["example.com/team"]
+          value: vending
+
+  - it: never puts a common annotation on the CronJob's job template or pod template, nor on an ephemeral claim template (T9)
+    template: templates/cronjob.yaml
+    values:
+      - ../ci/cronjob-values.yaml
+    set:
+      commonAnnotations: {example.com/owner: platform}
+    asserts:
+      - notExists:
+          path: spec.jobTemplate.metadata.annotations
+      - notExists:
+          path: spec.jobTemplate.spec.template.metadata.annotations
+      - notExists:
+          path: spec.jobTemplate.spec.template.spec.volumes[2].ephemeral.volumeClaimTemplate.metadata.annotations
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.volumes[2].name
+          value: scratch
+
+  - it: never puts a common annotation on the Job's pod template (T9)
+    template: templates/job.yaml
+    values:
+      - ../ci/job-values.yaml
+    set:
+      commonAnnotations: {example.com/owner: platform}
+    asserts:
+      - notExists:
+          path: spec.template.metadata.annotations
+
+  - it: never puts a common annotation in the ExternalSecret's template.metadata, and keeps the common labels there (T5)
+    template: templates/externalsecret.yaml
+    values:
+      - ../ci/full-values.yaml
+    set:
+      commonLabels: {team: payments}
+      commonAnnotations: {example.com/owner: platform}
+    asserts:
+      - notExists:
+          path: spec.target.template.metadata.annotations
+      - equal:
+          path: spec.target.template.metadata.labels.team
+          value: payments
+      - equal:
+          path: metadata.annotations["example.com/owner"]
+          value: platform
+
+  - it: puts the common labels and annotations on an untemplated ExternalSecret's metadata, which External Secrets copies to the Secret (T5)
+    template: templates/externalsecret.yaml
+    set:
+      commonLabels: {team: payments}
+      commonAnnotations: {example.com/owner: platform}
+      externalSecret:
+        enabled: true
+        secretStoreRef: {kind: ClusterSecretStore, name: vault}
+        data: {DB_PASSWORD: {key: db}}
+    asserts:
+      - notExists:
+          path: spec.target.template
+      - equal:
+          path: metadata.labels.team
+          value: payments
+      - equal:
+          path: metadata.annotations
+          value:
+            example.com/owner: platform
+
+  - it: lets ingress.annotations win over a common annotation (T10)
+    template: templates/ingress.yaml
+    set:
+      commonAnnotations: {example.com/owner: platform, nginx.ingress.kubernetes.io/proxy-body-size: 1m}
+      ingress:
+        enabled: true
+        className: nginx
+        hosts: [{host: sales.example.com, paths: [{path: /, pathType: Prefix}]}]
+        annotations: {nginx.ingress.kubernetes.io/proxy-body-size: 8m}
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            example.com/owner: platform
+            nginx.ingress.kubernetes.io/proxy-body-size: 8m
+
+  - it: lets serviceAccount.annotations win over a common annotation (T10)
+    template: templates/serviceaccount.yaml
+    set:
+      commonAnnotations: {example.com/owner: platform, iam.gke.io/gcp-service-account: common@acme.iam.gserviceaccount.com}
+      serviceAccount.annotations: {iam.gke.io/gcp-service-account: sales@acme.iam.gserviceaccount.com}
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            example.com/owner: platform
+            iam.gke.io/gcp-service-account: sales@acme.iam.gserviceaccount.com
+
+  - it: lets service.annotations win over a common annotation (T10)
+    template: templates/service.yaml
+    set:
+      commonAnnotations: {example.com/owner: platform, service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing}
+      service.annotations: {service.beta.kubernetes.io/aws-load-balancer-scheme: internal}
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            example.com/owner: platform
+            service.beta.kubernetes.io/aws-load-balancer-scheme: internal
+
+  - it: lets an empty service.annotations value win over a common annotation (T10)
+    template: templates/service.yaml
+    set:
+      commonAnnotations: {example.com/owner: a}
+      service.annotations: {example.com/owner: ""}
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            example.com/owner: ""
+
+  - it: lets an empty serviceAccount.annotations value win over a common annotation (T10)
+    template: templates/serviceaccount.yaml
+    set:
+      commonAnnotations: {example.com/owner: a}
+      serviceAccount.annotations: {example.com/owner: ""}
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            example.com/owner: ""
+
+  - it: lets a job's hook annotations win over serviceAccount.annotations on its ServiceAccount, next to the common ones (T10)
+    template: templates/serviceaccount.yaml
+    set:
+      workload.type: job
+      ports: []
+      commonAnnotations: {example.com/owner: platform}
+      serviceAccount.annotations: {helm.sh/hook-weight: "5", iam.gke.io/gcp-service-account: sales@acme.iam.gserviceaccount.com}
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            helm.sh/hook: pre-install,pre-upgrade
+            helm.sh/hook-weight: "-10"
+            helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+            iam.gke.io/gcp-service-account: sales@acme.iam.gserviceaccount.com
+            example.com/owner: platform
+
+  - it: renders service.annotations on the Service (T12)
+    template: templates/service.yaml
+    set:
+      service.annotations:
+        service.beta.kubernetes.io/aws-load-balancer-scheme: internal
+        service.beta.kubernetes.io/aws-load-balancer-healthcheck-interval: "10"
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            service.beta.kubernetes.io/aws-load-balancer-scheme: internal
+            service.beta.kubernetes.io/aws-load-balancer-healthcheck-interval: "10"
+
+  - it: renders no annotations key on the Service when service.annotations and commonAnnotations are empty (T12)
+    template: templates/service.yaml
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  - it: renders no Service, and so no service.annotations, for a worker (T12)
+    template: templates/service.yaml
+    set:
+      service.enabled: false
+      service.annotations: {service.beta.kubernetes.io/aws-load-balancer-scheme: internal}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders no annotations without the commonAnnotations and service.annotations keys (the --reuse-values shape of a 0.10.x release) (T22)
+    templates:
+      - templates/service.yaml
+      - templates/pdb.yaml
+      - templates/hpa.yaml
+    set:
+      commonAnnotations: null
+      service.annotations: null
+      autoscaling.enabled: true
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  - it: renders a job's hook annotations alone without the commonAnnotations key (the --reuse-values shape) (T22)
+    template: templates/configmap-env.yaml
+    values:
+      - ../ci/job-values.yaml
+    set:
+      commonAnnotations: null
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            helm.sh/hook: pre-install,pre-upgrade
+            helm.sh/hook-weight: "-10"
+            helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+
+  - it: rejects helm.sh/hook in commonAnnotations (a Helm hook key would turn every object into a hook) (T11)
+    template: templates/service.yaml
+    set:
+      commonAnnotations: {helm.sh/hook: pre-install}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'helm.sh/hook'"
+
+  - it: rejects helm.sh/hook-weight in commonAnnotations (every helm.sh/hook key) (T11)
+    template: templates/service.yaml
+    set:
+      commonAnnotations: {helm.sh/hook-weight: "5"}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'helm.sh/hook-weight'"
+
+  - it: rejects meta.helm.sh/release-name in commonAnnotations (Helm's ownership keys) (T11)
+    template: templates/service.yaml
+    set:
+      commonAnnotations: {meta.helm.sh/release-name: other}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'meta.helm.sh/release-name'"
+
+  - it: rejects checksum/config-env in commonAnnotations (the chart's checksum) (T11)
+    template: templates/service.yaml
+    set:
+      commonAnnotations: {checksum/config-env: x}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'checksum/config-env'"
+
+  - it: rejects checksum/config-files in commonAnnotations (the chart's checksum) (T11)
+    template: templates/service.yaml
+    set:
+      commonAnnotations: {checksum/config-files: x}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'checksum/config-files'"
+
+  - it: rejects secret.reloader.stakater.com/reload in commonAnnotations (a Reloader key the chart computes on the Deployment) (T11)
+    template: templates/service.yaml
+    set:
+      commonAnnotations: {secret.reloader.stakater.com/reload: x}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'secret.reloader.stakater.com/reload'"
+
+  - it: rejects configmap.reloader.stakater.com/reload in commonAnnotations (a Reloader key the chart computes on the Deployment) (T11)
+    template: templates/service.yaml
+    set:
+      commonAnnotations: {configmap.reloader.stakater.com/reload: x}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'configmap.reloader.stakater.com/reload'"
+
+  - it: rejects helm.sh/hook in service.annotations (a Helm hook key) (T11)
+    template: templates/service.yaml
+    set:
+      service.annotations: {helm.sh/hook: pre-install}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'helm.sh/hook'"
+
+  - it: rejects helm.sh/hook-weight in service.annotations (every helm.sh/hook key) (T11)
+    template: templates/service.yaml
+    set:
+      service.annotations: {helm.sh/hook-weight: "5"}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'helm.sh/hook-weight'"
+
+  - it: rejects meta.helm.sh/release-name in service.annotations (Helm's ownership keys) (T11)
+    template: templates/service.yaml
+    set:
+      service.annotations: {meta.helm.sh/release-name: other}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'meta.helm.sh/release-name'"
+
+  - it: rejects checksum/config-env in service.annotations (the chart's checksum) (T11)
+    template: templates/service.yaml
+    set:
+      service.annotations: {checksum/config-env: x}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'checksum/config-env'"
+
+  - it: rejects checksum/config-files in service.annotations (the chart's checksum) (T11)
+    template: templates/service.yaml
+    set:
+      service.annotations: {checksum/config-files: x}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'checksum/config-files'"
+
+  - it: accepts helm.sh/resource-policy and reloader.stakater.com/auto in commonAnnotations (T11)
+    template: templates/service.yaml
+    set:
+      commonAnnotations: {helm.sh/resource-policy: keep, reloader.stakater.com/auto: "true"}
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            helm.sh/resource-policy: keep
+            reloader.stakater.com/auto: "true"
+
+  - it: accepts the two Reloader keys of the Deployment in service.annotations (only commonAnnotations reaches the Deployment) (T11)
+    template: templates/service.yaml
+    set:
+      service.annotations: {secret.reloader.stakater.com/reload: x, configmap.reloader.stakater.com/reload: y}
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            secret.reloader.stakater.com/reload: x
+            configmap.reloader.stakater.com/reload: y
+
+  - it: rejects an unquoted number in service.annotations (a load balancer's numeric setting is quoted)
+    template: templates/service.yaml
+    set:
+      service.annotations: {service.beta.kubernetes.io/aws-load-balancer-healthcheck-interval: 10}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/service/annotations/service.beta.kubernetes.io~1aws-load-balancer-healthcheck-interval': got number, want string"
+
+  - it: rejects a common annotation whose value is not a string (1)
+    template: templates/service.yaml
+    set:
+      commonAnnotations: {example.com/replicas: 1}
+    asserts:
+      - failedTemplate:
+          errorPattern: "got number, want string"

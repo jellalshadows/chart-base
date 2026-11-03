@@ -325,6 +325,12 @@ service:
   enabled: true
   # -- Service type.
   type: ClusterIP
+  # -- Annotations of the Service, e.g. a cloud load balancer's settings
+  # (`service.beta.kubernetes.io/aws-load-balancer-scheme: internal`). Values are strings: quote a number (`"60"`), an
+  # unquoted one fails the schema with `got number, want string`. They win over `commonAnnotations` on a shared key.
+  # `helm.sh/hook*`, `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files` fail the schema. Not rendered
+  # when no Service is (`service.enabled: false`, a `cronjob` or a `job`).
+  annotations: {}
 
 probes:
   # -- Startup probe (Kubernetes probe object). Empty = not rendered. A port given by name must be a `ports` name.
@@ -687,6 +693,30 @@ rbac:
   # is written as a `use` rule in `rules`).
   clusterRoles: []
 
+# -- Labels added to every labels map the chart writes for this component: the metadata of every object it renders
+# (`extraObjects` included), the pod templates, the CronJob's job template, an `ephemeral` volume's claim template and
+# the ExternalSecret's `template.metadata.labels` (so the Secret that External Secrets writes carries them too), e.g.
+# `{team: payments, cost-center: cc-42}`. Never a selector: the selectors keep the chart's two selector labels. A
+# per-object map wins on a shared key: `podLabels`, `metrics.labels`, `prometheusRule.labels`, an extra object's
+# `metadata.labels`. Values are strings. The chart's own keys (`app.kubernetes.io/name`, `instance`, `part-of`,
+# `component`, `version`, `managed-by`, `helm.sh/chart`) fail the schema with `invalid propertyName '<key>'`, reported
+# at an unrelated path. A change changes the pod template: it rolls a Deployment's pods, and the next CronJob run and
+# the next Job get it. Per alias (`global` is not read).
+commonLabels: {}
+
+# -- Annotations added to the metadata of every object the chart renders for this component (`extraObjects` included),
+# e.g. `{example.com/owner: team-payments}`. Never to a template's metadata: not the pod templates (that is
+# `podAnnotations`), the CronJob's job template, an `ephemeral` claim template, or the ExternalSecret's
+# `template.metadata` (External Secrets executes those values as templates). A per-object map wins on a shared key:
+# `ingress.annotations`, `serviceAccount.annotations`, `service.annotations`, an extra object's `metadata.annotations`.
+# Values are strings. The keys Helm or the chart writes fail the schema (`invalid propertyName '<key>'`, reported at an
+# unrelated path): `helm.sh/hook*`, `meta.helm.sh/*`, `checksum/config-env`, `checksum/config-files`,
+# `secret.reloader.stakater.com/reload` and `configmap.reloader.stakater.com/reload` (other Reloader keys, such as
+# `reloader.stakater.com/auto`, are allowed). `helm.sh/resource-policy: keep` keeps the regular objects on uninstall,
+# never a `job` component's hooks (Helm deletes a hook without reading it). A change rolls nothing. Per alias (`global`
+# is not read).
+commonAnnotations: {}
+
 # -- Extra pod annotations.
 podAnnotations: {}
 
@@ -740,3 +770,28 @@ hostAliases: []
 # which an app that reads `REDIS_PORT` without the component setting it gets instead of a port. `KUBERNETES_SERVICE_HOST`/`_PORT`
 # are injected either way. Set `true` to restore Kubernetes' behavior.
 enableServiceLinks: false
+
+# -- (object) Objects the chart does not offer, rendered by the chart for this component: a map keyed by the object's
+# key, a lowercase DNS-1123 label, each `{apiVersion, kind, metadata: {labels, annotations}, <every other top-level
+# field as written>}`, e.g. `{settings: {apiVersion: v1, kind: ConfigMap, data: {mode: fast}}}`. The chart names the
+# object `<fullname>.<key>` (`vending-api.settings`) and installs it in the release namespace: `metadata` takes
+# `labels` and `annotations` only (the object's own win over `commonLabels` and `commonAnnotations`, and the chart's
+# labels are added). Quote a key that YAML 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`, `off`, lowercase,
+# capitalized or uppercase): unquoted it is renamed to `true` or `false` (`vending-api.true`), and two such keys collide
+# silently. A `null` entry is absent, and so is a `null` field at any depth through maps (a list is kept as
+# written). Values are rendered as written, never as templates (`{{ }}` reaches the cluster as written). The first
+# mistakes fail the schema: a list (`got array, want null or object`: write a map keyed by the object's key), a
+# `metadata.name` (`additional properties 'name' not allowed`: the chart names it). Nothing below `apiVersion`, `kind`
+# and `metadata` is checked, and an extra object gets none of what the chart gives its own objects: no Reloader entry
+# unless the component references it, no checksum, no validation of its content (the chart's secret path stays
+# `externalSecret`). Rejected by the render, with a remedy: the built-in workloads, `Service`, `Endpoints`,
+# `EndpointSlice`, `Secret`, `List`, a kind ending in `List` and any object with a top-level `items` field, a
+# `RoleBinding` keyed like an entry of `rbac.clusterRoles`, and the cluster-scoped built-in kinds. Not detected: a
+# cluster-scoped custom kind, a custom workload kind, and an extra autoscaler on the component's Deployment, which
+# fights the chart (with `autoscaling` and `keda` off the chart renders `spec.replicas`): use `autoscaling` or `keda`.
+# A controller that copies the name into a label value or a DNS label may refuse its `.` or its length (up to 127
+# characters) at reconcile, not at install. On a `job` component every extra object is a hook of the Job's phase. A
+# kind the cluster does not serve fails the release; kubeconform needs a schema location for a custom kind. `apiVersion`
+# and `kind` are required: an `-f` `extraObjects.<key>.kind: null` fails `helm template` (`got null, want string`) but
+# passes `helm lint` of an umbrella.
+extraObjects: {}

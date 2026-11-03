@@ -88,14 +88,16 @@ Everything at the top level of the repository, and why it is there:
 The object templates are one file per kind (`deployment.yaml`, `cronjob.yaml`, `job.yaml`,
 `service.yaml`, `serviceaccount.yaml`, `configmap-env.yaml`, `configmap-files.yaml`,
 `externalsecret.yaml`, `httproute.yaml`, `ingress.yaml`, `hpa.yaml`, `scaledobject.yaml`, `pdb.yaml`, `servicemonitor.yaml`,
-`podmonitor.yaml`, `prometheusrule.yaml`, `networkpolicy.yaml`, `role.yaml`, `rolebinding.yaml`). The helpers are
+`podmonitor.yaml`, `prometheusrule.yaml`, `networkpolicy.yaml`, `role.yaml`, `rolebinding.yaml`), and
+`extraobjects.yaml` renders the objects of `extraObjects`, one document per entry. The helpers are
 split by
 responsibility so that each one can be developed and tested on its own:
 
 | File | Responsibility |
 |---|---|
 | `_names.tpl` | The component name (the alias), `<release>-<component>` and the `fail` helper that prefixes errors with the component. |
-| `_labels.tpl` | Selector labels (frozen from 1.0.0), the labels shared by pods and objects, and `helm.sh/chart`. |
+| `_labels.tpl` | Selector labels (frozen from 1.0.0), the labels shared by pods and objects, and `helm.sh/chart`; the metadata helpers of 0.11.0: `chart-base.labelsWith` (the chart's labels, then a per-object map merged over `commonLabels`), `chart-base.podLabels` (`podLabels` over `commonLabels`, never `helm.sh/chart`), `chart-base.overCommon` (the one merge: each per-object key set over a deep copy of the common map, so a per-object value wins, `""` included) and `chart-base.annotations` (the chart's own annotations as text, then a per-object map merged over `commonAnnotations`; every object's metadata, never a template's) ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)). |
+| `_extraobjects.tpl` | `chart-base.extraObjects` (the one accessor of `extraObjects`: the non-null entries without their null fields at any depth through maps) and `chart-base.rejectedKinds` (the table of the kinds an extra object cannot be: group/kind to reason) ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)). |
 | `_pod.tpl` | The image reference (an image map), the pods' ServiceAccount name (the chart's, an existing one, or `default`), the renderers of every container's `env` (`chart-base.env`, which translates `externalSecretKeyRef` into a `secretKeyRef` on `<fullname>-secrets`, [ADR-0054](../adr/0054-env-externalsecretkeyref-references-the-components-own-secret.md)) and of the main container's `envFrom` (`chart-base.envFrom`), and the pod spec shared by Deployment, CronJob and Job. |
 | `_containers.tpl` | Init containers and sidecars: `chart-base.containers` (the one accessor: the non-null entries without their null fields, in start order, each with its merged security context), `chart-base.hardenedSecurityContext` (the default every entry starts from), `chart-base.entryContainer` (one container) and `chart-base.hasSidecars` (the predicate of the batch guard and the HPA) ([ADR-0051](../adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)). |
 | `_externalsecret.tpl` | The ExternalSecret: `chart-base.externalSecret` (the one accessor: the pruned `data` and `template.data`, `dataFrom`, and the definitions every template and guard reads: templated, the delivered keys, a closed key set, injected, mounted, the volume) and `chart-base.notDelivered` (the message for a key the Secret does not have) ([ADR-0053](../adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md)). |
@@ -115,6 +117,12 @@ cannot express: the alias and resource-name format and length, the Kubernetes 1.
 span several keys. It is the reason a bad name or a bad combination of values stops the release at
 render time ([ADR-0008](../adr/0008-names-are-release-alias-and-never-truncated.md),
 [ADR-0018](../adr/0018-kubernetes-version-floor.md)).
+
+The cluster rows of `chart-base.rejectedKinds` are mechanical: every type marked `+genclient:nonNamespaced` in
+`k8s.io/api` at the floor's version or later (0.11.0: v0.35.3) and at the newest version the e2e runs (v0.37.0), plus
+`CustomResourceDefinition` and `APIService` (their own modules). Regenerate them at each bump of the floor or of the
+newest version, check them against `kubectl api-resources --namespaced=false` of an API server of each version, and
+give each new row its test in `tests/extraobjects_guards_test.yaml`.
 
 Named templates in Helm are global across all charts of a release. Only the values are chart-base's public
 contract: do not `include` a helper of chart-base from another chart.

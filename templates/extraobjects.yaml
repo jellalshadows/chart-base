@@ -1,0 +1,28 @@
+{{- /*
+The extra objects (extraObjects): one document per entry of chart-base.extraObjects (the non-null entries, pruned of
+their null fields), in key order. Named <fullname>.<key> (a <fullname> never contains a ".", so two aliases never share
+a name, and the chart's own objects have no "." but its RoleBindings to a ClusterRole), installed in the release
+namespace (no metadata.namespace); labels: the chart's own, then the object's own merged over commonLabels; annotations:
+on a job component the hook annotations of the Job's phase first (the Job's support resources' own: the object exists,
+with the new content, before the Job runs, and is deleted once the phase succeeds), then the object's own merged over
+commonAnnotations. Every other top-level field is rendered as written, never as a template. The guards are in
+templates/validate.yaml.
+*/}}
+{{- $objects := dict }}
+{{- include "chart-base.extraObjects" (dict "ctx" . "out" $objects) }}
+{{- range $key, $o := $objects }}
+---
+apiVersion: {{ $o.apiVersion | quote }}
+kind: {{ $o.kind | quote }}
+metadata:
+  name: {{ printf "%s.%s" (include "chart-base.fullname" $) $key | quote }}
+  labels:
+    {{- include "chart-base.labelsWith" (dict "ctx" $ "labels" ($o.metadata | default dict).labels) | nindent 4 }}
+  {{- with include "chart-base.annotations" (dict "ctx" $ "own" (include "chart-base.supportHookAnnotations" $) "object" ($o.metadata | default dict).annotations) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+{{- with omit $o "apiVersion" "kind" "metadata" }}
+{{ toYaml . }}
+{{- end }}
+{{- end }}

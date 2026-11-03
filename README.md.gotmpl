@@ -720,6 +720,38 @@ main container's (source reading of the kubelet and of metrics-server 0.9.0; the
 running component from the HPA to KEDA: the
 [upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md#switching-to-keda).
 
+### Team labels, an internal load balancer and an object the chart does not render
+
+The team's labels on every object, pod and claim of the component, an owner annotation on every object, the Service's
+own annotations for a cloud load balancer, and a ConfigMap the chart does not offer, named `<release>-<alias>.<key>`
+and mounted by the component (by its full name, which ties these values to the release name `vending`)
+([ADR-0057](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)):
+
+```yaml
+payments:
+  image: {repository: ghcr.io/acme/payments, tag: "2.3.0"}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+  commonLabels: {team: payments, cost-center: cc-42}   # changing them rolls the pods
+  commonAnnotations: {example.com/owner: team-payments}   # every object's metadata, never a pod's
+  service:
+    type: LoadBalancer
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-scheme: internal
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-interval: "10"   # quoted: annotation values are strings
+  extraObjects:
+    settings:                                   # the ConfigMap vending-payments.settings
+      apiVersion: v1
+      kind: ConfigMap
+      data: {region: eu-west-1, currency: EUR}
+  volumes:
+    settings: {type: configMap, mountPath: /etc/payments, name: vending-payments.settings}
+```
+
+An extra object is rendered as written below `apiVersion`, `kind` and `metadata` (which takes `labels` and
+`annotations` only); a workload, a `Service`, a `Secret` (use `externalSecret`), a list or a cluster-scoped built-in
+kind fails the render with what to write instead.
+
 ### CronJob
 
 ```yaml
@@ -794,8 +826,8 @@ code, official docs) and local renders.
    [ADR-0006](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0006-checksum-for-config-reloader-for-secrets.md)
 7. **`workload.type: job` is a Helm hook (`job.phase`).** A Job pod template is immutable, so a plain
    Job fails on the second deploy with `field is immutable`. Its ServiceAccount, ConfigMaps,
-   ExternalSecret, NetworkPolicy (decision 41), Role and RoleBindings (decision 43) are hooks too (weight `-10`) so
-   they exist, with the new content, before the Job.
+   ExternalSecret, NetworkPolicy (decision 41), Role and RoleBindings (decision 43) and its extra objects (decision 57)
+   are hooks too (weight `-10`) so they exist, with the new content, before the Job.
    *Rejected:* a plain Job; a Job named after the release revision (no ordering, not blocking).
    [ADR-0007](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0007-jobs-as-helm-hooks.md)
 8. **Names are always `<release>-<alias>`, and too-long names fail.** Uniqueness is guaranteed; names
@@ -806,7 +838,8 @@ code, official docs) and local renders.
    that neither `helm lint` nor `helm template` detect. The alias is the identity.
    *Rejected:* keeping them.
    [ADR-0009](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0009-no-name-overrides.md)
-10. **Bumping `chart-base` never restarts pods by itself.** `helm.sh/chart` is never a pod label, and the
+10. **Bumping `chart-base` never restarts pods by itself.** `helm.sh/chart` is never a pod label (the pod labels
+    change only with the values: `podLabels`, `commonLabels`, decision 57), and the
     config checksums hash only the ConfigMaps' `data` (their metadata carries `helm.sh/chart`). Otherwise
     every chart release would restart every pod of the domain without any real change. A breaking release
     that changes the pod template on purpose restarts the pods once and says so in the upgrade guide
@@ -1041,7 +1074,8 @@ code, official docs) and local renders.
     its mount. In this map a `null` entry or field is absent, so an overlay changes a volume's type by setting the
     previous type's fields to `null`. The schema closes the list of fields and a guard rejects a field of another type;
     mount paths are compared normalized with every other mount of the container; ConfigMap and Secret mounts are
-    read-only; the ephemeral claim template carries only the selector labels; the mounted ConfigMaps and Secrets feed
+    read-only; the ephemeral claim template carries only the selector labels and `commonLabels` (decision 57); the
+    mounted ConfigMaps and Secrets feed
     the Reloader annotations. *Rejected:* a list (an overlay replaces it whole), a schema `oneOf` per type (it blocks
     the type change), the name in `propertyNames` (its error names another path).
     [ADR-0049](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)
@@ -1079,7 +1113,8 @@ code, official docs) and local renders.
     one ExternalSecret and one Secret per component. `dataFrom` is External Secrets' own list, limited to `extract` and
     `rewrite` and closed at every level (its order is the precedence; `data` wins over it); `template.data` builds keys
     from the others, with `mergePolicy` `Merge` by default (External Secrets' `Replace` would drop every other key) and
-    the chart's labels on the Secret; `mountPath`, `items` and `defaultMode` mount the Secret read-only as the volume
+    the chart's labels and `commonLabels` (decision 57) on the Secret; `mountPath`, `items` and `defaultMode` mount the
+    Secret read-only as the volume
     `external-secret`, which an init container or a sidecar can mount too; `envFrom: false` stops injecting the Secret
     whole. In `data` and `template.data` a `null` entry is absent (and a `null` optional field of a `data` entry);
     `dataFrom` is a list, where a `null` is a schema error. While the Secret is injected its keys must be variable names
@@ -1117,6 +1152,19 @@ code, official docs) and local renders.
     `triggers` as KEDA's list, KEDA's `minReplicaCount` default, an annotation on every HPA, a chart-rendered
     TriggerAuthentication.
     [ADR-0056](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)
+57. **Common labels and annotations, Service annotations and `extraObjects`.** `commonLabels` join every labels map the
+    chart writes (every object's metadata, the pod templates, the CronJob's job template, an `ephemeral` claim template,
+    the ExternalSecret's `template.metadata.labels`), never a selector, so changing them rolls a Deployment's pods;
+    `commonAnnotations` join every object's metadata, never a template's. A per-object map wins on a shared key, and the
+    keys the chart or Helm writes fail the schema. `service.annotations` annotate the Service. `extraObjects` renders
+    objects the chart does not offer, a map keyed by the object's key: named `<fullname>.<key>`, in the release
+    namespace, `metadata` closed to `labels` and `annotations`, a `null` entry or field absent at any depth through
+    maps, values rendered as written and nothing else checked; the built-in workloads, `Service`, `Endpoints`,
+    `EndpointSlice`, `Secret`, lists, a RoleBinding named like the chart's and the cluster-scoped built-in kinds fail
+    the render, each with a remedy; on a `job` component every extra object is a hook of the Job's phase. It amends
+    decisions 7, 10, 41, 49 and 53. *Rejected:* common annotations on pods, the reserved keys as guards, a list, a
+    consumer-written name, another separator, `tpl`, an allowlist of kinds.
+    [ADR-0057](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)
 
 ## Versioning and releases
 
@@ -1184,6 +1232,10 @@ cosign verify ghcr.io/jellalshadows/charts/chart-base:X.Y.Z \
   [upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md#09x--0100).
 - **Turning on `autoscaling` or `keda` for a running component** removes `spec.replicas`: Kubernetes scales it to 1
   once, then the autoscaler scales it.
+- **`extraObjects`** are named `<release>-<alias>.<key>` and installed in the release namespace; a custom kind needs
+  its CRD in the cluster (or the whole release fails) and a kubeconform schema location; nothing below `apiVersion`,
+  `kind` and `metadata` is checked, so an extra autoscaler or PodDisruptionBudget of the component's own pods fights the
+  chart: use `autoscaling`, `keda` and `pdb`. Changing `commonLabels` rolls a Deployment's pods.
 - **Quote image tags** (`tag: "1.10"`): the schema only accepts strings, so an unquoted `1.10` fails
   instead of silently becoming `1.1`.
 

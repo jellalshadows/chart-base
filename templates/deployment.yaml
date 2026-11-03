@@ -6,7 +6,7 @@ metadata:
   name: {{ $fullname }}
   labels:
     {{- include "chart-base.labels" . | nindent 4 }}
-  {{- with include "chart-base.reloaderAnnotations" . | trim }}
+  {{- with include "chart-base.annotations" (dict "ctx" . "own" (include "chart-base.reloaderAnnotations" . | trim)) }}
   annotations:
     {{- . | nindent 4 }}
   {{- end }}

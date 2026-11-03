@@ -1,6 +1,6 @@
 # ADR-0053: The ExternalSecret takes `dataFrom`, a curated template and a file mount, and its injection is a switch
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0057](0057-common-labels-and-annotations-service-annotations-and-extraobjects.md) (0.11.0)
 - **Date:** 2026-10-09
 - **Since:** 0.9.0
 - **Related:** [ADR-0004](0004-env-in-configmap-secrets-through-externalsecret.md) (amended), [ADR-0027](0027-required-keys-in-the-schema.md),

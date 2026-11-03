@@ -5,6 +5,7 @@ templates:
   - templates/cronjob.yaml
   - templates/deployment.yaml
   - templates/externalsecret.yaml
+  - templates/extraobjects.yaml
   - templates/hpa.yaml
   - templates/httproute.yaml
   - templates/ingress.yaml

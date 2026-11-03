@@ -20,8 +20,9 @@ Usage: {{- $volumes := dict }}{{- include "chart-base.volumes" (dict "ctx" $ "ou
 {{/*
 chart-base.volumeSource: the source of one volume (an entry of chart-base.volumes), each field rendered by name and every
 string quoted: the lines that follow `- name:` in a pod's volumes. The claim template of an ephemeral volume is labelled
-with chart-base.selectorLabels only: the template is part of the pod template, so this label set is a contract (another
-label would roll every such pod on a chart bump).
+with chart-base.selectorLabels and commonLabels, never with chart-base.labels: the template is part of the pod template,
+so this label set is a contract (helm.sh/chart would roll every such pod on a chart bump; commonLabels change only with
+the values).
 Usage: include "chart-base.volumeSource" (dict "ctx" $ "volume" $entry) | nindent 4
 */}}
 {{- define "chart-base.volumeSource" -}}
@@ -74,6 +75,9 @@ ephemeral:
     metadata:
       labels:
         {{- include "chart-base.selectorLabels" .ctx | nindent 8 }}
+        {{- with .ctx.Values.commonLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
       accessModes:
         - {{ $v.accessMode | default "ReadWriteOnce" | quote }}

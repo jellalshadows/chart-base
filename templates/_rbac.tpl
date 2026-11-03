@@ -14,7 +14,7 @@ metadata:
   name: {{ index . 1 | quote }}
   labels:
     {{- include "chart-base.labels" $ | nindent 4 }}
-  {{- with include "chart-base.supportHookAnnotations" $ }}
+  {{- with include "chart-base.annotations" (dict "ctx" $ "own" (include "chart-base.supportHookAnnotations" $)) }}
   annotations:
     {{- . | nindent 4 }}
   {{- end }}

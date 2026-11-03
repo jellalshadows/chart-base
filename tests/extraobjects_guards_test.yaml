@@ -1,0 +1,665 @@
+suite: extraObjects guards (the key, and the kinds an extra object cannot be)
+templates:
+  - templates/validate.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+values:
+  - values/base.yaml
+tests:
+  - it: rejects the key Bad (a key is a DNS-1123 label of at most 63 characters) (T15)
+    set:
+      extraObjects:
+        Bad: {apiVersion: v1, kind: ConfigMap}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.Bad: a key is a lowercase DNS-1123 label \(a-z, 0-9, "-", at most 63 characters; the object is named vending-chart-base\.<key>\): add the entry under such a key and set extraObjects\.Bad: null'
+
+  - it: rejects the key a.b (a key is a DNS-1123 label of at most 63 characters) (T15)
+    set:
+      extraObjects:
+        a.b: {apiVersion: v1, kind: ConfigMap}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.a\.b: a key is a lowercase DNS-1123 label \(a-z, 0-9, "-", at most 63 characters; the object is named vending-chart-base\.<key>\): add the entry under such a key and set extraObjects\.a\.b: null'
+
+  - it: rejects the key under_score (a key is a DNS-1123 label of at most 63 characters) (T15)
+    set:
+      extraObjects:
+        under_score: {apiVersion: v1, kind: ConfigMap}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.under_score: a key is a lowercase DNS-1123 label \(a-z, 0-9, "-", at most 63 characters; the object is named vending-chart-base\.<key>\): add the entry under such a key and set extraObjects\.under_score: null'
+
+  - it: rejects the key of 64 characters (a key is a DNS-1123 label of at most 63 characters) (T15)
+    set:
+      extraObjects:
+        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: {apiVersion: v1, kind: ConfigMap}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: a key is a lowercase DNS-1123 label \(a-z, 0-9, "-", at most 63 characters; the object is named vending-chart-base\.<key>\): add the entry under such a key and set extraObjects\.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: null'
+
+  - it: accepts a key of 63 characters and a key with a digit first and a dash (T15)
+    set:
+      extraObjects:
+        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: {apiVersion: v1, kind: ConfigMap}
+        0-settings: {apiVersion: v1, kind: ConfigMap}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the key guard's remedy, the entry under a valid key and the bad key null (T15)
+    set:
+      extraObjects:
+        Bad: null
+        bad: {apiVersion: v1, kind: ConfigMap}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects Pod (workload) (T17)
+    set:
+      extraObjects:
+        pod: {apiVersion: v1, kind: Pod}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.pod \(v1 Pod, named vending-chart-base\.pod\) is a built-in workload, and chart-base renders one workload per alias: render it as another alias of chart-base, or in the umbrella''s own templates, then set extraObjects\.pod: null'
+
+  - it: rejects ReplicationController (workload) (T17)
+    set:
+      extraObjects:
+        replicationcontroller: {apiVersion: v1, kind: ReplicationController}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.replicationcontroller \(v1 ReplicationController, named vending-chart-base\.replicationcontroller\) is a built-in workload, and chart-base renders one workload per alias: render it as another alias of chart-base, or in the umbrella''s own templates, then set extraObjects\.replicationcontroller: null'
+
+  - it: rejects apps/Deployment (workload) (T17)
+    set:
+      extraObjects:
+        deployment: {apiVersion: apps/v1, kind: Deployment}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.deployment \(apps/v1 Deployment, named vending-chart-base\.deployment\) is a built-in workload, and chart-base renders one workload per alias: render it as another alias of chart-base, or in the umbrella''s own templates, then set extraObjects\.deployment: null'
+
+  - it: rejects apps/ReplicaSet (workload) (T17)
+    set:
+      extraObjects:
+        replicaset: {apiVersion: apps/v1, kind: ReplicaSet}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.replicaset \(apps/v1 ReplicaSet, named vending-chart-base\.replicaset\) is a built-in workload, and chart-base renders one workload per alias: render it as another alias of chart-base, or in the umbrella''s own templates, then set extraObjects\.replicaset: null'
+
+  - it: rejects apps/StatefulSet (workload) (T17)
+    set:
+      extraObjects:
+        statefulset: {apiVersion: apps/v1, kind: StatefulSet}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.statefulset \(apps/v1 StatefulSet, named vending-chart-base\.statefulset\) is a built-in workload, and chart-base renders one workload per alias: render it as another alias of chart-base, or in the umbrella''s own templates, then set extraObjects\.statefulset: null'
+
+  - it: rejects apps/DaemonSet (workload) (T17)
+    set:
+      extraObjects:
+        daemonset: {apiVersion: apps/v1, kind: DaemonSet}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.daemonset \(apps/v1 DaemonSet, named vending-chart-base\.daemonset\) is a built-in workload, and chart-base renders one workload per alias: render it as another alias of chart-base, or in the umbrella''s own templates, then set extraObjects\.daemonset: null'
+
+  - it: rejects batch/Job (workload) (T17)
+    set:
+      extraObjects:
+        job: {apiVersion: batch/v1, kind: Job}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.job \(batch/v1 Job, named vending-chart-base\.job\) is a built-in workload, and chart-base renders one workload per alias: render it as another alias of chart-base, or in the umbrella''s own templates, then set extraObjects\.job: null'
+
+  - it: rejects batch/CronJob (workload) (T17)
+    set:
+      extraObjects:
+        cronjob: {apiVersion: batch/v1, kind: CronJob}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.cronjob \(batch/v1 CronJob, named vending-chart-base\.cronjob\) is a built-in workload, and chart-base renders one workload per alias: render it as another alias of chart-base, or in the umbrella''s own templates, then set extraObjects\.cronjob: null'
+
+  - it: rejects Service (service) (T17)
+    set:
+      extraObjects:
+        service: {apiVersion: v1, kind: Service}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.service \(v1 Service, named vending-chart-base\.service\) is a Service: chart-base renders one Service per alias, and a Service''s name is a DNS-1035 label, which vending-chart-base\.service is not: render it as another alias of chart-base \(a deployment component\), or in the umbrella''s own templates, then set extraObjects\.service: null'
+
+  - it: rejects Endpoints (endpoints) (T17)
+    set:
+      extraObjects:
+        endpoints: {apiVersion: v1, kind: Endpoints}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.endpoints \(v1 Endpoints, named vending-chart-base\.endpoints\) wires a Service''s backends by hand, which chart-base does not render: render it in the umbrella''s own templates, then set extraObjects\.endpoints: null'
+
+  - it: rejects discovery.k8s.io/EndpointSlice (endpoints) (T17)
+    set:
+      extraObjects:
+        endpointslice: {apiVersion: discovery.k8s.io/v1, kind: EndpointSlice}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.endpointslice \(discovery\.k8s\.io/v1 EndpointSlice, named vending-chart-base\.endpointslice\) wires a Service''s backends by hand, which chart-base does not render: render it in the umbrella''s own templates, then set extraObjects\.endpointslice: null'
+
+  - it: rejects Secret (secret) (T17)
+    set:
+      extraObjects:
+        secret: {apiVersion: v1, kind: Secret}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.secret \(v1 Secret, named vending-chart-base\.secret\) is a Secret, whose data would sit in the values in plain text \(ADR-0004\): deliver it with externalSecret, or as an extra ExternalSecret \(external-secrets\.io/v1\), then set extraObjects\.secret: null'
+
+  - it: rejects ComponentStatus (cluster) (T17)
+    set:
+      extraObjects:
+        componentstatus: {apiVersion: v1, kind: ComponentStatus}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.componentstatus \(v1 ComponentStatus, named vending-chart-base\.componentstatus\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.componentstatus: null'
+
+  - it: rejects Namespace (cluster) (T17)
+    set:
+      extraObjects:
+        namespace: {apiVersion: v1, kind: Namespace}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.namespace \(v1 Namespace, named vending-chart-base\.namespace\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.namespace: null'
+
+  - it: rejects Node (cluster) (T17)
+    set:
+      extraObjects:
+        node: {apiVersion: v1, kind: Node}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.node \(v1 Node, named vending-chart-base\.node\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.node: null'
+
+  - it: rejects PersistentVolume (cluster) (T17)
+    set:
+      extraObjects:
+        persistentvolume: {apiVersion: v1, kind: PersistentVolume}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.persistentvolume \(v1 PersistentVolume, named vending-chart-base\.persistentvolume\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.persistentvolume: null'
+
+  - it: rejects admissionregistration.k8s.io/MutatingAdmissionPolicy (cluster) (T17)
+    set:
+      extraObjects:
+        mutatingadmissionpolicy: {apiVersion: admissionregistration.k8s.io/v1, kind: MutatingAdmissionPolicy}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.mutatingadmissionpolicy \(admissionregistration\.k8s\.io/v1 MutatingAdmissionPolicy, named vending-chart-base\.mutatingadmissionpolicy\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.mutatingadmissionpolicy: null'
+
+  - it: rejects admissionregistration.k8s.io/MutatingAdmissionPolicyBinding (cluster) (T17)
+    set:
+      extraObjects:
+        mutatingadmissionpolicybinding: {apiVersion: admissionregistration.k8s.io/v1, kind: MutatingAdmissionPolicyBinding}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.mutatingadmissionpolicybinding \(admissionregistration\.k8s\.io/v1 MutatingAdmissionPolicyBinding, named vending-chart-base\.mutatingadmissionpolicybinding\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.mutatingadmissionpolicybinding: null'
+
+  - it: rejects admissionregistration.k8s.io/MutatingWebhookConfiguration (cluster) (T17)
+    set:
+      extraObjects:
+        mutatingwebhookconfiguration: {apiVersion: admissionregistration.k8s.io/v1, kind: MutatingWebhookConfiguration}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.mutatingwebhookconfiguration \(admissionregistration\.k8s\.io/v1 MutatingWebhookConfiguration, named vending-chart-base\.mutatingwebhookconfiguration\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.mutatingwebhookconfiguration: null'
+
+  - it: rejects admissionregistration.k8s.io/ValidatingAdmissionPolicy (cluster) (T17)
+    set:
+      extraObjects:
+        validatingadmissionpolicy: {apiVersion: admissionregistration.k8s.io/v1, kind: ValidatingAdmissionPolicy}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.validatingadmissionpolicy \(admissionregistration\.k8s\.io/v1 ValidatingAdmissionPolicy, named vending-chart-base\.validatingadmissionpolicy\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.validatingadmissionpolicy: null'
+
+  - it: rejects admissionregistration.k8s.io/ValidatingAdmissionPolicyBinding (cluster) (T17)
+    set:
+      extraObjects:
+        validatingadmissionpolicybinding: {apiVersion: admissionregistration.k8s.io/v1, kind: ValidatingAdmissionPolicyBinding}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.validatingadmissionpolicybinding \(admissionregistration\.k8s\.io/v1 ValidatingAdmissionPolicyBinding, named vending-chart-base\.validatingadmissionpolicybinding\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.validatingadmissionpolicybinding: null'
+
+  - it: rejects admissionregistration.k8s.io/ValidatingWebhookConfiguration (cluster) (T17)
+    set:
+      extraObjects:
+        validatingwebhookconfiguration: {apiVersion: admissionregistration.k8s.io/v1, kind: ValidatingWebhookConfiguration}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.validatingwebhookconfiguration \(admissionregistration\.k8s\.io/v1 ValidatingWebhookConfiguration, named vending-chart-base\.validatingwebhookconfiguration\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.validatingwebhookconfiguration: null'
+
+  - it: rejects apiextensions.k8s.io/CustomResourceDefinition (cluster) (T17)
+    set:
+      extraObjects:
+        customresourcedefinition: {apiVersion: apiextensions.k8s.io/v1, kind: CustomResourceDefinition}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.customresourcedefinition \(apiextensions\.k8s\.io/v1 CustomResourceDefinition, named vending-chart-base\.customresourcedefinition\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.customresourcedefinition: null'
+
+  - it: rejects apiregistration.k8s.io/APIService (cluster) (T17)
+    set:
+      extraObjects:
+        apiservice: {apiVersion: apiregistration.k8s.io/v1, kind: APIService}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.apiservice \(apiregistration\.k8s\.io/v1 APIService, named vending-chart-base\.apiservice\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.apiservice: null'
+
+  - it: rejects authentication.k8s.io/SelfSubjectReview (cluster) (T17)
+    set:
+      extraObjects:
+        selfsubjectreview: {apiVersion: authentication.k8s.io/v1, kind: SelfSubjectReview}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.selfsubjectreview \(authentication\.k8s\.io/v1 SelfSubjectReview, named vending-chart-base\.selfsubjectreview\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.selfsubjectreview: null'
+
+  - it: rejects authentication.k8s.io/TokenReview (cluster) (T17)
+    set:
+      extraObjects:
+        tokenreview: {apiVersion: authentication.k8s.io/v1, kind: TokenReview}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.tokenreview \(authentication\.k8s\.io/v1 TokenReview, named vending-chart-base\.tokenreview\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.tokenreview: null'
+
+  - it: rejects authorization.k8s.io/SelfSubjectAccessReview (cluster) (T17)
+    set:
+      extraObjects:
+        selfsubjectaccessreview: {apiVersion: authorization.k8s.io/v1, kind: SelfSubjectAccessReview}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.selfsubjectaccessreview \(authorization\.k8s\.io/v1 SelfSubjectAccessReview, named vending-chart-base\.selfsubjectaccessreview\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.selfsubjectaccessreview: null'
+
+  - it: rejects authorization.k8s.io/SelfSubjectRulesReview (cluster) (T17)
+    set:
+      extraObjects:
+        selfsubjectrulesreview: {apiVersion: authorization.k8s.io/v1, kind: SelfSubjectRulesReview}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.selfsubjectrulesreview \(authorization\.k8s\.io/v1 SelfSubjectRulesReview, named vending-chart-base\.selfsubjectrulesreview\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.selfsubjectrulesreview: null'
+
+  - it: rejects authorization.k8s.io/SubjectAccessReview (cluster) (T17)
+    set:
+      extraObjects:
+        subjectaccessreview: {apiVersion: authorization.k8s.io/v1, kind: SubjectAccessReview}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.subjectaccessreview \(authorization\.k8s\.io/v1 SubjectAccessReview, named vending-chart-base\.subjectaccessreview\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.subjectaccessreview: null'
+
+  - it: rejects certificates.k8s.io/CertificateSigningRequest (cluster) (T17)
+    set:
+      extraObjects:
+        certificatesigningrequest: {apiVersion: certificates.k8s.io/v1, kind: CertificateSigningRequest}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.certificatesigningrequest \(certificates\.k8s\.io/v1 CertificateSigningRequest, named vending-chart-base\.certificatesigningrequest\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.certificatesigningrequest: null'
+
+  - it: rejects certificates.k8s.io/ClusterTrustBundle (cluster) (T17)
+    set:
+      extraObjects:
+        clustertrustbundle: {apiVersion: certificates.k8s.io/v1, kind: ClusterTrustBundle}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.clustertrustbundle \(certificates\.k8s\.io/v1 ClusterTrustBundle, named vending-chart-base\.clustertrustbundle\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.clustertrustbundle: null'
+
+  - it: rejects flowcontrol.apiserver.k8s.io/FlowSchema (cluster) (T17)
+    set:
+      extraObjects:
+        flowschema: {apiVersion: flowcontrol.apiserver.k8s.io/v1, kind: FlowSchema}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.flowschema \(flowcontrol\.apiserver\.k8s\.io/v1 FlowSchema, named vending-chart-base\.flowschema\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.flowschema: null'
+
+  - it: rejects flowcontrol.apiserver.k8s.io/PriorityLevelConfiguration (cluster) (T17)
+    set:
+      extraObjects:
+        prioritylevelconfiguration: {apiVersion: flowcontrol.apiserver.k8s.io/v1, kind: PriorityLevelConfiguration}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.prioritylevelconfiguration \(flowcontrol\.apiserver\.k8s\.io/v1 PriorityLevelConfiguration, named vending-chart-base\.prioritylevelconfiguration\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.prioritylevelconfiguration: null'
+
+  - it: rejects imagepolicy.k8s.io/ImageReview (cluster) (T17)
+    set:
+      extraObjects:
+        imagereview: {apiVersion: imagepolicy.k8s.io/v1, kind: ImageReview}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.imagereview \(imagepolicy\.k8s\.io/v1 ImageReview, named vending-chart-base\.imagereview\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.imagereview: null'
+
+  - it: rejects internal.apiserver.k8s.io/StorageVersion (cluster) (T17)
+    set:
+      extraObjects:
+        storageversion: {apiVersion: internal.apiserver.k8s.io/v1, kind: StorageVersion}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.storageversion \(internal\.apiserver\.k8s\.io/v1 StorageVersion, named vending-chart-base\.storageversion\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.storageversion: null'
+
+  - it: rejects networking.k8s.io/IPAddress (cluster) (T17)
+    set:
+      extraObjects:
+        ipaddress: {apiVersion: networking.k8s.io/v1, kind: IPAddress}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.ipaddress \(networking\.k8s\.io/v1 IPAddress, named vending-chart-base\.ipaddress\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.ipaddress: null'
+
+  - it: rejects networking.k8s.io/IngressClass (cluster) (T17)
+    set:
+      extraObjects:
+        ingressclass: {apiVersion: networking.k8s.io/v1, kind: IngressClass}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.ingressclass \(networking\.k8s\.io/v1 IngressClass, named vending-chart-base\.ingressclass\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.ingressclass: null'
+
+  - it: rejects networking.k8s.io/ServiceCIDR (cluster) (T17)
+    set:
+      extraObjects:
+        servicecidr: {apiVersion: networking.k8s.io/v1, kind: ServiceCIDR}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.servicecidr \(networking\.k8s\.io/v1 ServiceCIDR, named vending-chart-base\.servicecidr\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.servicecidr: null'
+
+  - it: rejects node.k8s.io/RuntimeClass (cluster) (T17)
+    set:
+      extraObjects:
+        runtimeclass: {apiVersion: node.k8s.io/v1, kind: RuntimeClass}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.runtimeclass \(node\.k8s\.io/v1 RuntimeClass, named vending-chart-base\.runtimeclass\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.runtimeclass: null'
+
+  - it: rejects rbac.authorization.k8s.io/ClusterRole (cluster) (T17)
+    set:
+      extraObjects:
+        clusterrole: {apiVersion: rbac.authorization.k8s.io/v1, kind: ClusterRole}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.clusterrole \(rbac\.authorization\.k8s\.io/v1 ClusterRole, named vending-chart-base\.clusterrole\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.clusterrole: null'
+
+  - it: rejects rbac.authorization.k8s.io/ClusterRoleBinding (cluster) (T17)
+    set:
+      extraObjects:
+        clusterrolebinding: {apiVersion: rbac.authorization.k8s.io/v1, kind: ClusterRoleBinding}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.clusterrolebinding \(rbac\.authorization\.k8s\.io/v1 ClusterRoleBinding, named vending-chart-base\.clusterrolebinding\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.clusterrolebinding: null'
+
+  - it: rejects resource.k8s.io/DeviceClass (cluster) (T17)
+    set:
+      extraObjects:
+        deviceclass: {apiVersion: resource.k8s.io/v1, kind: DeviceClass}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.deviceclass \(resource\.k8s\.io/v1 DeviceClass, named vending-chart-base\.deviceclass\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.deviceclass: null'
+
+  - it: rejects resource.k8s.io/DeviceTaintRule (cluster) (T17)
+    set:
+      extraObjects:
+        devicetaintrule: {apiVersion: resource.k8s.io/v1, kind: DeviceTaintRule}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.devicetaintrule \(resource\.k8s\.io/v1 DeviceTaintRule, named vending-chart-base\.devicetaintrule\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.devicetaintrule: null'
+
+  - it: rejects resource.k8s.io/ResourcePoolStatusRequest (cluster) (T17)
+    set:
+      extraObjects:
+        resourcepoolstatusrequest: {apiVersion: resource.k8s.io/v1, kind: ResourcePoolStatusRequest}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.resourcepoolstatusrequest \(resource\.k8s\.io/v1 ResourcePoolStatusRequest, named vending-chart-base\.resourcepoolstatusrequest\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.resourcepoolstatusrequest: null'
+
+  - it: rejects resource.k8s.io/ResourceSlice (cluster) (T17)
+    set:
+      extraObjects:
+        resourceslice: {apiVersion: resource.k8s.io/v1, kind: ResourceSlice}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.resourceslice \(resource\.k8s\.io/v1 ResourceSlice, named vending-chart-base\.resourceslice\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.resourceslice: null'
+
+  - it: rejects scheduling.k8s.io/PriorityClass (cluster) (T17)
+    set:
+      extraObjects:
+        priorityclass: {apiVersion: scheduling.k8s.io/v1, kind: PriorityClass}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.priorityclass \(scheduling\.k8s\.io/v1 PriorityClass, named vending-chart-base\.priorityclass\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.priorityclass: null'
+
+  - it: rejects storage.k8s.io/CSIDriver (cluster) (T17)
+    set:
+      extraObjects:
+        csidriver: {apiVersion: storage.k8s.io/v1, kind: CSIDriver}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.csidriver \(storage\.k8s\.io/v1 CSIDriver, named vending-chart-base\.csidriver\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.csidriver: null'
+
+  - it: rejects storage.k8s.io/CSINode (cluster) (T17)
+    set:
+      extraObjects:
+        csinode: {apiVersion: storage.k8s.io/v1, kind: CSINode}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.csinode \(storage\.k8s\.io/v1 CSINode, named vending-chart-base\.csinode\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.csinode: null'
+
+  - it: rejects storage.k8s.io/StorageClass (cluster) (T17)
+    set:
+      extraObjects:
+        storageclass: {apiVersion: storage.k8s.io/v1, kind: StorageClass}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.storageclass \(storage\.k8s\.io/v1 StorageClass, named vending-chart-base\.storageclass\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.storageclass: null'
+
+  - it: rejects storage.k8s.io/VolumeAttachment (cluster) (T17)
+    set:
+      extraObjects:
+        volumeattachment: {apiVersion: storage.k8s.io/v1, kind: VolumeAttachment}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.volumeattachment \(storage\.k8s\.io/v1 VolumeAttachment, named vending-chart-base\.volumeattachment\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.volumeattachment: null'
+
+  - it: rejects storage.k8s.io/VolumeAttributesClass (cluster) (T17)
+    set:
+      extraObjects:
+        volumeattributesclass: {apiVersion: storage.k8s.io/v1, kind: VolumeAttributesClass}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.volumeattributesclass \(storage\.k8s\.io/v1 VolumeAttributesClass, named vending-chart-base\.volumeattributesclass\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.volumeattributesclass: null'
+
+  - it: rejects storagemigration.k8s.io/StorageVersionMigration (cluster) (T17)
+    set:
+      extraObjects:
+        storageversionmigration: {apiVersion: storagemigration.k8s.io/v1, kind: StorageVersionMigration}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.storageversionmigration \(storagemigration\.k8s\.io/v1 StorageVersionMigration, named vending-chart-base\.storageversionmigration\) is a cluster-scoped kind, and an extra object is installed in the release namespace \(a cluster-wide name collides across namespaces, and a namespace''s deployer cannot own it\): render it in the umbrella''s own templates or the platform''s, then set extraObjects\.storageversionmigration: null'
+
+  - it: rejects kind List (T17)
+    set:
+      extraObjects:
+        all: {apiVersion: v1, kind: List, items: []}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.all \(v1 List, named vending-chart-base\.all\) is a list \(kind List, a kind ending in List, or a top-level items field\), and Kubernetes'' client installs each item without the checks of an extra object: write one entry per object, then set extraObjects\.all: null'
+
+  - it: rejects a kind ending in List (ConfigMapList) (T17)
+    set:
+      extraObjects:
+        maps: {apiVersion: v1, kind: ConfigMapList}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.maps \(v1 ConfigMapList, named vending-chart-base\.maps\) is a list \(kind List, a kind ending in List, or a top-level items field\), and Kubernetes'' client installs each item without the checks of an extra object: write one entry per object, then set extraObjects\.maps: null'
+
+  - it: rejects an object with a top-level items field, whatever its kind (T17)
+    set:
+      extraObjects:
+        settings: {apiVersion: v1, kind: ConfigMap, items: [{apiVersion: v1, kind: Secret, metadata: {name: x}}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.settings \(v1 ConfigMap, named vending-chart-base\.settings\) is a list \(kind List, a kind ending in List, or a top-level items field\), and Kubernetes'' client installs each item without the checks of an extra object: write one entry per object, then set extraObjects\.settings: null'
+
+  - it: rejects kind list, compared case-insensitively (T17)
+    set:
+      extraObjects:
+        all: {apiVersion: v1, kind: list}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.all \(v1 list, named vending-chart-base\.all\) is a list \(kind List, a kind ending in List, or a top-level items field\), and Kubernetes'' client installs each item without the checks of an extra object: write one entry per object, then set extraObjects\.all: null'
+
+  - it: rejects kind secret, compared case-insensitively (T17)
+    set:
+      extraObjects:
+        creds: {apiVersion: v1, kind: secret}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.creds \(v1 secret, named vending-chart-base\.creds\) is a Secret, whose data would sit in the values in plain text \(ADR-0004\): deliver it with externalSecret, or as an extra ExternalSecret \(external-secrets\.io/v1\), then set extraObjects\.creds: null'
+
+  - it: rejects apps/v1 DEPLOYMENT, the kind compared case-insensitively (T17)
+    set:
+      extraObjects:
+        web: {apiVersion: apps/v1, kind: DEPLOYMENT}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.web \(apps/v1 DEPLOYMENT, named vending-chart-base\.web\) is a built-in workload, and chart-base renders one workload per alias: render it as another alias of chart-base, or in the umbrella''s own templates, then set extraObjects\.web: null'
+
+  - it: rejects apps/v1beta2 Deployment, any version (T17)
+    set:
+      extraObjects:
+        web: {apiVersion: apps/v1beta2, kind: Deployment}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.web \(apps/v1beta2 Deployment, named vending-chart-base\.web\) is a built-in workload, and chart-base renders one workload per alias: render it as another alias of chart-base, or in the umbrella''s own templates, then set extraObjects\.web: null'
+
+  - it: accepts example.com/v1 Deployment, a custom kind of another group (T17)
+    set:
+      extraObjects:
+        web: {apiVersion: example.com/v1, kind: Deployment}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts example.com/v1 Pod and example.com/v1 Secret, custom kinds of another group with a core kind's name (T17)
+    set:
+      extraObjects:
+        pod: {apiVersion: example.com/v1, kind: Pod}
+        secret: {apiVersion: example.com/v1, kind: Secret}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts v1 ConfigMap and networking.k8s.io/v1 NetworkPolicy (T17)
+    set:
+      extraObjects:
+        settings: {apiVersion: v1, kind: ConfigMap}
+        policy: {apiVersion: networking.k8s.io/v1, kind: NetworkPolicy, spec: {podSelector: {}}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a SealedSecret and a SecretProviderClass, other secret stacks (T17)
+    set:
+      extraObjects:
+        sealed: {apiVersion: bitnami.com/v1alpha1, kind: SealedSecret, spec: {encryptedData: {password: AgB=}}}
+        provider: {apiVersion: secrets-store.csi.x-k8s.io/v1, kind: SecretProviderClass, spec: {provider: vault}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a kind that ends in list in lower case (Playlist), not a list kind (T17)
+    set:
+      extraObjects:
+        songs: {apiVersion: example.com/v1, kind: Playlist}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the remedy of every rejected kind, the entry null (T17)
+    set:
+      extraObjects:
+        pod: null
+        service: null
+        endpoints: null
+        secret: null
+        namespace: null
+        all: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the List row's remedy, one entry per object (T17)
+    set:
+      extraObjects:
+        all: null
+        settings-a: {apiVersion: v1, kind: ConfigMap, data: {a: "1"}}
+        settings-b: {apiVersion: v1, kind: ConfigMap, data: {b: "2"}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the Secret row's remedy, an extra ExternalSecret (T17)
+    set:
+      extraObjects:
+        db: {apiVersion: external-secrets.io/v1, kind: ExternalSecret, spec: {secretStoreRef: {kind: ClusterSecretStore, name: vault}, target: {name: vending-chart-base.db}}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a RoleBinding keyed like an rbac.clusterRoles entry (the chart's binding name) (T18)
+    set:
+      serviceAccount.automountToken: true
+      rbac.clusterRoles: [view]
+      extraObjects:
+        view: {apiVersion: rbac.authorization.k8s.io/v1, kind: RoleBinding}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'extraObjects\.view \(rbac\.authorization\.k8s\.io/v1 RoleBinding, named vending-chart-base\.view\) has the name of the chart''s RoleBinding to the ClusterRole view \(rbac\.clusterRoles\): add the entry under another key, then set extraObjects\.view: null'
+
+  - it: accepts a RoleBinding keyed view without rbac.clusterRoles view (T18)
+    set:
+      extraObjects:
+        view: {apiVersion: rbac.authorization.k8s.io/v1, kind: RoleBinding}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a RoleBinding of another group (example.com/v1) keyed view next to rbac.clusterRoles view (T18)
+    set:
+      serviceAccount.automountToken: true
+      rbac.clusterRoles: [view]
+      extraObjects:
+        view: {apiVersion: example.com/v1, kind: RoleBinding}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a Role keyed view next to rbac.clusterRoles view (another kind, another name) (T18)
+    set:
+      serviceAccount.automountToken: true
+      rbac.clusterRoles: [view]
+      extraObjects:
+        view: {apiVersion: rbac.authorization.k8s.io/v1, kind: Role}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the RoleBinding guard's remedy, the entry under another key, and the old key null (T18)
+    set:
+      serviceAccount.automountToken: true
+      rbac.clusterRoles: [view]
+      extraObjects:
+        view: null
+        view-extra: {apiVersion: rbac.authorization.k8s.io/v1, kind: RoleBinding}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a null entry of a rejected kind next to the guards (a null entry is absent) (T14)
+    set:
+      extraObjects:
+        web: null
+        Bad: null
+    asserts:
+      - hasDocuments:
+          count: 0

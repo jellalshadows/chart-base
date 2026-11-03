@@ -17,10 +17,10 @@ not published; each record restates every fact it uses.
 | [0004](0004-env-in-configmap-secrets-through-externalsecret.md) | Env vars in a ConfigMap, secrets through ExternalSecret | Amended by 0030, 0031, 0053 | 0.1.0 |
 | [0005](0005-configfiles-string-or-map.md) | `configFiles` accepts a string or a map | Amended by 0045, 0046 | 0.1.0 |
 | [0006](0006-checksum-for-config-reloader-for-secrets.md) | Checksums for config, Reloader for Secrets | Amended by 0033 | 0.1.0 |
-| [0007](0007-jobs-as-helm-hooks.md) | `workload.type: job` is a Helm hook | Amended by 0041, 0043 | 0.1.0 |
+| [0007](0007-jobs-as-helm-hooks.md) | `workload.type: job` is a Helm hook | Amended by 0041, 0043, 0057 | 0.1.0 |
 | [0008](0008-names-are-release-alias-and-never-truncated.md) | Names are `<release>-<alias>` and never truncated | Accepted | 0.1.0 |
 | [0009](0009-no-name-overrides.md) | No `nameOverride`/`fullnameOverride` | Accepted | 0.1.0 |
-| [0010](0010-chart-version-never-restarts-pods.md) | Bumping chart-base never restarts pods by itself | Amended by 0035 | 0.1.0 |
+| [0010](0010-chart-version-never-restarts-pods.md) | Bumping chart-base never restarts pods by itself | Amended by 0035, 0057 | 0.1.0 |
 | [0011](0011-strict-draft-07-schema.md) | Strict draft-07 schema with reserved `global` and `enabled` | Amended by 0044 | 0.1.0 |
 | [0012](0012-no-capabilities-gating.md) | No `.Capabilities` gating for CRD kinds | Accepted | 0.1.0 |
 | [0013](0013-secure-by-default.md) | Secure by default (Pod Security `restricted`) | Accepted | 0.1.0 |
@@ -51,7 +51,7 @@ not published; each record restates every fact it uses.
 | [0038](0038-one-metrics-endpoint-servicemonitor-or-podmonitor.md) | One metrics endpoint, through a ServiceMonitor or a PodMonitor | Accepted | 0.4.0 |
 | [0039](0039-prometheus-rules-travel-with-the-component.md) | Prometheus rules travel with the component | Accepted | 0.4.0 |
 | [0040](0040-networkpolicy-per-component-with-sibling-references.md) | One opt-in NetworkPolicy per component, with sibling components referenced by alias | Accepted | 0.5.0 |
-| [0041](0041-job-component-networkpolicy-is-a-hook.md) | A job component's NetworkPolicy is a hook of its phase | Amended by 0043 | 0.5.0 |
+| [0041](0041-job-component-networkpolicy-is-a-hook.md) | A job component's NetworkPolicy is a hook of its phase | Amended by 0043, 0057 | 0.5.0 |
 | [0042](0042-existing-serviceaccount-and-namespaced-rbac.md) | An existing ServiceAccount, and namespaced RBAC: rules with no wildcards and a fixed verb list, no `cluster-admin` | Accepted | 0.6.0 |
 | [0043](0043-job-component-rbac-is-a-hook.md) | A job component's Role and RoleBindings are hooks of its phase | Accepted | 0.6.0 |
 | [0044](0044-guards-fail-the-render-helm-lint-reports-them.md) | Guards fail the render; `helm lint` reports them without failing | Accepted | 0.6.0 |
@@ -59,14 +59,15 @@ not published; each record restates every fact it uses.
 | [0046](0046-configfiles-mountpath-compared-normalized-rendered-as-written.md) | `configFiles.mountPath` is compared normalized and rendered as written | Accepted | 0.7.0 |
 | [0047](0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md) | When-enabled keys are required, an ExternalSecret needs a source, and a probe port name must be declared | Amended by 0050, 0053 | 0.7.0 |
 | [0048](0048-httproute-parentrefs-and-matches-are-closed.md) | The entries of `httpRoute.parentRefs` and `httpRoute.matches` are closed objects | Amended by 0050 | 0.7.0 |
-| [0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md) | Extra volumes are a map of typed entries, each mounted in the main container | Amended by 0051 | 0.7.0 |
+| [0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md) | Extra volumes are a map of typed entries, each mounted in the main container | Amended by 0051, 0057 | 0.7.0 |
 | [0050](0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md) | An existing claim on a Deployment declares its access mode; `strategy.rollingUpdate: null` is absent | Amended by 0056 | 0.7.0 |
 | [0051](0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md) | Init containers and sidecars are two maps in one start order, and nothing is inherited from the main container | Amended by 0053 | 0.8.0 |
 | [0052](0052-hpa-targets-measure-the-main-container-with-sidecars.md) | With a sidecar, the HPA's built-in targets measure the main container | Amended by 0055 | 0.8.0 |
-| [0053](0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md) | The ExternalSecret takes `dataFrom`, a curated template and a file mount, and its injection is a switch | Accepted | 0.9.0 |
+| [0053](0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md) | The ExternalSecret takes `dataFrom`, a curated template and a file mount, and its injection is a switch | Amended by 0057 | 0.9.0 |
 | [0054](0054-env-externalsecretkeyref-references-the-components-own-secret.md) | `env` can reference the component's own ExternalSecret Secret (`externalSecretKeyRef`) | Accepted | 0.9.0 |
 | [0055](0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md) | The HPA's `behavior` and `metrics` are validated pass-throughs, and a non-empty `metrics` list replaces the built-in targets | Accepted | 0.10.0 |
 | [0056](0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md) | KEDA: a curated ScaledObject block with a triggers map, in place of the HPA | Accepted | 0.10.0 |
+| [0057](0057-common-labels-and-annotations-service-annotations-and-extraobjects.md) | Common labels and annotations, Service annotations and `extraObjects` | Accepted | 0.11.0 |
 
 ## Adding a record
 

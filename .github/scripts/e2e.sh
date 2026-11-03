@@ -16,8 +16,10 @@
 # environment, the files in the pods and in the hook Job, and a component that reads the Secret without envFrom. The
 # keda scenario checks a ScaledObject (Ready, KEDA's HPA and its target, scale to zero, a second upgrade at zero, and the
 # switch back to the chart's HPA at zero), the full scenario the HPA's behavior, and metrics-server the usage of the full
-# scenario's native sidecar.
-# Usage: e2e.sh <chart-dir>
+# scenario's native sidecar. The full scenario also checks commonLabels and commonAnnotations on every object of its
+# release in the cluster, the Service's own annotation, the common label on its pods and on the Secret that External
+# Secrets writes, and an extra object (the ConfigMap full-chart-base.settings).
+# Usage: e2e.sh <chart-dir>     Requires: kubectl, helm, yq (mikefarah v4)
 # Env: GATEWAY_API_VERSION (e.g. v1.6.2), ESO_CHART_VERSION (e.g. 2.11.0),
 #      PROMETHEUS_OPERATOR_VERSION (e.g. v0.94.1), KEDA_CHART_VERSION (e.g. 2.21.0),
 #      METRICS_SERVER_CHART_VERSION (e.g. 3.14.0)
@@ -42,6 +44,9 @@ fail() {
     # External Secrets controller logs a provider or decoding error in more detail (the release external-secrets of the
     # chart external-secrets names its controller Deployment external-secrets).
     kubectl describe externalsecrets -n "$ns" >&2 || true
+    # The common metadata checks: every ConfigMap and Secret with its labels (the extra object full-chart-base.settings,
+    # the Secret that External Secrets writes).
+    kubectl get configmaps,secrets -n "$ns" --show-labels >&2 || true
     kubectl logs -n external-secrets deploy/external-secrets --tail=100 >&2 || true
     # The autoscalers: the ScaledObjects' and the HPAs' conditions and events, KEDA's operator (it builds the scalers and
     # scales to and from zero) and metrics-server (the usage of every container the HPA reads).
@@ -440,6 +445,31 @@ rb="$(kubectl get rolebinding -n "$ns" full-chart-base.view -o jsonpath='{.roleR
 [ "$rb" = "ClusterRole/view vending/full-chart-base" ] || fail "full must have a RoleBinding to the ClusterRole view for its ServiceAccount, got '$rb'"
 kubectl get hpa,pdb,ingress -n "$ns" -l app.kubernetes.io/instance=full
 pass "full scenario: ExternalSecret synced, HTTPRoute/HPA (ContainerResource with a sidecar)/PDB/Ingress/ServiceMonitor/PrometheusRule/NetworkPolicy/Role/RoleBindings accepted, rollout and pod runtime knobs applied"
+# commonLabels and commonAnnotations (0.11.0): every object of the release (helm get manifest, its kind and name read with
+# yq) carries the common label and annotation in the cluster, read object by object; the Service its own annotation too.
+helm get manifest full -n "$ns" > "$work/full.manifest" || fail "could not read the manifest of the release full"
+yq -N '.kind + "/" + .metadata.name' "$work/full.manifest" > "$work/full.objects" || fail "could not read the kinds and names of the release full"
+objects=0
+while IFS= read -r obj; do
+  case "$obj" in '' | /) continue ;; esac
+  objects=$((objects + 1))
+  meta="$(kubectl get -n "$ns" "$obj" -o jsonpath='{.metadata.labels.team} {.metadata.annotations.e2e\.example\.com/owner}' || true)"
+  [ "$meta" = "e2e platform" ] || fail "$obj must carry the label team=e2e and the annotation e2e.example.com/owner=platform in the cluster (commonLabels, commonAnnotations), got '$meta'"
+done < "$work/full.objects"
+[ "$objects" = 17 ] || fail "the release full must have 17 objects (the 16 of 0.10.0 and the extra ConfigMap), got $objects: $(tr '\n' ' ' < "$work/full.objects")"
+lb="$(kubectl get service -n "$ns" full-chart-base -o jsonpath='{.metadata.annotations.e2e\.example\.com/lb}' || true)"
+[ "$lb" = internal ] || fail "the Service must carry its own annotation e2e.example.com/lb=internal (service.annotations), got '$lb'"
+# The pod template carries the common labels, never the common annotations (podAnnotations is the pod's).
+podmeta="$(kubectl get pod -n "$ns" "$pod" -o jsonpath='{.metadata.labels.team}/{.metadata.annotations.e2e\.example\.com/owner}' || true)"
+[ "$podmeta" = "e2e/" ] || fail "full's pod $pod must carry the label team=e2e and no annotation e2e.example.com/owner (commonLabels on the pod template, commonAnnotations not), got '$podmeta' (label/annotation)"
+# External Secrets copies template.metadata.labels to the Secret of a templated ExternalSecret (External Secrets v2.11.0
+# source reading): the common label reaches the Secret.
+team="$(kubectl get secret -n "$ns" full-chart-base-secrets -o jsonpath='{.metadata.labels.team}' || true)"
+[ "$team" = e2e ] || fail "the Secret full-chart-base-secrets must carry the common label team=e2e (template.metadata.labels), got '$team'"
+# The extra object, named <fullname>.<key>: the API server takes a "." in a ConfigMap's name.
+settings="$(kubectl get configmap -n "$ns" full-chart-base.settings -o jsonpath='{.data.mode} {.metadata.labels.app\.kubernetes\.io/name} {.metadata.labels.app\.kubernetes\.io/instance} {.metadata.labels.team}' || true)"
+[ "$settings" = "e2e chart-base full e2e" ] || fail "the extra object ConfigMap full-chart-base.settings must hold mode=e2e and carry the chart's labels and team=e2e, got '$settings' (mode name instance team)"
+pass "full: every object of the release carries the common label and annotation, the Service its own annotation, the pods and the Secret the common label, and the extra ConfigMap full-chart-base.settings exists with the chart's labels"
 
 echo "== port-names"
 install port-names || fail "port-names scenario failed to install"

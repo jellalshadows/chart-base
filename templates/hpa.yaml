@@ -5,6 +5,10 @@ metadata:
   name: {{ include "chart-base.fullname" . }}
   labels:
     {{- include "chart-base.labels" . | nindent 4 }}
+  {{- with include "chart-base.annotations" (dict "ctx" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   scaleTargetRef:
     {{- include "chart-base.scaleTargetRef" . | nindent 4 }}
