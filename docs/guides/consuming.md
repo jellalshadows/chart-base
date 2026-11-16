@@ -577,8 +577,8 @@ offer ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-
 8. **A reserved key's message names the key at an unrelated path** (`invalid propertyName '<key>'`, at a path such as
    `'/prometheusRule'` that moves between Helm versions). Which maps reject which keys: `commonLabels`, `podLabels`
    (the two selector labels only), `metrics.labels`, `prometheusRule.labels` and an extra object's own labels reject the
-   chart's label keys (`app.kubernetes.io/name`, `instance`, `part-of`, `component`, `version`, `managed-by`,
-   `helm.sh/chart`); `commonAnnotations`, `service.annotations` and an extra object's own annotations reject
+   chart's label keys (`app.kubernetes.io/name`, `instance`, `part-of`, `version`, `managed-by`, `helm.sh/chart`;
+   not `app.kubernetes.io/component`, which the chart does not write since 0.12.0); `commonAnnotations`, `service.annotations` and an extra object's own annotations reject
    `helm.sh/hook*`, `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files`, and `commonAnnotations` also
    the two Reloader keys the chart computes (`secret.reloader.stakater.com/reload`,
    `configmap.reloader.stakater.com/reload`). `podAnnotations`, `ingress.annotations` and `serviceAccount.annotations`

@@ -115,7 +115,7 @@
     "extraLabels": {
       "description": "Extra labels of an object that also carries the chart's labels: the keys the chart sets itself are rejected (they would render twice).",
       "type": "object",
-      "propertyNames": { "not": { "enum": ["app.kubernetes.io/name", "app.kubernetes.io/instance", "app.kubernetes.io/part-of", "app.kubernetes.io/component", "app.kubernetes.io/version", "app.kubernetes.io/managed-by", "helm.sh/chart"] } },
+      "propertyNames": { "not": { "enum": ["app.kubernetes.io/name", "app.kubernetes.io/instance", "app.kubernetes.io/part-of", "app.kubernetes.io/version", "app.kubernetes.io/managed-by", "helm.sh/chart"] } },
       "additionalProperties": { "type": "string" }
     },
     "extraAnnotations": {

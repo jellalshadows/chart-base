@@ -6,7 +6,6 @@ cronjob scenario:
     kind: ConfigMap
     metadata:
       labels:
-        app.kubernetes.io/component: cronjob
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -19,7 +18,6 @@ cronjob scenario:
     kind: CronJob
     metadata:
       labels:
-        app.kubernetes.io/component: cronjob
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -33,7 +31,6 @@ cronjob scenario:
       jobTemplate:
         metadata:
           labels:
-            app.kubernetes.io/component: cronjob
             app.kubernetes.io/instance: vending
             app.kubernetes.io/name: chart-base
             app.kubernetes.io/part-of: vending
@@ -43,7 +40,6 @@ cronjob scenario:
           template:
             metadata:
               labels:
-                app.kubernetes.io/component: cronjob
                 app.kubernetes.io/instance: vending
                 app.kubernetes.io/name: chart-base
                 app.kubernetes.io/part-of: vending
@@ -139,7 +135,6 @@ cronjob scenario:
     kind: ServiceAccount
     metadata:
       labels:
-        app.kubernetes.io/component: cronjob
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -155,7 +150,6 @@ deployment scenario:
     kind: ConfigMap
     metadata:
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -168,7 +162,6 @@ deployment scenario:
     kind: Deployment
     metadata:
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -188,7 +181,6 @@ deployment scenario:
           annotations:
             checksum/config-env: 75b7a7c324b7b1ceeee7b8e259bbac68dc693ec9adf80945c927b2a1116c4ebb
           labels:
-            app.kubernetes.io/component: deployment
             app.kubernetes.io/instance: vending
             app.kubernetes.io/name: chart-base
             app.kubernetes.io/part-of: vending
@@ -348,7 +340,6 @@ deployment scenario:
     kind: PodDisruptionBudget
     metadata:
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -368,7 +359,6 @@ deployment scenario:
     kind: Service
     metadata:
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -392,7 +382,6 @@ deployment scenario:
     kind: ServiceAccount
     metadata:
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -413,7 +402,6 @@ full scenario:
       annotations:
         e2e.example.com/owner: platform
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -439,7 +427,6 @@ full scenario:
       annotations:
         e2e.example.com/owner: platform
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -457,7 +444,6 @@ full scenario:
         e2e.example.com/owner: platform
         secret.reloader.stakater.com/reload: e2e-files,e2e-shared,vending-chart-base-secrets
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -486,7 +472,6 @@ full scenario:
             checksum/config-files: 2f54280aa10f85462610e938e4985cf3194df1c9ffb8ffaea4b1c70fa074f796
             example.com/team: vending
           labels:
-            app.kubernetes.io/component: deployment
             app.kubernetes.io/instance: vending
             app.kubernetes.io/name: chart-base
             app.kubernetes.io/part-of: vending
@@ -655,7 +640,6 @@ full scenario:
       annotations:
         e2e.example.com/owner: platform
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -685,7 +669,6 @@ full scenario:
           mergePolicy: Merge
           metadata:
             labels:
-              app.kubernetes.io/component: deployment
               app.kubernetes.io/instance: vending
               app.kubernetes.io/managed-by: Helm
               app.kubernetes.io/name: chart-base
@@ -702,7 +685,6 @@ full scenario:
       annotations:
         e2e.example.com/owner: platform
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -718,7 +700,6 @@ full scenario:
       annotations:
         e2e.example.com/owner: platform
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -769,7 +750,6 @@ full scenario:
       annotations:
         e2e.example.com/owner: platform
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -800,7 +780,6 @@ full scenario:
       annotations:
         e2e.example.com/owner: platform
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -829,7 +808,6 @@ full scenario:
       annotations:
         e2e.example.com/owner: platform
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -937,7 +915,6 @@ full scenario:
       annotations:
         e2e.example.com/owner: platform
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -960,7 +937,6 @@ full scenario:
       annotations:
         e2e.example.com/owner: platform
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -988,7 +964,6 @@ full scenario:
       annotations:
         e2e.example.com/owner: platform
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1031,7 +1006,6 @@ full scenario:
       annotations:
         e2e.example.com/owner: platform
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1055,7 +1029,6 @@ full scenario:
       annotations:
         e2e.example.com/owner: platform
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1080,7 +1053,6 @@ full scenario:
         e2e.example.com/lb: internal
         e2e.example.com/owner: platform
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1108,7 +1080,6 @@ full scenario:
         e2e.example.com/owner: platform
         iam.gke.io/gcp-service-account: sales@acme.iam.gserviceaccount.com
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1124,7 +1095,6 @@ full scenario:
       annotations:
         e2e.example.com/owner: platform
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1156,7 +1126,6 @@ job scenario:
         helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
         helm.sh/hook-weight: "-10"
       labels:
-        app.kubernetes.io/component: job
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1175,7 +1144,6 @@ job scenario:
         helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
         helm.sh/hook-weight: "-10"
       labels:
-        app.kubernetes.io/component: job
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1192,7 +1160,6 @@ job scenario:
         helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
         helm.sh/hook-weight: "-10"
       labels:
-        app.kubernetes.io/component: job
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1221,7 +1188,6 @@ job scenario:
         helm.sh/hook-delete-policy: before-hook-creation
         helm.sh/hook-weight: "0"
       labels:
-        app.kubernetes.io/component: job
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1235,7 +1201,6 @@ job scenario:
       template:
         metadata:
           labels:
-            app.kubernetes.io/component: job
             app.kubernetes.io/instance: vending
             app.kubernetes.io/name: chart-base
             app.kubernetes.io/part-of: vending
@@ -1336,7 +1301,6 @@ job scenario:
         helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
         helm.sh/hook-weight: "-10"
       labels:
-        app.kubernetes.io/component: job
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1352,7 +1316,6 @@ keda scenario:
     kind: ConfigMap
     metadata:
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1365,7 +1328,6 @@ keda scenario:
     kind: Deployment
     metadata:
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1384,7 +1346,6 @@ keda scenario:
           annotations:
             checksum/config-env: 8a1cb55348a352fecfeda0ad539880652642c78fdd560e5dd0681c0b7f14391c
           labels:
-            app.kubernetes.io/component: deployment
             app.kubernetes.io/instance: vending
             app.kubernetes.io/name: chart-base
             app.kubernetes.io/part-of: vending
@@ -1460,7 +1421,6 @@ keda scenario:
     kind: PodDisruptionBudget
     metadata:
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1480,7 +1440,6 @@ keda scenario:
     kind: ScaledObject
     metadata:
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1509,7 +1468,6 @@ keda scenario:
     kind: ServiceAccount
     metadata:
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1523,7 +1481,6 @@ port-names scenario:
     kind: Deployment
     metadata:
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1541,7 +1498,6 @@ port-names scenario:
       template:
         metadata:
           labels:
-            app.kubernetes.io/component: deployment
             app.kubernetes.io/instance: vending
             app.kubernetes.io/name: chart-base
             app.kubernetes.io/part-of: vending
@@ -1617,7 +1573,6 @@ port-names scenario:
     kind: Ingress
     metadata:
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1643,7 +1598,6 @@ port-names scenario:
     kind: PodDisruptionBudget
     metadata:
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1663,7 +1617,6 @@ port-names scenario:
     kind: Service
     metadata:
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1687,7 +1640,6 @@ port-names scenario:
     kind: ServiceAccount
     metadata:
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1700,7 +1652,6 @@ port-names scenario:
     kind: ServiceMonitor
     metadata:
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1724,7 +1675,6 @@ worker scenario:
     kind: ConfigMap
     metadata:
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1739,7 +1689,6 @@ worker scenario:
       annotations:
         secret.reloader.stakater.com/reload: vending-chart-base-secrets
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1759,7 +1708,6 @@ worker scenario:
           annotations:
             checksum/config-env: 456a9ffef4bcb8f562fc0dcbe7a7b0071dc235080b6d937b85edb6dea9e01d05
           labels:
-            app.kubernetes.io/component: deployment
             app.kubernetes.io/instance: vending
             app.kubernetes.io/name: chart-base
             app.kubernetes.io/part-of: vending
@@ -1856,7 +1804,6 @@ worker scenario:
     kind: ExternalSecret
     metadata:
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1881,7 +1828,6 @@ worker scenario:
     kind: PodDisruptionBudget
     metadata:
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1901,7 +1847,6 @@ worker scenario:
     kind: PodMonitor
     metadata:
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base
@@ -1924,7 +1869,6 @@ worker scenario:
     kind: ServiceAccount
     metadata:
       labels:
-        app.kubernetes.io/component: deployment
         app.kubernetes.io/instance: vending
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: chart-base

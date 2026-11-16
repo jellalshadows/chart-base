@@ -35,7 +35,8 @@ init container or a sidecar mounts them by name) and every values key name (each
 - the label keys the chart writes: `app.kubernetes.io/name`, `instance`, `part-of` (the release) and `version` (from
   the image tag, absent without one) on every object and pod template, `app.kubernetes.io/managed-by` and
   `helm.sh/chart` on every object's metadata and never on a pod template (ADR-0010); `app.kubernetes.io/component` is
-  not in this list, and 0.12.0 decides it on its own;
+  not in this list: the chart does not write it, it is the consumer's key
+  ([ADR-0063](0063-the-chart-does-not-write-app-kubernetes-io-component.md));
 - the annotation keys the chart writes: `checksum/config-env` and `checksum/config-files` on a pod template,
   `secret.reloader.stakater.com/reload` and `configmap.reloader.stakater.com/reload`, and the hook keys of a `job`
   component (`helm.sh/hook`, `helm.sh/hook-weight`, `helm.sh/hook-delete-policy`, weight `0` on the Job and `-10` on

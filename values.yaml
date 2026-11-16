@@ -512,7 +512,7 @@ metrics:
   scrapeTimeout: null
   # -- Extra labels on the monitor, e.g. `{release: kube-prometheus-stack}`: with its default values, kube-prometheus-stack's
   # Prometheus only selects monitors labelled `release: <its release name>`. The keys the chart sets itself
-  # (`app.kubernetes.io/name`, `instance`, `part-of`, `component`, `version`, `managed-by`, `helm.sh/chart`) are rejected.
+  # (`app.kubernetes.io/name`, `instance`, `part-of`, `version`, `managed-by`, `helm.sh/chart`) are rejected.
   labels: {}
 
 prometheusRule:
@@ -699,9 +699,11 @@ rbac:
 # `{team: payments, cost-center: cc-42}`. Never a selector: the selectors keep the chart's two selector labels. A
 # per-object map wins on a shared key: `podLabels`, `metrics.labels`, `prometheusRule.labels`, an extra object's
 # `metadata.labels`. Values are strings. The chart's own keys (`app.kubernetes.io/name`, `instance`, `part-of`,
-# `component`, `version`, `managed-by`, `helm.sh/chart`) fail the schema with `invalid propertyName '<key>'`, reported
-# at an unrelated path. A change changes the pod template: it rolls a Deployment's pods, and the next CronJob run and
-# the next Job get it. Per alias (`global` is not read).
+# `version`, `managed-by`, `helm.sh/chart`) fail the schema with `invalid propertyName '<key>'`, reported at an
+# unrelated path. `app.kubernetes.io/component` is yours: the chart does not write it, so set it here (or in
+# `podLabels`) for its Kubernetes meaning, the component within the architecture (e.g. `database`). A change changes
+# the pod template: it rolls a Deployment's pods, and the next CronJob run and the next Job get it. Per alias (`global`
+# is not read).
 commonLabels: {}
 
 # -- Annotations added to the metadata of every object the chart renders for this component (`extraObjects` included),

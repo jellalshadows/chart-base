@@ -20,7 +20,7 @@ not published; each record restates every fact it uses.
 | [0007](0007-jobs-as-helm-hooks.md) | `workload.type: job` is a Helm hook | Amended by 0041, 0043, 0057 | 0.1.0 |
 | [0008](0008-names-are-release-alias-and-never-truncated.md) | Names are `<release>-<alias>` and never truncated | Accepted | 0.1.0 |
 | [0009](0009-no-name-overrides.md) | No `nameOverride`/`fullnameOverride` | Accepted | 0.1.0 |
-| [0010](0010-chart-version-never-restarts-pods.md) | Bumping chart-base never restarts pods by itself | Amended by 0035, 0057 | 0.1.0 |
+| [0010](0010-chart-version-never-restarts-pods.md) | Bumping chart-base never restarts pods by itself | Amended by 0035, 0057, 0063 | 0.1.0 |
 | [0011](0011-strict-draft-07-schema.md) | Strict draft-07 schema with reserved `global` and `enabled` | Amended by 0044 | 0.1.0 |
 | [0012](0012-no-capabilities-gating.md) | No `.Capabilities` gating for CRD kinds | Accepted | 0.1.0 |
 | [0013](0013-secure-by-default.md) | Secure by default (Pod Security `restricted`) | Accepted | 0.1.0 |
@@ -69,6 +69,7 @@ not published; each record restates every fact it uses.
 | [0056](0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md) | KEDA: a curated ScaledObject block with a triggers map, in place of the HPA | Accepted | 0.10.0 |
 | [0057](0057-common-labels-and-annotations-service-annotations-and-extraobjects.md) | Common labels and annotations, Service annotations and `extraObjects` | Accepted | 0.11.0 |
 | [0058](0058-the-1-0-contract-and-how-it-stays-frozen.md) | The 1.0 contract, and how it stays frozen | Accepted | 0.12.0 |
+| [0063](0063-the-chart-does-not-write-app-kubernetes-io-component.md) | The chart does not write `app.kubernetes.io/component` | Accepted | 0.12.0 |
 
 ## Adding a record
 

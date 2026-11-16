@@ -1174,6 +1174,13 @@ code, official docs) and local renders.
     `tests/contract/keys.txt`. *Rejected:* the schema's own paths, a snapshot of `values.yaml`, frozen messages,
     renaming the odd keys.
     [ADR-0058](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0058-the-1-0-contract-and-how-it-stays-frozen.md)
+63. **The chart does not write `app.kubernetes.io/component`.** Kubernetes defines it as the component within the
+    architecture (`database`), which only the consumer knows; up to 0.11.0 the chart wrote the workload type there,
+    which the `kind` already says, and a consumer could not set it. It is now the consumer's key, set with
+    `commonLabels` or `podLabels`, and the maps that reject the chart's label keys reject six. Not a selector label: no
+    object is recreated, but every Deployment rolls once at the upgrade to 0.12.0 (it amends decision 10). *Rejected:*
+    freezing the workload type, a copy of the alias, a consumer value winning over the chart's.
+    [ADR-0063](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0063-the-chart-does-not-write-app-kubernetes-io-component.md)
 
 ## Versioning and releases
 

@@ -12,11 +12,13 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $tag -}}
 {{- end -}}
 
-{{/* Labels shared by pod templates and object metadata (never helm.sh/chart). */}}
+{{/*
+Labels shared by pod templates and object metadata (never helm.sh/chart). No app.kubernetes.io/component: it is the
+consumer's key (commonLabels, podLabels), the component within the architecture, which the chart cannot know (ADR-0063).
+*/}}
 {{- define "chart-base.baseLabels" -}}
 {{ include "chart-base.selectorLabels" . }}
 app.kubernetes.io/part-of: {{ .Release.Name }}
-app.kubernetes.io/component: {{ .Values.workload.type }}
 {{- with include "chart-base.version" . }}
 app.kubernetes.io/version: {{ . | quote }}
 {{- end }}
