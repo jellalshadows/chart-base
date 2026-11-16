@@ -169,12 +169,13 @@ initContainers: {}
 # component's `ports`: see the fronting-proxy recipe of the README); a port name and a port number are declared once in
 # the pod. And `probes` (`startup`, `liveness`, `readiness`): each a closed probe with exactly one of `exec`, `httpGet`,
 # `tcpSocket` or `grpc` (no `host`: Pod Security rejects it from policy v1.34: measured on kube-apiserver 1.37.0) and
-# its timing fields; a port given by name must be one of the sidecar's own `ports` (the kubelet resolves a name among
-# the probed container's ports only: source reading). The kubelet probes the pod IP (source reading), so a health server
-# that listens on `localhost` by default must listen on `0.0.0.0` (cloud-sql-proxy: `--http-address=0.0.0.0`), or its
-# probes never pass. Give a sidecar that another container needs a `startupProbe`: the next container starts once the
-# sidecar has started. Inside a probe's `httpGet` or `exec` a `null` stays an error (shared with `lifecycle`): replace
-# the handler whole (`httpGet: null` next to a `tcpSocket`).
+# its timing fields, under the main container's rules (`successThreshold` at most 1 on `startup` and `liveness`, no
+# `terminationGracePeriodSeconds` on `readiness`); a port given by name must be one of the sidecar's own `ports` (the
+# kubelet resolves a name among the probed container's ports only: source reading). The kubelet probes the pod IP
+# (source reading), so a health server that listens on `localhost` by default must listen on `0.0.0.0`
+# (cloud-sql-proxy: `--http-address=0.0.0.0`), or its probes never pass. Give a sidecar that another container needs a
+# `startupProbe`: the next container starts once the sidecar has started. Inside a probe's `httpGet` or `exec` a `null`
+# stays an error (shared with `lifecycle`): replace the handler whole (`httpGet: null` next to a `tcpSocket`).
 sidecars: {}
 
 externalSecret:
@@ -333,11 +334,15 @@ service:
   annotations: {}
 
 probes:
-  # -- Startup probe (Kubernetes probe object). Empty = not rendered. A port given by name must be a `ports` name.
+  # -- Startup probe, the contract of a sidecar's: exactly one of `exec`, `httpGet`, `tcpSocket` or `grpc` (`grpc.port`
+  # a number; no `host`: Pod Security rejects it from policy v1.34) and the timing fields, closed (a misspelt field
+  # fails instead of being dropped by the API), `successThreshold` at most 1 (the API requires 1). Empty or `null` = not
+  # rendered; a `null` field or handler is left out. A port given by name must be a `ports` name.
   startup: {}
-  # -- Liveness probe (Kubernetes probe object). Empty = not rendered. A port given by name must be a `ports` name.
+  # -- Liveness probe: as `startup` (`successThreshold` at most 1).
   liveness: {}
-  # -- Readiness probe (Kubernetes probe object). Empty = not rendered. A port given by name must be a `ports` name.
+  # -- Readiness probe: as `startup`, any `successThreshold`, and no `terminationGracePeriodSeconds` (the API rejects
+  # it on a readiness probe).
   readiness: {}
 
 autoscaling:

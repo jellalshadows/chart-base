@@ -1174,7 +1174,14 @@ code, official docs) and local renders.
     `tests/contract/keys.txt`. *Rejected:* the schema's own paths, a snapshot of `values.yaml`, frozen messages,
     renaming the odd keys.
     [ADR-0058](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0058-the-1-0-contract-and-how-it-stays-frozen.md)
-63. **The chart does not write `app.kubernetes.io/component`.** Kubernetes defines it as the component within the
+59. **One probe contract for every container.** The main container's `probes` take the closed definition of a
+    sidecar's: one handler, no `host`, `grpc.port` a number, a misspelt field fails; `successThreshold` at most 1 on
+    `startup` and `liveness` and no `terminationGracePeriodSeconds` on `readiness`, for the main container and the
+    sidecars alike, as the API server requires. `{}` and `null` are no probe, and a `null` field or handler is left out
+    in both places. It amends decisions 47 and 51. *Rejected:* keeping the main probes open (two contracts frozen at
+    1.0, values that fail only at install), kind rules for one kind of container only.
+    [ADR-0059](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0059-one-probe-contract-for-every-container.md)
+63.**The chart does not write `app.kubernetes.io/component`.** Kubernetes defines it as the component within the
     architecture (`database`), which only the consumer knows; up to 0.11.0 the chart wrote the workload type there,
     which the `kind` already says, and a consumer could not set it. It is now the consumer's key, set with
     `commonLabels` or `podLabels`, and the maps that reject the chart's label keys reject six. Not a selector label: no

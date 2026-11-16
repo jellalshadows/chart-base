@@ -1087,19 +1087,19 @@ tests:
       - failedTemplate:
           errorPattern: 'probes.liveness.httpGet.port "8080" is not the name of an entry in ports: the kubelet cannot resolve it and never runs the probe'
 
-  - it: rejects a probe handler that is a string
+  - it: rejects a probe handler that is a string, in the schema (ADR-0059)
     set:
       probes.readiness.httpGet: x
     asserts:
       - failedTemplate:
-          errorPattern: 'probes.readiness.httpGet must be a map, e.g. .port: 8080., got string'
+          errorPattern: "at '/probes/readiness/httpGet': got string, want "
 
-  - it: rejects a probe handler that is a list
+  - it: rejects a probe handler that is a list, in the schema (ADR-0059)
     set:
       probes.startup.tcpSocket: [8080]
     asserts:
       - failedTemplate:
-          errorPattern: 'probes.startup.tcpSocket must be a map, e.g. .port: 8080., got slice'
+          errorPattern: "at '/probes/startup/tcpSocket': got array, want "
 
   - it: accepts numeric probe ports with no ports entry (a worker with ports [])
     set:
@@ -1136,9 +1136,16 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: accepts a probe handler without a port (not checked here)
+  - it: rejects an httpGet probe handler without a port, in the schema (ADR-0059)
     set:
       probes.readiness.httpGet: {path: /ready}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/probes/readiness/httpGet': missing property 'port'"
+
+  - it: accepts a probe handler with a port (the port name checked above)
+    set:
+      probes.readiness.httpGet: {path: /ready, port: 8080}
     asserts:
       - hasDocuments:
           count: 0

@@ -1726,3 +1726,99 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "/strategy/rollingUpdate/maxSurge': got null, want integer or string"
+
+  # One probe contract (ADR-0059): the main container's probes are definitions.probe, closed at every level, plus the
+  # rule of their kind; {} and null are no probe.
+  - it: rejects a gRPC port name on a main-container probe (the API decodes only a number there)
+    set:
+      probes.readiness.grpc: {port: grpc}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/probes/readiness/grpc/port': got string, want integer"
+
+  - it: accepts a gRPC port number on a main-container probe
+    set:
+      probes.readiness.grpc: {port: 9090, service: health}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects httpGet.host on a main-container probe (Pod Security rejects it from policy v1.34)
+    set:
+      probes.liveness.httpGet: {port: 8080, host: 127.0.0.1}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/probes/liveness/httpGet': additional properties 'host' not allowed"
+
+  - it: rejects tcpSocket.host on a main-container probe
+    set:
+      probes.liveness.tcpSocket: {port: 8080, host: 127.0.0.1}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/probes/liveness/tcpSocket': additional properties 'host' not allowed"
+
+  - it: rejects a misspelt field of a main-container probe (the API would drop it silently)
+    set:
+      probes.liveness: {httpGet: {port: 8080}, initialDelaySecond: 5}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/probes/liveness': additional properties 'initialDelaySecond' not allowed"
+
+  - it: rejects a main-container probe without a handler
+    set:
+      probes.startup: {periodSeconds: 5}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/probes/startup': 'oneOf' failed, none matched"
+
+  - it: rejects a main-container probe with two handlers
+    set:
+      probes.readiness: {httpGet: {port: 8080}, tcpSocket: {port: 8080}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/probes/readiness': 'oneOf' failed, subschemas 1, 2 matched"
+
+  - it: rejects a negative timing field on a main-container probe
+    set:
+      probes.liveness: {httpGet: {port: 8080}, periodSeconds: -1}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/probes/liveness/periodSeconds': minimum: got -1, want 0"
+
+  - it: rejects successThreshold 2 on a liveness probe (the API requires 1)
+    set:
+      probes.liveness: {httpGet: {port: 8080}, successThreshold: 2}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/probes/liveness/successThreshold': maximum: got 2, want 1"
+
+  - it: rejects successThreshold 2 on a startup probe (the API requires 1)
+    set:
+      probes.startup: {httpGet: {port: 8080}, successThreshold: 2}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/probes/startup/successThreshold': maximum: got 2, want 1"
+
+  - it: accepts successThreshold 0 and 1 on liveness and startup (the API defaults 0 to 1), and 2 on readiness
+    set:
+      probes.startup: {httpGet: {port: 8080}, successThreshold: 1}
+      probes.liveness: {httpGet: {port: 8080}, successThreshold: 0}
+      probes.readiness: {httpGet: {port: 8080}, successThreshold: 2}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects terminationGracePeriodSeconds on a readiness probe (the API rejects it there)
+    set:
+      probes.readiness: {httpGet: {port: 8080}, terminationGracePeriodSeconds: 10}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/probes/readiness/terminationGracePeriodSeconds': got number, want null"
+
+  - it: accepts terminationGracePeriodSeconds on liveness and startup probes
+    set:
+      probes.startup: {httpGet: {port: 8080}, terminationGracePeriodSeconds: 10}
+      probes.liveness: {httpGet: {port: 8080}, terminationGracePeriodSeconds: 10}
+    asserts:
+      - hasDocuments:
+          count: 0
