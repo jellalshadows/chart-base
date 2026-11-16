@@ -76,7 +76,7 @@ Everything at the top level of the repository, and why it is there:
 | `docs/` | This documentation: ADRs, roadmap, guides and runbooks. Not part of the package, and never triggers a release ([ADR-0000](../adr/0000-record-architecture-decisions.md)). |
 | `.github/workflows/ci.yaml` | The checks that run on every pull request. |
 | `.github/workflows/release.yaml` | Release and publishing ([ADR-0020](../adr/0020-release-please-and-publish-in-one-workflow.md)). |
-| `.github/scripts/` | `validate-manifests.sh`, `alias-contract.sh`, `release-signing.sh` and `e2e.sh`, called by `ci.yaml`. |
+| `.github/scripts/` | `validate-manifests.sh`, `alias-contract.sh`, `contract-keys.sh`, `release-signing.sh` and `e2e.sh`, called by `ci.yaml`. |
 | `.github/renovate.json` | Renovate configuration ([ADR-0024](../adr/0024-renovate.md)). |
 | `release-please-config.json`, `.release-please-manifest.json` | release-please configuration and current version. |
 | `.helmignore` | What `helm package` leaves out of the published archive: tests, CI files, `docs/`, the README template and the release tooling. |
@@ -166,7 +166,8 @@ or change a key:
 1. **Test first** (see above), including the negative cases: the values that must be rejected.
 2. **`values.yaml`**: add the key with its default and a `# --` comment on the line above. helm-docs
    turns that comment into the row of the values table, so write it for a consumer. Renaming or removing a
-   key, or changing a default, is a breaking change.
+   key, or changing a default, is a breaking change; from 1.0 on it is a major, and a key is never removed or renamed
+   ([ADR-0058](../adr/0058-the-1-0-contract-and-how-it-stays-frozen.md)).
 3. **`values.schema.json`**: describe the key, with `additionalProperties: false` on every object of a
    fixed shape, so that a typo fails instead of being ignored
    ([ADR-0011](../adr/0011-strict-draft-07-schema.md)).
@@ -184,7 +185,14 @@ or change a key:
    ```
 
    CI runs the same command and fails on any difference in `README.md`.
-7. Add the key to a `ci/` scenario when it needs an end-to-end check, and update the documentation in
+7. **Regenerate the list of keys** and commit it with the change: the `lint` job fails while a key of the schema is
+   missing from `tests/contract/keys.txt`, or a key of the list is gone from the schema
+   ([the 1.0 contract](testing.md#the-10-contract)):
+
+   ```bash
+   .github/scripts/contract-keys.sh --list . > tests/contract/keys.txt
+   ```
+8. Add the key to a `ci/` scenario when it needs an end-to-end check, and update the documentation in
    the same pull request (see [the definition of done](testing.md#definition-of-done-for-a-feature)).
 
 ## Pitfalls

@@ -68,6 +68,7 @@ not published; each record restates every fact it uses.
 | [0055](0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md) | The HPA's `behavior` and `metrics` are validated pass-throughs, and a non-empty `metrics` list replaces the built-in targets | Accepted | 0.10.0 |
 | [0056](0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md) | KEDA: a curated ScaledObject block with a triggers map, in place of the HPA | Accepted | 0.10.0 |
 | [0057](0057-common-labels-and-annotations-service-annotations-and-extraobjects.md) | Common labels and annotations, Service annotations and `extraObjects` | Accepted | 0.11.0 |
+| [0058](0058-the-1-0-contract-and-how-it-stays-frozen.md) | The 1.0 contract, and how it stays frozen | Accepted | 0.12.0 |
 
 ## Adding a record
 

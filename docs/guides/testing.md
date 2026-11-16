@@ -13,6 +13,7 @@ Contents:
 - [Lint on Helm 3 and 4](#lint-on-helm-3-and-4)
 - [Manifest validation with kubeconform](#manifest-validation-with-kubeconform)
 - [The alias contract](#the-alias-contract)
+- [The 1.0 contract](#the-10-contract)
 - [End-to-end on kind](#end-to-end-on-kind)
 - [Documentation checks](#documentation-checks)
 - [Workflow checks](#workflow-checks)
@@ -28,6 +29,7 @@ Contents:
 | `helm lint --strict` | The chart lints on every scenario, on real Helm 3.22 and 4.3 | Yes | `lint` |
 | kubeconform | The rendered manifests are valid for Kubernetes 1.33 and 1.37 | Yes (needs network) | `lint` |
 | Alias contract | Several aliases in one umbrella work and stay independent | Yes | `lint` |
+| 1.0 contract | No values key is removed or renamed, and every new key is listed (names, selectors and label keys: the unit tests) | Yes (jq) | `lint` |
 | End-to-end | The manifests really install and run in a cluster, kindnet enforces the NetworkPolicies as rendered, and the API server grants what the RBAC objects say | No (needs kind) | `e2e` |
 | Documentation | The README is not stale; every link and anchor resolves | Yes | `docs` |
 | Workflows | The workflow files are sound; the PR title is a conventional commit | Yes (actionlint) | `workflows`, `pr-title` |
@@ -57,7 +59,7 @@ A single required check, `ci-ok`, depends on all the jobs. chart-testing (`ct`) 
   `externalSecretKeyRef` source, the file mount, on every workload type), `externalsecret_guards` (the schema rules and
   guards of `externalSecret` and of `externalSecretKeyRef`), `autoscaling_guards` (the schema rules and guards of
   `autoscaling.behavior` and `autoscaling.metrics`), `keda` (the ScaledObject), `keda_guards` (the schema rules and
-  guards of `keda`)). Each suite names the templates it renders, and only those
+  guards of `keda`), `contract` (the frozen names, selectors and keys, [the 1.0 contract](#the-10-contract))). Each suite names the templates it renders, and only those
   are rendered: a guard test lists `templates/validate.yaml`.
 - Shared values in `tests/values/`: `base.yaml` (the minimum valid values every suite starts from),
   `env-refs.yaml` (one reference of every kind plus `envFrom` sources, for the `env` suite),
@@ -247,6 +249,34 @@ because Helm 4 skips subchart schema validation in `helm lint` when the umbrella
 It ends with `alias contract: all checks passed`.
 
 **In CI.** The `lint` job, on Helm 3.22.0 and 4.3.0.
+
+## The 1.0 contract
+
+**What it proves.** That the frozen part of the chart ([ADR-0058](../adr/0058-the-1-0-contract-and-how-it-stays-frozen.md))
+has not changed: the object names, the selector labels, the main container's and the chart's volume names, the label and
+annotation keys the chart writes, and every values key name. Two layers share it:
+
+- `tests/contract_test.yaml`, a unit suite, pins the names, selectors and keys on the three workload types. A failure
+  there is a breaking change for every consumer.
+- `.github/scripts/contract-keys.sh <chart-dir> [<keys-file>]` lists every key a values file can set, as a path read
+  from `values.schema.json` (`ports[].name`, `volumes.<name>.subPath`, through every `$ref`), and compares it with the
+  committed `tests/contract/keys.txt`. A key that is gone fails: a removed or renamed key is a major change. A key that
+  is not in the list fails too: a new key is committed with the list that holds it.
+
+**Run locally.** Needs `jq`:
+
+```bash
+.github/scripts/contract-keys.sh .
+```
+
+It ends with `contract-keys: the <n> keys of values.schema.json match ./tests/contract/keys.txt`. After adding a key,
+regenerate the list and commit it with the change (the diff shows the reviewer the new keys):
+
+```bash
+.github/scripts/contract-keys.sh --list . > tests/contract/keys.txt
+```
+
+**In CI.** The unit suite in the `unit tests` job; the script in the `lint` job.
 
 ## End-to-end on kind
 

@@ -90,6 +90,8 @@ jobs:
         run: .github/scripts/validate-manifests.sh . 1.37.0
       - name: Alias contract (throwaway umbrella)
         run: .github/scripts/alias-contract.sh .
+      - name: Values keys of the 1.0 contract (ADR-0058)
+        run: .github/scripts/contract-keys.sh .
 
   e2e:
     name: e2e on kind (kubernetes ${{ matrix.kubernetes }})

@@ -1165,6 +1165,15 @@ code, official docs) and local renders.
     decisions 7, 10, 41, 49 and 53. *Rejected:* common annotations on pods, the reserved keys as guards, a list, a
     consumer-written name, another separator, `tpl`, an allowlist of kinds.
     [ADR-0057](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)
+58. **The 1.0 contract, and how it stays frozen.** From 1.0 the selector labels, the object names (`<release>-<alias>`
+    and its `-env`, `-files`, `-secrets`, `.<key>` and `.<clusterRole>` forms), the main container's and the chart's
+    volume names, the label and annotation keys the chart writes and every values key name are frozen: a key is never
+    removed or renamed, a new key is optional, and a default that changes the manifest of an unchanged values file, or
+    a check that rejects values that render, is a major. Error messages, key order and docs are not frozen.
+    `tests/contract_test.yaml` pins the names and keys, and CI compares every values key path of the schema with
+    `tests/contract/keys.txt`. *Rejected:* the schema's own paths, a snapshot of `values.yaml`, frozen messages,
+    renaming the odd keys.
+    [ADR-0058](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0058-the-1-0-contract-and-how-it-stays-frozen.md)
 
 ## Versioning and releases
 
