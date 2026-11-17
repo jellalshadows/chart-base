@@ -449,9 +449,13 @@ keda:
 pdb:
   # -- Render a PodDisruptionBudget (policy/v1). Deployments only.
   enabled: true
-  # -- (int or string) Max unavailable pods. When neither this nor `minAvailable` is set, `1` is used.
+  # -- (int or string) Max unavailable pods. When neither this nor `minAvailable` is set, `1` is used. `0` and `"0%"`
+  # fail the render: the budget would allow no eviction and stall every node drain.
   maxUnavailable: null
-  # -- (int or string) Min available pods. Mutually exclusive with `maxUnavailable`.
+  # -- (int or string) Min available pods. Mutually exclusive with `maxUnavailable`. It must leave one pod to evict at
+  # the replica floor (`max(keda.minReplicaCount, 1)` with KEDA, `autoscaling.minReplicas` with the HPA, otherwise
+  # `replicas`; a percentage rounded up), or the render fails. A budget that blocks on purpose: `pdb.enabled: false`
+  # and a PodDisruptionBudget in `extraObjects`.
   minAvailable: null
   # -- `IfHealthyBudget` or `AlwaysAllow` (lets drains evict pods that are not Ready).
   unhealthyPodEvictionPolicy: AlwaysAllow

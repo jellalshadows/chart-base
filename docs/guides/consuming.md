@@ -364,7 +364,8 @@ An extra object is named `<release>-<alias>.<key>` and installed in the release 
 component every extra object is a hook of the Job's phase. A custom kind needs its CRD in the cluster, or the whole
 release fails, and `validate-manifests.sh`'s kubeconform needs a schema location for it (add one, or pass
 `-ignore-missing-schemas` in your own pipeline). An extra autoscaler or budget of the component's own pods fights the
-chart: use `autoscaling`, `keda` and `pdb` ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)).
+chart: use `autoscaling`, `keda` and `pdb` ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)); the one extra budget that does not is a blocking one with `pdb.enabled: false`
+([ADR-0062](../adr/0062-a-pdb-never-blocks-a-drain-at-the-replica-floor.md)).
 
 **Job components: expect them to run as Helm hooks.**
 A component with `workload.type: job` is rendered as a Helm hook (`job.phase: pre-deploy` by default,
@@ -524,9 +525,17 @@ must know:
   cannot scale from zero: a component scaled only by them keeps `minReplicaCount` at 1 or more (the render fails
   otherwise).
 - **Scale to zero is written on purpose** (`minReplicaCount: 0`; the chart's default is 1, KEDA's own 0). At zero the
-  component has no pod behind its Service or route. The PodDisruptionBudget is not checked against the minimum: with
-  `minReplicaCount: 0` the workload often runs one pod, and any integer `pdb.minAvailable` of 1 or more then blocks a
-  node drain (the default `maxUnavailable: 1` does not; [roadmap](../roadmap.md#open-decisions)).
+  component has no pod behind its Service or route. The PodDisruptionBudget is checked against a floor of one pod: with
+  `minReplicaCount: 0` the workload runs at least one pod while a trigger is active, and a `pdb.minAvailable` of 1 or
+  more would then block every node drain, so it fails the render (the default `maxUnavailable: 1` does not).
+- **The PodDisruptionBudget must allow one eviction at the replica floor**, in every mode
+  ([ADR-0062](../adr/0062-a-pdb-never-blocks-a-drain-at-the-replica-floor.md)). The floor is `max(keda.minReplicaCount,
+  1)` with KEDA, `autoscaling.minReplicas` with the HPA, otherwise `replicas` (at 0 nothing is checked). The render
+  fails, naming the floor's source, when an integer `pdb.minAvailable` is at or above the floor, when a percentage
+  `minAvailable` reaches it once rounded up (the disruption controller rounds both percentages up: `"50%"` of 2 pods is
+  1, `"51%"` is 2, and `"50%"` of 1 pod is 1), or when `pdb.maxUnavailable` is `0` or `"0%"`. A budget that blocks
+  evictions on purpose (a quorum that must never lose a member to a drain) is written with `pdb.enabled: false` and a
+  PodDisruptionBudget in `extraObjects`, which the chart does not check.
 - **A native sidecar's usage is reported** by metrics-server next to the main container's (source reading of the
   kubelet's CRI stats provider at v1.33.12 and v1.37.0 and of metrics-server 0.9.0; the kind e2e asserts it), so a
   `ContainerResource` metric or a `containerName` may name a sidecar. An init container cannot be named: it has exited
@@ -561,7 +570,9 @@ offer ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-
    under `helm lint` ([ADR-0044](../adr/0044-guards-fail-the-render-helm-lint-reports-them.md)).
 4. **An extra autoscaler on the component's Deployment fights the chart**, with the chart's autoscalers off too: the
    chart then renders `spec.replicas`, which Helm 3 resets at every upgrade and Helm 4 can conflict on. Use
-   `autoscaling` or `keda`; likewise `pdb` for a budget of the component's own pods.
+   `autoscaling` or `keda`; likewise `pdb` for a budget of the component's own pods, or, for a budget that blocks
+   evictions on purpose, `pdb.enabled: false` and the PodDisruptionBudget in `extraObjects` (two budgets over one pod
+   make the eviction API refuse every eviction of it).
 5. **`helm.sh/resource-policy: keep` in `commonAnnotations`** keeps the regular objects on uninstall, never a `job`
    component's hooks: Helm deletes a hook without reading it
    ([ADR-0042](../adr/0042-existing-serviceaccount-and-namespaced-rbac.md)).
@@ -613,7 +624,8 @@ release name and `--namespace`, not on `helm lint`
   line (`funcMap fail` on Helm 4, `[INFO] Fail:` on Helm 3), exits 0, and renders under the placeholder release name
   `test-release`, so the name guards judge a name the deploy never uses. The guards are, for example, a name that is
   not a DNS-1035 label, a name longer than 63 characters (52 for a CronJob), a Kubernetes version below 1.33,
-  `autoscaling.minReplicas` greater than `maxReplicas`, a rollout that Kubernetes would reject (`maxSurge` and
+  `autoscaling.minReplicas` greater than `maxReplicas`, a PodDisruptionBudget that allows no eviction at the replica
+  floor (see [Autoscaling](#autoscaling-the-hpa-and-keda)), a rollout that Kubernetes would reject (`maxSurge` and
   `maxUnavailable` both 0, `minReadySeconds` not lower than `progressDeadlineSeconds`, a `strategy.rollingUpdate` next
   to `Recreate`), a custom
   `lifecycle.preStop` next to the built-in preStop sleep, a lifecycle `sleep` longer than

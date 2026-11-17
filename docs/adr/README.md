@@ -25,7 +25,7 @@ not published; each record restates every fact it uses.
 | [0012](0012-no-capabilities-gating.md) | No `.Capabilities` gating for CRD kinds | Accepted | 0.1.0 |
 | [0013](0013-secure-by-default.md) | Secure by default (Pod Security `restricted`) | Accepted | 0.1.0 |
 | [0014](0014-resource-requests-required.md) | `resources.requests` are required | Amended by 0045 | 0.1.0 |
-| [0015](0015-pdb-and-topology-spread-by-default.md) | PDB and topology spread on by default | Accepted | 0.1.0 |
+| [0015](0015-pdb-and-topology-spread-by-default.md) | PDB and topology spread on by default | Amended by 0062 | 0.1.0 |
 | [0016](0016-httproute-first-ingress-optional.md) | HTTPRoute first, Ingress optional | Amended by 0061 | 0.1.0 |
 | [0017](0017-progress-deadline-240s.md) | `progressDeadlineSeconds: 240` | Accepted | 0.1.0 |
 | [0018](0018-kubernetes-version-floor.md) | Kubernetes version floor `>=1.33.0-0` | Amended by 0044 | 0.1.0 |
@@ -72,6 +72,7 @@ not published; each record restates every fact it uses.
 | [0059](0059-one-probe-contract-for-every-container.md) | One probe contract for every container | Accepted | 0.12.0 |
 | [0060](0060-the-main-container-takes-the-entries-checks-and-one-token-directory-rule.md) | The main container takes the entries' checks, and one token-directory rule for every mount | Accepted | 0.12.0 |
 | [0061](0061-reserved-metadata-keys-and-a-required-ingress-class.md) | Reserved metadata keys in every map, and a required Ingress class | Accepted | 0.12.0 |
+| [0062](0062-a-pdb-never-blocks-a-drain-at-the-replica-floor.md) | A PodDisruptionBudget never blocks a drain at the replica floor | Accepted | 0.12.0 |
 | [0063](0063-the-chart-does-not-write-app-kubernetes-io-component.md) | The chart does not write `app.kubernetes.io/component` | Accepted | 0.12.0 |
 
 ## Adding a record

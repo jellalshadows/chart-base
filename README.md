@@ -882,8 +882,8 @@ sales-migrations:
 | networkPolicy.ingress.routeTrafficAllowedElsewhere | bool | `false` | Set to `true` when the route's traffic reaches the pods through a policy this chart cannot express (Cilium's Ingress or Gateway API, a `hostNetwork` ingress controller) and you allow it there: it silences the guard that fails a route (`httpRoute` or `ingress`) without a source in `fromNamespaces` or `extra`. It opens nothing; without a route it fails the render (it would have no effect). |
 | nodeSelector | object | `{}` | Node selector. |
 | pdb.enabled | bool | `true` | Render a PodDisruptionBudget (policy/v1). Deployments only. |
-| pdb.maxUnavailable | int or string | `nil` | Max unavailable pods. When neither this nor `minAvailable` is set, `1` is used. |
-| pdb.minAvailable | int or string | `nil` | Min available pods. Mutually exclusive with `maxUnavailable`. |
+| pdb.maxUnavailable | int or string | `nil` | Max unavailable pods. When neither this nor `minAvailable` is set, `1` is used. `0` and `"0%"` fail the render: the budget would allow no eviction and stall every node drain. |
+| pdb.minAvailable | int or string | `nil` | Min available pods. Mutually exclusive with `maxUnavailable`. It must leave one pod to evict at the replica floor (`max(keda.minReplicaCount, 1)` with KEDA, `autoscaling.minReplicas` with the HPA, otherwise `replicas`; a percentage rounded up), or the render fails. A budget that blocks on purpose: `pdb.enabled: false` and a PodDisruptionBudget in `extraObjects`. |
 | pdb.unhealthyPodEvictionPolicy | string | `"AlwaysAllow"` | `IfHealthyBudget` or `AlwaysAllow` (lets drains evict pods that are not Ready). |
 | podAnnotations | object | `{}` | Extra pod annotations, e.g. `{resource.opentelemetry.io/service.name: sales}`. Values are strings. Helm's and the chart's keys fail the schema (`invalid propertyName '<key>'`, reported at an unrelated path): `helm.sh/hook*`, `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files` (the pod template carries the two checksums). A change rolls a Deployment's pods. |
 | podLabels | object | `{}` | Extra pod labels, winning over `commonLabels` on a shared key. Values are strings. The chart's own keys (`app.kubernetes.io/name`, `instance`, `part-of`, `version`, `managed-by`, `helm.sh/chart`) fail the schema with `invalid propertyName '<key>'`, reported at an unrelated path; `app.kubernetes.io/component` is yours. Never a selector. A change rolls a Deployment's pods. |
@@ -1329,6 +1329,13 @@ code, official docs) and local renders.
     default class picks. It amends decisions 16, 28, 47 and 57. *Rejected:* guards (an INFO line under `helm lint`),
     an Ingress without a class on purpose, a reserved set per map.
     [ADR-0061](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0061-reserved-metadata-keys-and-a-required-ingress-class.md)
+62. **A PodDisruptionBudget never blocks a drain at the replica floor.** The floor is `max(keda.minReplicaCount, 1)`
+    with KEDA, `autoscaling.minReplicas` with the HPA, otherwise `replicas`; an integer `pdb.minAvailable` at or above
+    it, a percentage that reaches it rounded up, and `pdb.maxUnavailable` `0` or `"0%"` fail the render, naming the
+    floor's source and the remedies. A budget that blocks on purpose is `pdb.enabled: false` and a PodDisruptionBudget
+    in `extraObjects`. It amends decision 15. *Rejected:* a check for KEDA alone, the current replica count as the
+    floor, a warning, an opt-out key.
+    [ADR-0062](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0062-a-pdb-never-blocks-a-drain-at-the-replica-floor.md)
 63. **The chart does not write `app.kubernetes.io/component`.** Kubernetes defines it as the component within the
     architecture (`database`), which only the consumer knows; up to 0.11.0 the chart wrote the workload type there,
     which the `kind` already says, and a consumer could not set it. It is now the consumer's key, set with
@@ -1406,7 +1413,8 @@ cosign verify ghcr.io/jellalshadows/charts/chart-base:X.Y.Z \
 - **`extraObjects`** are named `<release>-<alias>.<key>` and installed in the release namespace; a custom kind needs
   its CRD in the cluster (or the whole release fails) and a kubeconform schema location; nothing below `apiVersion`,
   `kind` and `metadata` is checked, so an extra autoscaler or PodDisruptionBudget of the component's own pods fights the
-  chart: use `autoscaling`, `keda` and `pdb`. Changing `commonLabels` rolls a Deployment's pods.
+  chart: use `autoscaling`, `keda` and `pdb` (a budget that blocks evictions on purpose: `pdb.enabled: false` and the
+  PodDisruptionBudget in `extraObjects`). Changing `commonLabels` rolls a Deployment's pods.
 - **Quote image tags** (`tag: "1.10"`): the schema only accepts strings, so an unquoted `1.10` fails
   instead of silently becoming `1.1`.
 

@@ -160,6 +160,43 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list . "strategy.rollingUpdate.maxSurge and maxUnavailable cannot both be 0 (the rollout could not replace any pod)") -}}
 {{- end -}}
 {{- end -}}
+{{- /* pdb: the PodDisruptionBudget must allow one eviction at the replica floor, or every node drain stalls (ADR-0062). The floor is max(keda.minReplicaCount, 1) with KEDA (a pod runs while a trigger is active), autoscaling.minReplicas with the HPA, otherwise replicas (0: no pod to protect, nothing checked). The disruption controller rounds a percentage up (getExpectedPodCount). minAvailable wins over maxUnavailable, as in templates/pdb.yaml; a string that is not a percentage is the API server's to reject. */ -}}
+{{- if and (eq .Values.workload.type "deployment") .Values.pdb.enabled -}}
+{{- $floor := int64 .Values.replicas -}}
+{{- $floorSource := "replicas" -}}
+{{- if $keda.enabled -}}
+{{- $floor = max (int64 $keda.minReplicaCount) 1 -}}
+{{- $floorSource = ternary "keda.minReplicaCount" "keda.minReplicaCount 0 counts as 1: a pod runs while a trigger is active" (gt (int64 $keda.minReplicaCount) 0) -}}
+{{- else if .Values.autoscaling.enabled -}}
+{{- $floor = int64 .Values.autoscaling.minReplicas -}}
+{{- $floorSource = "autoscaling.minReplicas" -}}
+{{- end -}}
+{{- $percent := "^[0-9]+%$" -}}
+{{- $onPurpose := "for a budget that blocks evictions on purpose, set pdb.enabled: false and write a PodDisruptionBudget in extraObjects" -}}
+{{- $min := .Values.pdb.minAvailable -}}
+{{- $maxUnavailable := .Values.pdb.maxUnavailable -}}
+{{- if gt $floor 0 -}}
+{{- $lower := printf "Set pdb.minAvailable to at most %d (a percentage: at most %d%%), or pdb.minAvailable: null to use pdb.maxUnavailable (1 by default); %s" (sub $floor 1) (div (mul (sub $floor 1) 100) $floor) $onPurpose -}}
+{{- if and (kindIs "string" $min) (regexMatch $percent (toString $min)) -}}
+{{- $needed := div (add (mul (trimSuffix "%" $min | atoi) $floor) 99) 100 -}}
+{{- if ge $needed $floor -}}
+{{- include "chart-base.fail" (list . (printf "pdb.minAvailable is %q, which the disruption controller rounds up to %d of the replica floor %d (%s): the PodDisruptionBudget allows no eviction at the floor, so every node drain and cluster upgrade stalls on this component. %s" $min $needed $floor $floorSource $lower)) -}}
+{{- end -}}
+{{- else if and (not (kindIs "invalid" $min)) (not (kindIs "string" $min)) -}}
+{{- if ge (int64 $min) $floor -}}
+{{- include "chart-base.fail" (list . (printf "pdb.minAvailable is %d and the replica floor is %d (%s): the PodDisruptionBudget allows no eviction at the floor, so every node drain and cluster upgrade stalls on this component. %s" (int64 $min) $floor $floorSource $lower)) -}}
+{{- end -}}
+{{- else if kindIs "invalid" $min -}}
+{{- $zero := false -}}
+{{- if and (kindIs "string" $maxUnavailable) (regexMatch $percent (toString $maxUnavailable)) }}{{ $zero = eq (trimSuffix "%" $maxUnavailable | atoi) 0 }}{{ end -}}
+{{- if and (not (kindIs "invalid" $maxUnavailable)) (not (kindIs "string" $maxUnavailable)) }}{{ $zero = eq (int64 $maxUnavailable) 0 }}{{ end -}}
+{{- if $zero -}}
+{{- $shown := ternary (printf "%q" (toString $maxUnavailable)) "0" (kindIs "string" $maxUnavailable) -}}
+{{- include "chart-base.fail" (list . (printf "pdb.maxUnavailable is %s: the PodDisruptionBudget allows no eviction, so every node drain and cluster upgrade stalls on this component. Set pdb.maxUnavailable to 1 or more (or null for the chart's default, 1), or a pdb.minAvailable below the replica floor %d (%s); %s" $shown $floor $floorSource $onPurpose)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- if .Values.metrics.enabled -}}
 {{- /* Prometheus scrapes a port by NAME: a Service port (ServiceMonitor) or a container port (PodMonitor), both from ports. */ -}}
 {{- $portNames := list -}}
