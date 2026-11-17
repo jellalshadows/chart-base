@@ -10,16 +10,23 @@
 
 ## How the version is decided
 
-Conventional commits, squash-merged with the PR title as the commit message, decide the bump. Before 1.0
-(`bump-minor-pre-major: true`, `bump-patch-for-minor-pre-major: false` in `release-please-config.json`):
+Conventional commits, squash-merged with the PR title as the commit message, decide the bump. From 1.0.0 on
+(`bump-minor-pre-major` and `bump-patch-for-minor-pre-major` in `release-please-config.json` only act before 1.0):
 
 | Commit type | Bump |
 | --- | --- |
 | `fix:` | patch |
-| `feat:`, `feat!:` and `fix!:` | minor (never major before 1.0) |
+| `feat:` | minor |
+| `feat!:` and `fix!:` (or a `BREAKING CHANGE:` footer) | major |
 | `perf:`, `revert:` | patch (release-please's default changelog sections include them) |
 | `docs:`, `chore:`, `ci:`, `test:`, `refactor:` | no release |
 | any commit that only touches an excluded path (`.github`, `tests`, `ci`, `docs`) | no release |
+
+Up to 0.12.x a breaking change bumped the minor. 1.0.0 was forced with a `Release-As: 1.0.0` footer in the squash
+commit of a `feat:` pull request. release-please honors that footer, or `release-as` in its config, but it opens no
+Release PR while the commits since the last release produce an empty changelog (its `changelogEmpty` check), so a
+`chore:` commit alone cannot force a version. To force one again, put the footer on a `feat:` or `fix:` squash commit
+that touches a path outside `exclude-paths`.
 
 ## Steps
 

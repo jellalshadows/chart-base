@@ -1526,8 +1526,10 @@ cell; the date above is the one that holds.
 - [release-please](https://github.com/googleapis/release-please) keeps a Release PR open with the next
   version and `CHANGELOG.md`. Merging it tags `vX.Y.Z` and publishes
   `oci://ghcr.io/jellalshadows/charts/chart-base:X.Y.Z`. Nothing else ever publishes.
-- Before 1.0: `fix:` → patch, `feat:` → minor, `feat!:` and `fix!:` → minor. 1.0.0 will be declared on purpose,
-  and from then on the selector labels are frozen forever.
+- From 1.0.0: `fix:` → patch, `feat:` → minor, and a breaking change (`feat!:`, `fix!:`) → major. The contract of
+  [ADR-0058](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0058-the-1-0-contract-and-how-it-stays-frozen.md)
+  (the selector labels, the object names, the values keys) changes only in a major, and CI fails a pull request that
+  removes or renames a values key unless it is marked breaking. Before 1.0, a breaking change bumped the minor.
 - An existing version is never overwritten: the publish job fails if the tag already exists.
 - Every breaking release (`feat!` or `fix!`) has migration steps in the [upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md).
 - How a release is cut, re-published or recovered: [release runbooks](https://github.com/jellalshadows/chart-base/blob/main/docs/README.md#runbooks).

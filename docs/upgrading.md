@@ -1,7 +1,7 @@
 # Upgrade guide
 
-Before 1.0, a breaking release bumps the minor version and its pull request title carries `!`
-(`feat!:` or `fix!:`). This page lists, for every breaking release, what to change in your values, and for a fix
+A breaking release carries `!` in its pull request title (`feat!:` or `fix!:`). From 1.0.0 it bumps the major
+version; before 1.0 it bumped the minor. This page lists, for every breaking release, what to change in your values, and for a fix
 release that changes rendered objects (0.4.1), which objects change, and for 0.10.0 how to switch a running component
 between the chart's HPA and KEDA. Releases that are not listed here need no change to your values; the
 [changelog](../CHANGELOG.md) has every release.
