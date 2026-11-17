@@ -299,7 +299,8 @@ recipe author knows what is checked:
 - A block whose first line is `# values-<name>.yaml` is an **override file**: it renders with `-f` over the values
   block before it (the production overlay of the volumes recipe).
 - Every other block is **umbrella values**: each top-level key is an alias of chart-base, except `global` and keys that
-  start with `x-` (an umbrella key that only holds YAML anchors, as in the umbrella-wide defaults recipe). The script
+  start with `x-` (an umbrella key that only holds YAML anchors, as in the recipes "Settings shared by every
+  component" and "Calling a sibling component"). The script
   writes an umbrella `vending` with one `file://` dependency per alias (the chart copied next to it, as the
   [alias contract](#the-alias-contract) does), renders it as the release `vending` in the namespace `vending` with
   `--kube-version`, and pipes the result to `kubeconform -strict`.

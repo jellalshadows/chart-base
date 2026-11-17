@@ -208,12 +208,66 @@ orders:
   envFrom:                                  # an existing ConfigMap injected whole
     - configMapRef: {name: platform-endpoints}  # a ConfigMap shared by the platform
       prefix: PLATFORM_
+  podAnnotations:                           # the service name that Kubernetes-aware OpenTelemetry tooling reads
+    resource.opentelemetry.io/service.name: orders
 ```
 
 `reloadOnChange` (default `true`) lists `orders-db-app` and `orders-kafka-user` (Secrets) and
 `platform-endpoints` (a ConfigMap) in the Deployment's Reloader annotations, so a rotated password or an
 edited ConfigMap restarts the pods. External `envFrom` sources are injected
 before the chart's own ConfigMap/Secret, and `env` wins over every `envFrom` source.
+
+**OpenTelemetry service identity.** `OTEL_SERVICE_NAME` names the service in what the application's SDK sends.
+Tooling that follows OpenTelemetry's
+[Kubernetes attributes guide](https://opentelemetry.io/docs/specs/semconv/non-normative/k8s-attributes/) (read on
+2026-11-17) takes `service.name` from the pod annotation `resource.opentelemetry.io/service.name`, then the pod label
+`app.kubernetes.io/instance`, then `app.kubernetes.io/name`. chart-base sets `app.kubernetes.io/instance` to the
+release name for every alias (a selector label), so without the annotation such tooling names every component of the
+umbrella after the release. `service.version` comes from the annotation `resource.opentelemetry.io/service.version`,
+then the label `app.kubernetes.io/version`, which is the image tag (see the next recipe for a digest). The chart
+renders neither annotation: set them in `podAnnotations` (a change rolls the pods). Which tools implement the guide was
+not verified here.
+
+### A Secret on the command line, and an image pinned by digest (Redis)
+
+A program that takes a secret only as a flag (Redis' `--requirepass`) reads it from a variable: the kubelet expands
+`$(NAME)` in `command` and `args` from the container's environment, so the values never hold the secret:
+
+```yaml
+cache:
+  image:
+    repository: docker.io/library/redis
+    tag: 8.10.3-alpine                      # the version label reads the tag: keep it the version the digest pins
+    digest: sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537   # wins over the tag
+  args: ["--requirepass", "$(REDIS_PASSWORD)"]   # expanded by the kubelet, not by the chart or a shell
+  ports: [{name: redis, containerPort: 6379}]
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+  externalSecret:
+    enabled: true
+    secretStoreRef: {kind: ClusterSecretStore, name: gcp-sm}
+    envFrom: false                          # one key at a time, below
+    data:
+      REDIS_PASSWORD: {key: cache-redis-password}
+  env:
+    REDIS_PASSWORD: {valueFrom: {externalSecretKeyRef: {key: REDIS_PASSWORD}}}   # a secretKeyRef on vending-cache-secrets
+  probes:
+    readiness: {tcpSocket: {port: redis}}
+  volumes:
+    data: {type: emptyDir, mountPath: /data}   # the root filesystem is read-only
+```
+
+The variable must be in `env` (a `secretKeyRef` on any Secret works the same way); whether a variable that only
+`envFrom` brings is expanded too was not verified. A `$(NAME)` that no variable defines stays as written, and `$$`
+escapes: `$$(NAME)` gives the literal `$(NAME)` (Kubernetes' documentation of `args`). A `command` script sees the
+same expansion before its shell runs. The expanded value is visible to whoever can list the node's processes: prefer
+a file or a variable when the program accepts one.
+
+**The version label under a digest.** `app.kubernetes.io/version` is the image tag, also when a digest pins what runs
+(the image becomes `repository@digest` and the tag only feeds the label). A floating tag such as `alpine` labels every
+object `"alpine"`, which names no version, and the registry may move that tag to another build while the digest stays:
+next to a digest, write the version-shaped tag of the build the digest pins (`8.10.3-alpine`). Without a tag there is
+no version label. The OpenTelemetry guide above reads `service.version` from this label.
 
 ### Zero-downtime rollouts at any replica count
 
@@ -752,6 +806,77 @@ An extra object is rendered as written below `apiVersion`, `kind` and `metadata`
 `annotations` only); a workload, a `Service`, a `Secret` (use `externalSecret`), a list or a cluster-scoped built-in
 kind fails the render with what to write instead.
 
+### Settings shared by every component (YAML anchors)
+
+chart-base reads nothing outside its alias (`global` is accepted and never read), so a setting every component
+shares is written once with a YAML anchor and merged into each alias with `<<`:
+
+```yaml
+x-vending:                                  # not an alias: an umbrella key that only holds anchors
+  labels: &labels {domain: vending, team: vending-core}
+  component: &component                     # what every component of the domain shares
+    commonLabels: *labels
+    imagePullSecrets: [{name: ghcr-pull}]
+sales:
+  <<: *component
+  image: {repository: ghcr.io/acme/sales, tag: "1.4.2"}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+machines:
+  <<: *component
+  image: {repository: ghcr.io/acme/machines, tag: "2.0.1"}
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+  commonLabels: {<<: *labels, team: machines}   # the merge is shallow: merge the inner map again to change one key
+```
+
+A key the alias writes replaces the merged key whole, so `machines` merges `*labels` again into its own
+`commonLabels`. Anchors live in one file: an override file (`-f values-production.yaml`) cannot use the anchors of
+`values.yaml`. An umbrella root schema with `additionalProperties: false` (the
+[consuming guide](https://github.com/jellalshadows/chart-base/blob/main/docs/guides/consuming.md#recommendations-for-umbrella-authors)
+recommends one) rejects `x-vending`: allow it with `"patternProperties": {"^x-": {}}`, or put the anchors under the
+first alias (`commonLabels: &labels {...}`) and alias them in the others (`commonLabels: *labels`). Both forms render
+the same objects as the settings written out under every alias (measured on Helm 4.3.0 and 3.22.0 by the first real
+umbrella).
+
+### Calling a sibling component
+
+A sibling's Service is `<release>-<alias>` and serves each entry of its `ports` on `servicePort` (default:
+`containerPort`), so its address holds the release name, which values cannot read: `config` and every other value
+is rendered as written, the chart resolves no placeholder in it. Write the address with the release name once and pin
+that name where the umbrella is deployed (helmfile's `name:`), or read the name in the pod:
+
+```yaml
+x-addresses:                                # each sibling address once: <release>-<alias>:<port>
+  orders: &orders-url http://vending-orders:8080
+orders:
+  image: {repository: ghcr.io/acme/orders, tag: "3.1.0"}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+web:
+  image: {repository: ghcr.io/acme/web, tag: "1.0.0"}
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+  config:
+    ORDERS_URL: *orders-url                 # the Service vending-orders, port 8080
+checkout:
+  image: {repository: ghcr.io/acme/checkout, tag: "2.2.0"}
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+  env:
+    RELEASE:                                # the release name, from the pod's own label
+      valueFrom: {fieldRef: {fieldPath: "metadata.labels['app.kubernetes.io/instance']"}}
+  args: ["--orders-url=http://$(RELEASE)-orders:8080"]   # the kubelet expands $(RELEASE): any release name works
+```
+
+`web` renders under one release name only: under another, the Services are renamed and `ORDERS_URL` still names
+`vending-orders` (a render does not catch it; a CI check that each address names a rendered Service and port does).
+`checkout` works under any release name, but only where the program takes the address in `command` or `args` (the
+expansion rules are in the recipe "A Secret on the command line"). An address inside `externalSecret.template.data` holds the release name the
+same way. In the same namespace the short name is enough; from another namespace use
+`<release>-<alias>.<namespace>.svc`. NetworkPolicy names siblings by alias (`fromComponents`, `toComponents`), with no
+release name.
+
 ### CronJob
 
 ```yaml
@@ -833,10 +958,10 @@ sales-migrations:
 | httpRoute.hostnames | list | `[]` | Hostnames matched by the route. |
 | httpRoute.matches | list | `[{"path":{"type":"PathPrefix","value":"/"}}]` | HTTPRoute matches. The backend is always this component's Service (first port). Each entry takes exactly the fields of a Gateway API `HTTPRouteMatch` (`path`, `headers`, `queryParams`, `method`), at every level: an unknown or misspelt key fails the render (the API server would drop it silently and the route would match more). |
 | httpRoute.parentRefs | list | `[]` | Gateways to attach to (required when enabled), e.g. `[{name: platform-gw, namespace: gateway, sectionName: https}]`. Each entry takes exactly the fields of a Gateway API `ParentReference` (`group`, `kind`, `namespace`, `name`, `sectionName`, `port`): an unknown or misspelt key fails the render (the API server would drop it silently). |
-| image.digest | string | `""` | Image digest (`sha256:...`). When set it wins over `image.tag`. |
+| image.digest | string | `""` | Image digest (`sha256:...`). When set it wins over `image.tag`, which then only feeds the version label. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | image.repository | string | `""` | Required. Image repository, e.g. `ghcr.io/acme/sales`. |
-| image.tag | string | `""` | Image tag. Required unless `image.digest` is set. |
+| image.tag | string | `""` | Image tag. Required unless `image.digest` is set. It is also the `app.kubernetes.io/version` label, digest or not: next to a digest, write the version-shaped tag of the build the digest pins (`8.10.3-alpine`, not `alpine`). |
 | imagePullSecrets | list | `[]` | Pull secrets for private registries, e.g. `[{name: ghcr-pull}]`. |
 | ingress.annotations | object | `{}` | Ingress annotations (a controller's settings). Values are strings. Helm's and the chart's keys fail the schema (`invalid propertyName '<key>'`, reported at an unrelated path): `helm.sh/hook*` (it would turn the Ingress into a Helm hook), `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files`. |
 | ingress.className | string | `""` | IngressClass name, required while the Ingress is enabled: `""` and `null` fail in every values layer (the cluster's default IngressClass is never chosen for you). No controller-specific annotations are added. |

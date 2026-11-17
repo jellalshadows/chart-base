@@ -11,9 +11,10 @@ workload:
 image:
   # -- Required. Image repository, e.g. `ghcr.io/acme/sales`.
   repository: ""
-  # -- Image tag. Required unless `image.digest` is set.
+  # -- Image tag. Required unless `image.digest` is set. It is also the `app.kubernetes.io/version` label, digest or
+  # not: next to a digest, write the version-shaped tag of the build the digest pins (`8.10.3-alpine`, not `alpine`).
   tag: ""
-  # -- Image digest (`sha256:...`). When set it wins over `image.tag`.
+  # -- Image digest (`sha256:...`). When set it wins over `image.tag`, which then only feeds the version label.
   digest: ""
   # -- Image pull policy.
   pullPolicy: IfNotPresent
