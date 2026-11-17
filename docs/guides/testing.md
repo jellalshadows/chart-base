@@ -14,6 +14,7 @@ Contents:
 - [Manifest validation with kubeconform](#manifest-validation-with-kubeconform)
 - [The alias contract](#the-alias-contract)
 - [The 1.0 contract](#the-10-contract)
+- [README recipes](#readme-recipes)
 - [End-to-end on kind](#end-to-end-on-kind)
 - [Documentation checks](#documentation-checks)
 - [Workflow checks](#workflow-checks)
@@ -30,6 +31,7 @@ Contents:
 | kubeconform | The rendered manifests are valid for Kubernetes 1.33 and 1.37 | Yes (needs network) | `lint` |
 | Alias contract | Several aliases in one umbrella work and stay independent | Yes | `lint` |
 | 1.0 contract | No values key is removed or renamed, and every new key is listed (names, selectors and label keys: the unit tests) | Yes (jq) | `lint` |
+| README recipes | Every YAML block under the README's `## Recipes` renders and is valid for Kubernetes 1.33 and 1.37 | Yes (needs network) | `lint` |
 | End-to-end | The manifests really install and run in a cluster, kindnet enforces the NetworkPolicies as rendered, and the API server grants what the RBAC objects say | No (needs kind) | `e2e` |
 | Documentation | The README is not stale; every link and anchor resolves | Yes | `docs` |
 | Workflows | The workflow files are sound; the PR title is a conventional commit | Yes (actionlint) | `workflows`, `pr-title` |
@@ -277,6 +279,50 @@ regenerate the list and commit it with the change (the diff shows the reviewer t
 ```
 
 **In CI.** The unit suite in the `unit tests` job; the script in the `lint` job.
+
+## README recipes
+
+**What it proves.** That every recipe of the README is values a consumer can paste: each YAML block under `## Recipes`
+renders through a throwaway umbrella with real Helm, and the manifests are valid for Kubernetes 1.33.12 and 1.37.0 with
+the schemas of [kubeconform](#manifest-validation-with-kubeconform). A recipe that drifts from the chart (a renamed
+key, a check that now rejects it) fails here, not in a consumer's pipeline.
+
+**Where it lives.** `.github/scripts/readme-recipes.sh <chart-dir> [<out-dir>]`. The extraction is deterministic, so a
+recipe author knows what is checked:
+
+- It reads `README.md`, the generated file (where the template escapes of `README.md.gotmpl` are resolved), from the
+  line `## Recipes` to the next `## ` heading. A line that is exactly `` ```yaml `` opens a block and the next line that
+  is exactly `` ``` `` closes it; any other fence (`` ```bash ``) is skipped whole. Blocks are numbered in document order
+  and reported by their first line in `README.md` and their `### ` heading.
+- A block with a top-level `apiVersion` and `kind` is a **manifest** (the namespace default-deny of the NetworkPolicy
+  recipe): kubeconform validates it as written.
+- A block whose first line is `# values-<name>.yaml` is an **override file**: it renders with `-f` over the values
+  block before it (the production overlay of the volumes recipe).
+- Every other block is **umbrella values**: each top-level key is an alias of chart-base, except `global` and keys that
+  start with `x-` (an umbrella key that only holds YAML anchors, as in the umbrella-wide defaults recipe). The script
+  writes an umbrella `vending` with one `file://` dependency per alias (the chart copied next to it, as the
+  [alias contract](#the-alias-contract) does), renders it as the release `vending` in the namespace `vending` with
+  `--kube-version`, and pipes the result to `kubeconform -strict`.
+
+The schema locations are read from `validate-manifests.sh` (its `k8s_schemas` and `crd_schemas` lines), so the two
+checks use one pinned source: a recipe that renders a Gateway API, External Secrets, Prometheus Operator or KEDA object
+needs nothing more, and a recipe with another custom kind needs that kind's schema there first. Every failure names the
+README line, the recipe and the Kubernetes version, with Helm's or kubeconform's own output; the script checks every
+block before it exits 1. Nothing is installed here; the validation campaign before 1.0.0 installs the same umbrellas
+from `<out-dir>`, where the script keeps its work (`<NN>/` the umbrella of block `NN` with its override file, ready for
+`helm install`; `<NN>-manifest.yaml`; `blocks/`, every block and render).
+
+**Run locally.** Needs `helm`, `kubeconform` and `yq` (mikefarah, v4) on `PATH`, and network access for the schemas:
+
+```bash
+.github/scripts/readme-recipes.sh .
+```
+
+Each block prints `ok - README.md:<line> <aliases> (<recipe>)`, and the run ends with `readme recipes: every block
+renders and validates: ...`. After editing a recipe, regenerate the README first (helm-docs), since the script reads
+the generated file.
+
+**In CI.** The `lint` job, on Helm 3.22.0 and 4.3.0.
 
 ## End-to-end on kind
 

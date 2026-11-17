@@ -1429,7 +1429,8 @@ helm lint --strict . -f ci/full-values.yaml
 ```
 
 CI (`.github/workflows/ci.yaml`) runs the unit tests, `helm lint`/`helm template` + kubeconform on
-Helm 3.22 and 4.3, the alias contract (`.github/scripts/alias-contract.sh`), a real install on kind
+Helm 3.22 and 4.3, the alias contract (`.github/scripts/alias-contract.sh`), every recipe of this README rendered and
+validated (`.github/scripts/readme-recipes.sh`), a real install on kind
 (Kubernetes 1.33 and 1.37) in a namespace that enforces Pod Security `restricted`, NetworkPolicy enforcement
 checks (with a namespace default-deny, then without it), RBAC checks (`kubectl auth can-i` as the ServiceAccounts,
 and API calls from the pods with their own tokens), this README drift

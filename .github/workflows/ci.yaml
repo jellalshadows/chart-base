@@ -92,6 +92,8 @@ jobs:
         run: .github/scripts/alias-contract.sh .
       - name: Values keys of the 1.0 contract (ADR-0058)
         run: .github/scripts/contract-keys.sh .
+      - name: README recipes (throwaway umbrellas, kubeconform on Kubernetes 1.33 and 1.37)
+        run: .github/scripts/readme-recipes.sh .
 
   e2e:
     name: e2e on kind (kubernetes ${{ matrix.kubernetes }})
