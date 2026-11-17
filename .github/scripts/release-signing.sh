@@ -3,6 +3,8 @@
 # release, without signing anything: the actual `run:` blocks are extracted with yq and run
 # here, so a change to them (or a cosign bump that breaks verification) fails in the PR.
 # Usage: release-signing.sh <repository root>     Requires: cosign, jq, yq (mikefarah v4), curl
+# Env: REF (optional) = ghcr.io/jellalshadows/charts/chart-base@sha256:<digest>, a published release to check instead of
+#      the 0.2.0 fixture (the validation campaign checks each new release this way); unset in CI.
 # Needs network access (ghcr.io, Sigstore). Registry access is anonymous.
 set -euo pipefail
 
@@ -16,9 +18,19 @@ mkdir -p "$work/docker"
 export DOCKER_CONFIG="$work/docker"
 
 # Fixture: chart-base 0.2.0, signed and attested. Published versions are immutable, so the
-# digest never changes.
-digest=sha256:8f91568b2371fef9cca7ade9a26aa1c0e994b8fec8804cfdd7574f06d7bacf07
-REF="ghcr.io/jellalshadows/charts/chart-base@${digest}"
+# digest never changes. With REF set, that release is the fixture, and the guard's headers are read by its digest.
+if [ -n "${REF:-}" ]; then
+  [[ "$REF" =~ ^ghcr\.io/jellalshadows/charts/chart-base@(sha256:[a-f0-9]{64})$ ]] || {
+    echo "FAIL: REF must be ghcr.io/jellalshadows/charts/chart-base@sha256:<64 hex digits>, got '${REF}'" >&2
+    exit 1
+  }
+  digest="${BASH_REMATCH[1]}" manifest="${BASH_REMATCH[1]}" fixture="$REF"
+  echo "== fixture: ${REF} (REF)"
+else
+  digest=sha256:8f91568b2371fef9cca7ade9a26aa1c0e994b8fec8804cfdd7574f06d7bacf07
+  REF="ghcr.io/jellalshadows/charts/chart-base@${digest}"
+  manifest=0.2.0 fixture=0.2.0
+fi
 SIGNER_IDENTITY=https://github.com/jellalshadows/chart-base/.github/workflows/release.yaml@refs/heads/main
 SIGNER_ISSUER=https://token.actions.githubusercontent.com
 PROVENANCE=https://slsa.dev/provenance/v1
@@ -51,7 +63,7 @@ pass "prepare step creates an executable require-bundles.sh"
 
 # 2. The signature and the provenance verify for the release workflow identity.
 out="$work/out.txt"
-"$helper" "$REF" "$PROVENANCE" "$SIGNATURE" > "$out" 2>&1 || { cat "$out" >&2; fail "0.2.0 does not verify with both bundle types"; }
+"$helper" "$REF" "$PROVENANCE" "$SIGNATURE" > "$out" 2>&1 || { cat "$out" >&2; fail "${fixture} does not verify with both bundle types"; }
 pass "signed release verifies: provenance and signature bundles"
 
 # 3. A missing bundle type is reported (the type filter is not vacuous).
@@ -76,7 +88,7 @@ headers="$work/manifest-headers.txt"
 curl -fsS --retry 3 --retry-connrefused -o /dev/null -D "$headers" -I \
   -H "Authorization: Bearer ${token}" \
   -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
-  https://ghcr.io/v2/jellalshadows/charts/chart-base/manifests/0.2.0
+  "https://ghcr.io/v2/jellalshadows/charts/chart-base/manifests/${manifest}"
 guard="$(step_run 'Refuse to overwrite an existing version (GHCR tags are mutable)')"
 awk_line="$(grep 'docker-content-digest' <<< "$guard" || true)"
 [ -n "$awk_line" ] || fail "no docker-content-digest extraction found in the guard step"

@@ -1426,7 +1426,8 @@ Helm 3.22 and 4.3, the alias contract (`.github/scripts/alias-contract.sh`), eve
 validated (`.github/scripts/readme-recipes.sh`), a real install on kind
 (Kubernetes 1.33 and 1.37) in a namespace that enforces Pod Security `restricted`, NetworkPolicy enforcement
 checks (with a namespace default-deny, then without it), RBAC checks (`kubectl auth can-i` as the ServiceAccounts,
-and API calls from the pods with their own tokens), this README drift
+and API calls from the pods with their own tokens), an umbrella's install, values change, rollback and uninstall
+(`.github/scripts/umbrella-lifecycle.sh`), this README drift
 check, the documentation link check, the PR title check, workflow linting (actionlint + zizmor) and the release signing checks.
 The [development guide](https://github.com/jellalshadows/chart-base/blob/main/docs/guides/development.md) and the [testing guide](https://github.com/jellalshadows/chart-base/blob/main/docs/guides/testing.md)
 explain the TDD loop, every test layer and the local tool setup.

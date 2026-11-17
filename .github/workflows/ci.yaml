@@ -129,6 +129,8 @@ jobs:
           cluster_name: chart-base
       - name: Install every scenario (PSS restricted, Gateway API, ESO fake provider, Prometheus Operator CRDs, KEDA, metrics-server)
         run: .github/scripts/e2e.sh .
+      - name: Umbrella lifecycle (Deployment, CronJob and Job aliases; install, values change, rollback, uninstall)
+        run: .github/scripts/umbrella-lifecycle.sh .
 
   docs:
     name: docs (README up to date, links resolve)

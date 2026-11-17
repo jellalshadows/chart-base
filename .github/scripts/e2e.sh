@@ -167,7 +167,57 @@ preemptionPolicy: Never
 description: chart-base e2e (full scenario)
 EOF
 
-install() { helm upgrade --install "$1" "$chart_dir" -n "$ns" -f "$chart_dir/ci/$1-values.yaml" --wait --timeout 5m "${@:2}"; }
+# E2E_UPGRADE_FROM=<dir> (the validation campaign; unset in CI): an older chart-base with its ci/, such as a
+# `git archive` of a release tag (the published package has no ci/). The first install of each scenario that its ci/
+# holds goes through that chart with its own values, then upgrades to the candidate, and every object of that release
+# must keep its uid (not recreated) and its selector; the checks below then run on the upgraded release. Unset,
+# install() is exactly a helm upgrade --install of the candidate.
+upgrade_from="${E2E_UPGRADE_FROM:-}"
+if [ -n "$upgrade_from" ]; then
+  from_version="$(yq '.version' "$upgrade_from/Chart.yaml" 2>&1)" || fail "E2E_UPGRADE_FROM=$upgrade_from: no Chart.yaml there ($from_version)"
+  echo "== upgrade from chart-base $from_version ($upgrade_from): each scenario of its ci/ is installed from it first"
+fi
+# <Kind>/<name> <uid> <selector as JSON> per object of the release's manifest, read from the cluster.
+release_state() {
+  local obj state
+  helm get manifest "$1" -n "$ns" > "$work/$1.from-manifest" || return 1
+  yq -N '.kind + "/" + .metadata.name' "$work/$1.from-manifest" > "$work/$1.from-objects" || return 1
+  while IFS= read -r obj; do
+    case "$obj" in '' | /) continue ;; esac
+    state="$(kubectl get -n "$ns" "$obj" -o yaml | yq -o=json -I=0 '[.metadata.uid, (.spec.selector // .spec.podSelector // null)]')" || return 1
+    printf '%s %s\n' "$obj" "$state"
+  done < "$work/$1.from-objects"
+}
+# The pod template revision of each Deployment of the release, "<name>=<revision>" (informational: the rollouts).
+revisions() {
+  kubectl get deployment -n "$ns" -l "app.kubernetes.io/instance=$1" \
+    -o jsonpath='{range .items[*]}{.metadata.name}={.metadata.annotations.deployment\.kubernetes\.io/revision}{" "}{end}' 2>&1 || true
+}
+install() {
+  local from=false before="" rollouts="" after obj state now kept=0
+  if [ -n "$upgrade_from" ] && ! helm status "$1" -n "$ns" > /dev/null 2>&1; then
+    if [ -f "$upgrade_from/ci/$1-values.yaml" ]; then
+      helm upgrade --install "$1" "$upgrade_from" -n "$ns" -f "$upgrade_from/ci/$1-values.yaml" --wait --timeout 5m \
+        || fail "upgrade from $from_version: the scenario $1 did not install from $upgrade_from"
+      before="$(release_state "$1")" || fail "upgrade from $from_version: could not read the objects of the release $1"
+      rollouts="$(revisions "$1")"
+      from=true
+    else
+      echo "upgrade from $from_version: $1 is not a scenario of $upgrade_from/ci: installed from the candidate only"
+    fi
+  fi
+  helm upgrade --install "$1" "$chart_dir" -n "$ns" -f "$chart_dir/ci/$1-values.yaml" --wait --timeout 5m "${@:2}" || return
+  $from || return 0
+  while read -r obj state; do
+    [ -n "$obj" ] || continue
+    now="$(kubectl get -n "$ns" "$obj" -o yaml 2>&1 | yq -o=json -I=0 '[.metadata.uid, (.spec.selector // .spec.podSelector // null)]' 2>&1)" \
+      || fail "upgrade from $from_version: $1: $obj of $from_version is gone after the upgrade to the candidate ($now)"
+    [ "$now" = "$state" ] || fail "upgrade from $from_version: $1: $obj was recreated or changed its selector (uid and selector before: $state, after: $now)"
+    kept=$((kept + 1))
+  done <<< "$before"
+  after="$(revisions "$1")"
+  pass "upgrade from $from_version: $1: $kept objects kept their uid and selector (hooks are not release objects); Deployment revisions after $from_version: ${rollouts:-none}, after the candidate: ${after:-none}"
+}
 
 echo "== deployment"
 install deployment || fail "deployment scenario did not become ready under PSS restricted"
