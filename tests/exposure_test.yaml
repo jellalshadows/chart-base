@@ -130,7 +130,7 @@ tests:
           path: spec.rules[0].http.paths[0].path
           value: "null"
 
-  - it: renders an Ingress with an empty ingressClassName for ingress.className null (an open decision; this test flips when it is taken)
+  - it: rejects ingress.className null while the Ingress is enabled (a class is required, no cluster default; ADR-0061)
     template: templates/ingress.yaml
     set:
       ingress.enabled: true
@@ -140,11 +140,16 @@ tests:
           paths:
             - {path: /, pathType: Prefix}
     asserts:
-      - isKind:
-          of: Ingress
-      - equal:
-          path: spec.ingressClassName
-          value: null
+      - failedTemplate:
+          errorPattern: "/ingress': missing property 'className'"
+
+  - it: accepts ingress.className null while the Ingress is disabled (the class is required by the when-enabled branch only)
+    template: templates/ingress.yaml
+    set:
+      ingress.className: null
+    asserts:
+      - hasDocuments:
+          count: 0
 
   - it: renders every Standard field of a parentRef and of a match, as written
     template: templates/httproute.yaml

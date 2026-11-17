@@ -119,8 +119,8 @@ pinned by one check of the alias contract, on both Helm versions
 | The `null` is written on | From `-f`/`--set`; from the umbrella's own values on Helm 3.22; from the umbrella's own values on Helm 4.3 when a `-f`/`--set` value names that alias | From the umbrella's own values on Helm 4.3 when nothing is passed for that alias |
 |---|---|---|
 | a chart default the schema requires ([ADR-0027](../adr/0027-required-keys-in-the-schema.md): `serviceAccount.automountToken`, `job.ttlSecondsAfterFinished`, `podSecurityContext`, `keda.minReplicaCount` and `keda.maxReplicaCount`) | Helm removes it; the render fails (`missing property`) | ignored: the default stays (nothing fails when the default is valid; `resources` and `image.repository` then fail the schema like the next row) |
-| a key that an enabled block needs ([ADR-0047](../adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md): `cronjob.schedule`, `externalSecret.secretStoreRef.kind` and `.name`, `httpRoute.parentRefs`, `ingress.hosts`) | Helm removes it; the render fails (`missing property`) | ignored: the default (`""`, `[]`) stays and fails the schema (`minLength: got 0, want 1`, `minItems`); for `secretStoreRef.kind` the default `ClusterSecretStore` stays and renders |
-| any other chart default (`podSecurityContext.runAsUser`, `securityContext.readOnlyRootFilesystem`, `ingress.className`) | the default is gone | ignored: the default stays |
+| a key that an enabled block needs ([ADR-0047](../adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md): `cronjob.schedule`, `externalSecret.secretStoreRef.kind` and `.name`, `httpRoute.parentRefs`, `ingress.hosts`; [ADR-0061](../adr/0061-reserved-metadata-keys-and-a-required-ingress-class.md): `ingress.className`) | Helm removes it; the render fails (`missing property`) | ignored: the default (`""`, `[]`) stays and fails the schema (`minLength: got 0, want 1`, `minItems`); for `secretStoreRef.kind` the default `ClusterSecretStore` stays and renders |
+| any other chart default (`podSecurityContext.runAsUser`, `securityContext.readOnlyRootFilesystem`, `ingress.className` while the Ingress is off) | the default is gone | ignored: the default stays |
 | a whole map that the chart's `values.yaml` defines (`config`, `env`, `podLabels`, `podAnnotations`, `nodeSelector`, `configFiles.files`, `volumes`, `initContainers`, `sidecars`, `keda`, `commonLabels`, `commonAnnotations`, `service.annotations`, `extraObjects`), and `autoscaling.behavior` and the list `autoscaling.metrics` | cleared (`keda: null` is KEDA off; `metrics: null` renders the built-in targets) | same result |
 | a whole map that the chart's `values.yaml` does not define (`resources.requests`) | schema error `got null, want object` | Helm drops it, and the required `requests` is then missing (`missing property 'requests'`) |
 | one entry of a typed map (`config.<KEY>`, `env.<NAME>`, labels, annotations, `commonLabels.<key>`, `commonAnnotations.<key>`, `service.annotations.<key>`, `nodeSelector.<key>`), or an optional member of a closed object (`lifecycle.postStart`, `strategy.rollingUpdate.maxSurge`, `dnsConfig.options`, `autoscaling.behavior.scaleUp`); a field inside an init container's or a sidecar's env `valueFrom` or probe `httpGet` or `exec` (definitions shared with the main container) | schema error `got null, want …` | Helm drops the entry |
@@ -575,14 +575,17 @@ offer ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-
    PersistentVolumeClaim); the chart's integrated secret path stays `externalSecret`, and a plain `Secret` is rejected.
    Values are rendered as written, never as templates.
 8. **A reserved key's message names the key at an unrelated path** (`invalid propertyName '<key>'`, at a path such as
-   `'/prometheusRule'` that moves between Helm versions). Which maps reject which keys: `commonLabels`, `podLabels`
-   (the two selector labels only), `metrics.labels`, `prometheusRule.labels` and an extra object's own labels reject the
-   chart's label keys (`app.kubernetes.io/name`, `instance`, `part-of`, `version`, `managed-by`, `helm.sh/chart`;
-   not `app.kubernetes.io/component`, which the chart does not write since 0.12.0); `commonAnnotations`, `service.annotations` and an extra object's own annotations reject
-   `helm.sh/hook*`, `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files`, and `commonAnnotations` also
-   the two Reloader keys the chart computes (`secret.reloader.stakater.com/reload`,
-   `configmap.reloader.stakater.com/reload`). `podAnnotations`, `ingress.annotations` and `serviceAccount.annotations`
-   reject nothing yet (the 1.0 contract freeze).
+   `'/prometheusRule'` that moves between Helm versions). Which maps reject which keys: `commonLabels`, `podLabels`,
+   `metrics.labels`, `prometheusRule.labels` and an extra object's own labels reject the chart's label keys
+   (`app.kubernetes.io/name`, `instance`, `part-of`, `version`, `managed-by`, `helm.sh/chart`; not
+   `app.kubernetes.io/component`, which the chart does not write since 0.12.0); every annotations map of an object's
+   or a pod template's metadata (`commonAnnotations`, `podAnnotations`, `service.annotations`, `ingress.annotations`,
+   `serviceAccount.annotations` and an extra object's own annotations) rejects `helm.sh/hook*`, `meta.helm.sh/*`,
+   `checksum/config-env` and `checksum/config-files`, and `commonAnnotations` also the two Reloader keys the chart
+   computes (`secret.reloader.stakater.com/reload`, `configmap.reloader.stakater.com/reload`). Up to 0.11.0
+   `podLabels` rejected the two selector labels only and the other three annotations maps nothing
+   ([ADR-0061](../adr/0061-reserved-metadata-keys-and-a-required-ingress-class.md)). The labels and annotations of a
+   PrometheusRule's rules are alert fields, not metadata, and reject nothing.
 9. **Changing `commonLabels` rolls a Deployment's pods** (the pod template changes); the next CronJob run and the next
    Job get them. `commonAnnotations` roll nothing.
 

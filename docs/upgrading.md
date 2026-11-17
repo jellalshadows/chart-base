@@ -166,12 +166,21 @@ object changes only where 0.4.0 rendered such a value wrongly:
   - `ingress.className` `NULL`, `Null` or `~` was dropped, so the Ingress had no class; 0.4.1 sends it as
     written, which is not a DNS-1123 subdomain. `null` is a valid name, so the upgrade succeeds, but the
     Ingress now names a class `null`, which no controller serves unless such a class exists. Measured on Helm
-    3.22.0 and 4.3.0 (corrected in 0.7.0): `ingress.className: null` renders an Ingress whose `ingressClassName` is
-    empty (null) when the `null` comes from an override file, from `--set`, or from the umbrella's own values on
-    Helm 3.22; on Helm 4.3 a `null` in the umbrella's own values is ignored while nothing is passed for the
-    component, and the chart's default `""` then fails the schema (`minLength: got 0, want 1`). Removing the key does
-    not give an Ingress without a class: the chart's default `""` applies and an enabled Ingress fails the schema the
-    same way. Whether an Ingress without a class is supported is an open decision ([roadmap](roadmap.md#open-decisions)).
+    3.22.0 and 4.3.0 (corrected in 0.7.0), up to 0.11.x: `ingress.className: null` renders an Ingress whose
+    `ingressClassName` is empty (null) when the `null` comes from an override file, from `--set`, or from the
+    umbrella's own values on Helm 3.22; on Helm 4.3 a `null` in the umbrella's own values is ignored while nothing is
+    passed for the component, and the chart's default `""` then fails the schema (`minLength: got 0, want 1`).
+    Removing the key does not give an Ingress without a class: the chart's default `""` applies and an enabled Ingress
+    fails the schema the same way. From 0.12.0 the class is required while the Ingress is enabled, so the `null` fails
+    too (`missing property 'className'`), in every values layer: no Ingress is rendered without a class
+    ([ADR-0061](adr/0061-reserved-metadata-keys-and-a-required-ingress-class.md)).
+
+    | `ingress.className` (Ingress enabled) | Up to 0.11.x | From 0.12.0 |
+    |---|---|---|
+    | `null` from `-f` or `--set`, or in the umbrella's own values (Helm 3.22; Helm 4.3 when a `-f` or `--set` value names the component) | an Ingress without a class (the cluster's default IngressClass, if any, takes it) | fails: `missing property 'className'` |
+    | `null` in the umbrella's own values on Helm 4.3, nothing passed for the component | fails: `minLength: got 0, want 1` | fails the same way |
+    | the key removed, or `""` | fails: `minLength: got 0, want 1` | fails the same way |
+    | a name | an Ingress of that class | unchanged |
   - `externalSecret.secretStoreRef.name` with surrounding whitespace or a ` #` comment (`"vault "`) was sent
     as `vault`; 0.4.1 sends it as written, which ESO rejects or cannot find as a store, and the Secret
     stops syncing. Remove the whitespace or the comment.

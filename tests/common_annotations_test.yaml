@@ -308,13 +308,23 @@ tests:
           value:
             example.com/owner: ""
 
-  - it: lets a job's hook annotations win over serviceAccount.annotations on its ServiceAccount, next to the common ones (T10)
+  - it: rejects a hook key in serviceAccount.annotations, so a job's hook annotations cannot be overridden (ADR-0061)
+    template: templates/serviceaccount.yaml
+    set:
+      workload.type: job
+      ports: []
+      serviceAccount.annotations: {helm.sh/hook-weight: "5"}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'helm.sh/hook-weight'"
+
+  - it: renders a job's hook annotations next to serviceAccount.annotations and the common ones on its ServiceAccount (T10)
     template: templates/serviceaccount.yaml
     set:
       workload.type: job
       ports: []
       commonAnnotations: {example.com/owner: platform}
-      serviceAccount.annotations: {helm.sh/hook-weight: "5", iam.gke.io/gcp-service-account: sales@acme.iam.gserviceaccount.com}
+      serviceAccount.annotations: {iam.gke.io/gcp-service-account: sales@acme.iam.gserviceaccount.com}
     asserts:
       - equal:
           path: metadata.annotations

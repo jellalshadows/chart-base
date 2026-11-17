@@ -1189,6 +1189,14 @@ code, official docs) and local renders.
     *Rejected:* keeping the main container unchecked (a gap frozen at 1.0), rejecting ancestors of the token directory
     before the campaign measures them.
     [ADR-0060](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0060-the-main-container-takes-the-entries-checks-and-one-token-directory-rule.md)
+61. **Reserved metadata keys in every map, and a required Ingress class.** `podLabels` rejects the six label keys the
+    chart writes, as `commonLabels` does; `podAnnotations`, `ingress.annotations` and `serviceAccount.annotations`
+    reject Helm's hook and ownership keys and the chart's checksums, as `service.annotations` does. Each is a schema
+    rule, which fails `helm lint` too, with the key named at an unrelated path. `ingress.className` is required while
+    the Ingress is enabled, so a `null` fails in every values layer instead of rendering an Ingress the cluster's
+    default class picks. It amends decisions 16, 28, 47 and 57. *Rejected:* guards (an INFO line under `helm lint`),
+    an Ingress without a class on purpose, a reserved set per map.
+    [ADR-0061](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0061-reserved-metadata-keys-and-a-required-ingress-class.md)
 63. **The chart does not write `app.kubernetes.io/component`.** Kubernetes defines it as the component within the
     architecture (`database`), which only the consumer knows; up to 0.11.0 the chart wrote the workload type there,
     which the `kind` already says, and a consumer could not set it. It is now the consumer's key, set with

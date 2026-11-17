@@ -288,6 +288,118 @@ tests:
       - failedTemplate:
           errorPattern: "invalid propertyName 'app.kubernetes.io/name'"
 
+  - it: rejects app.kubernetes.io/part-of in podLabels (a key the chart writes would render twice; ADR-0061)
+    set:
+      podLabels: {app.kubernetes.io/part-of: other}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'app.kubernetes.io/part-of'"
+
+  - it: rejects app.kubernetes.io/version in podLabels (ADR-0061)
+    set:
+      podLabels: {app.kubernetes.io/version: "2"}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'app.kubernetes.io/version'"
+
+  - it: rejects app.kubernetes.io/managed-by in podLabels (ADR-0061)
+    set:
+      podLabels: {app.kubernetes.io/managed-by: other}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'app.kubernetes.io/managed-by'"
+
+  - it: rejects helm.sh/chart in podLabels (ADR-0061)
+    set:
+      podLabels: {helm.sh/chart: other}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'helm.sh/chart'"
+
+  - it: accepts app.kubernetes.io/component in podLabels (the consumer's key since ADR-0063)
+    set:
+      podLabels: {app.kubernetes.io/component: database, team: payments}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a Helm hook key in podAnnotations (ADR-0061)
+    set:
+      podAnnotations: {helm.sh/hook: pre-install}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'helm.sh/hook'"
+
+  - it: rejects a Helm ownership key in podAnnotations (ADR-0061)
+    set:
+      podAnnotations: {meta.helm.sh/release-name: other}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'meta.helm.sh/release-name'"
+
+  - it: rejects the chart's checksum in podAnnotations (it would render twice on the pod template; ADR-0061)
+    set:
+      podAnnotations: {checksum/config-env: pinned}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'checksum/config-env'"
+
+  - it: accepts an OpenTelemetry service name and a Reloader key in podAnnotations
+    set:
+      podAnnotations: {resource.opentelemetry.io/service.name: sales, reloader.stakater.com/auto: "true"}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a Helm hook key in ingress.annotations (it would turn the Ingress into a hook; ADR-0061)
+    set:
+      ingress.annotations: {helm.sh/hook: pre-install}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'helm.sh/hook'"
+
+  - it: rejects a Helm ownership key in ingress.annotations (ADR-0061)
+    set:
+      ingress.annotations: {meta.helm.sh/release-name: other}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'meta.helm.sh/release-name'"
+
+  - it: rejects the chart's checksum in ingress.annotations (one reserved set for every annotations map; ADR-0061)
+    set:
+      ingress.annotations: {checksum/config-files: x}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'checksum/config-files'"
+
+  - it: accepts a controller's annotation in ingress.annotations
+    set:
+      ingress.annotations: {cert-manager.io/cluster-issuer: letsencrypt}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a Helm ownership key in serviceAccount.annotations (ADR-0061)
+    set:
+      serviceAccount.annotations: {meta.helm.sh/release-namespace: other}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'meta.helm.sh/release-namespace'"
+
+  - it: rejects the chart's checksum in serviceAccount.annotations (ADR-0061)
+    set:
+      serviceAccount.annotations: {checksum/config-env: x}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName 'checksum/config-env'"
+
+  - it: accepts a cloud identity and helm.sh/resource-policy in serviceAccount.annotations (the hand-over of the chart's ServiceAccount)
+    set:
+      serviceAccount.annotations: {eks.amazonaws.com/role-arn: "arn:aws:iam::111122223333:role/sales", helm.sh/resource-policy: keep}
+    asserts:
+      - hasDocuments:
+          count: 0
+
   - it: requires valueFrom in every env entry
     set:
       env.FOO.x: 1

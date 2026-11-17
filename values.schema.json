@@ -1024,7 +1024,7 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "className": { "type": "string" },
-        "annotations": { "type": "object", "additionalProperties": { "type": "string" } },
+        "annotations": { "$ref": "#/definitions/extraAnnotations" },
         "hosts": {
           "type": "array",
           "items": {
@@ -1218,7 +1218,7 @@
           "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?([.][a-z0-9]([-a-z0-9]*[a-z0-9])?)*$",
           "maxLength": 253
         },
-        "annotations": { "type": "object", "additionalProperties": { "type": "string" } },
+        "annotations": { "$ref": "#/definitions/extraAnnotations" },
         "automountToken": { "type": "boolean" }
       }
     },
@@ -1230,12 +1230,8 @@
         "clusterRoles": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/definitions/rbacName" } }
       }
     },
-    "podAnnotations": { "type": "object", "additionalProperties": { "type": "string" } },
-    "podLabels": {
-      "type": "object",
-      "propertyNames": { "not": { "enum": ["app.kubernetes.io/name", "app.kubernetes.io/instance"] } },
-      "additionalProperties": { "type": "string" }
-    },
+    "podAnnotations": { "$ref": "#/definitions/extraAnnotations" },
+    "podLabels": { "$ref": "#/definitions/extraLabels" },
     "commonLabels": { "$ref": "#/definitions/extraLabels" },
     "extraObjects": { "type": ["object", "null"], "additionalProperties": { "$ref": "#/definitions/extraObject" } },
     "commonAnnotations": {
@@ -1334,7 +1330,7 @@
       "if": { "properties": { "ingress": { "properties": { "enabled": { "const": true } } } } },
       "then": {
         "properties": {
-          "ingress": { "required": ["hosts"], "properties": { "className": { "minLength": 1 }, "hosts": { "minItems": 1 } } },
+          "ingress": { "required": ["hosts", "className"], "properties": { "className": { "minLength": 1 }, "hosts": { "minItems": 1 } } },
           "service": { "properties": { "enabled": { "const": true } } }
         }
       }
