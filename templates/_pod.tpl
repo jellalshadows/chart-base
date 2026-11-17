@@ -130,15 +130,18 @@ containers:
     envFrom:
       {{- . | nindent 6 }}
     {{- end }}
-    {{- with $.Values.probes.startup }}
+    {{- /* The main container's probes: each a pruned sub-object of the closed definition (no null field, no null handler), as a sidecar's (ADR-0059); {} is no probe. */}}
+    {{- $probes := deepCopy ($.Values.probes | default dict) }}
+    {{- include "chart-base.pruneNulls" $probes }}
+    {{- with $probes.startup }}
     startupProbe:
       {{- toYaml . | nindent 6 }}
     {{- end }}
-    {{- with $.Values.probes.liveness }}
+    {{- with $probes.liveness }}
     livenessProbe:
       {{- toYaml . | nindent 6 }}
     {{- end }}
-    {{- with $.Values.probes.readiness }}
+    {{- with $probes.readiness }}
     readinessProbe:
       {{- toYaml . | nindent 6 }}
     {{- end }}

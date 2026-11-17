@@ -688,7 +688,34 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: accepts /var/run/secrets as a volume mountPath with the token (a parent of the token directory is not checked, a known gap)
+  # The main container's subPath names an item (ADR-0060), the rule of an init container's or a sidecar's mount.
+  - it: rejects a configMap volume's subPath that names none of its items (the kubelet would mount an empty directory)
+    set:
+      volumes:
+        rules: {type: configMap, name: rules, mountPath: /etc/rules/b.yaml, subPath: b.yaml, items: [{key: a, path: a.yaml}, {key: c, path: conf/c.yaml}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.rules.subPath "b.yaml" names no file of volumes.rules.items \(a.yaml, conf/c.yaml\): with items, the volume holds only those paths, and the kubelet would mount an empty directory there; name one of them, or a directory that holds one'
+
+  - it: rejects a secret volume's subPath that names none of its items
+    set:
+      volumes:
+        certs: {type: secret, secretName: tls, mountPath: /etc/tls/ca.crt, subPath: ca.crt, items: [{key: tls.crt, path: tls.crt}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'volumes.certs.subPath "ca.crt" names no file of volumes.certs.items \(tls.crt\)'
+
+  - it: accepts a subPath that names an item or a directory holding one, and a subPath without items
+    set:
+      volumes:
+        rules: {type: configMap, name: rules, mountPath: /etc/rules/a.yaml, subPath: a.yaml, items: [{key: a, path: a.yaml}]}
+        conf: {type: configMap, name: conf, mountPath: /etc/conf, subPath: conf, items: [{key: c, path: conf/c.yaml}]}
+        certs: {type: secret, secretName: tls, mountPath: /etc/tls/ca.crt, subPath: ca.crt}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts an ancestor of the token directory (/var/run/secrets) as a volume mountPath with the token, as on every mount (ADR-0060)
     set:
       serviceAccount.automountToken: true
       volumes:

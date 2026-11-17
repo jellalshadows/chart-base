@@ -76,7 +76,7 @@
       }
     },
     "execHandler": {
-      "description": "An exec handler, shared by the lifecycle hooks and the probes of a sidecar: a command of at least one string. Inside it a null stays an error.",
+      "description": "An exec handler, shared by the lifecycle hooks and the probes of every container: a command of at least one string. Inside it a null stays an error.",
       "type": "object",
       "additionalProperties": false,
       "required": ["command"],
@@ -85,7 +85,7 @@
       }
     },
     "httpGetHandler": {
-      "description": "An httpGet handler, shared by the lifecycle hooks and the probes of a sidecar; no host (Pod Security baseline rejects it from policy v1.34). Inside it a null stays an error.",
+      "description": "The httpGet handler of a lifecycle hook; no host (Pod Security baseline rejects it from policy v1.34). Inside it a null stays an error. A probe's is definitions.probeHttpGetHandler, the same fields with a null optional field absent.",
       "type": "object",
       "additionalProperties": false,
       "required": ["port"],
@@ -93,18 +93,29 @@
         "path": { "type": "string" },
         "port": { "type": ["integer", "string"] },
         "scheme": { "enum": ["HTTP", "HTTPS"] },
-        "httpHeaders": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["name", "value"],
-            "properties": {
-              "name": { "type": "string" },
-              "value": { "type": "string" }
-            }
-          }
-        }
+        "httpHeaders": { "type": "array", "items": { "$ref": "#/definitions/httpHeader" } }
+      }
+    },
+    "probeHttpGetHandler": {
+      "description": "The httpGet handler of a probe of any container: definitions.httpGetHandler whose optional fields (path, scheme, httpHeaders) also take null, which is absent (the probes render pruned; the API server defaults path to / and scheme to HTTP). A lifecycle hook keeps definitions.httpGetHandler.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["port"],
+      "properties": {
+        "path": { "type": ["string", "null"] },
+        "port": { "type": ["integer", "string"] },
+        "scheme": { "enum": ["HTTP", "HTTPS", null] },
+        "httpHeaders": { "type": ["array", "null"], "items": { "$ref": "#/definitions/httpHeader" } }
+      }
+    },
+    "httpHeader": {
+      "description": "A header of an httpGet handler (lifecycle hooks and probes): a name and a value.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value"],
+      "properties": {
+        "name": { "type": "string" },
+        "value": { "type": "string" }
       }
     },
     "duration": {
@@ -115,7 +126,7 @@
     "extraLabels": {
       "description": "Extra labels of an object that also carries the chart's labels: the keys the chart sets itself are rejected (they would render twice).",
       "type": "object",
-      "propertyNames": { "not": { "enum": ["app.kubernetes.io/name", "app.kubernetes.io/instance", "app.kubernetes.io/part-of", "app.kubernetes.io/component", "app.kubernetes.io/version", "app.kubernetes.io/managed-by", "helm.sh/chart"] } },
+      "propertyNames": { "not": { "enum": ["app.kubernetes.io/name", "app.kubernetes.io/instance", "app.kubernetes.io/part-of", "app.kubernetes.io/version", "app.kubernetes.io/managed-by", "helm.sh/chart"] } },
       "additionalProperties": { "type": "string" }
     },
     "extraAnnotations": {
@@ -577,7 +588,7 @@
       "additionalProperties": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/volumeMount" } }
     },
     "probe": {
-      "description": "A probe of a sidecar: exactly one handler (each oneOf branch types it as an object, so that a handler set to null is no handler), closed at every level; no host (Pod Security baseline rejects one from policy v1.34), no httpGet.protocol or grpc.mode (alpha in Kubernetes 1.37). A null field or handler is absent; inside httpGet and exec, shared with lifecycle, a null stays an error.",
+      "description": "A probe of any container (the main container's probes and a sidecar's, through livenessProbe and readinessProbe): exactly one handler (each oneOf branch types it as an object, so that a handler set to null is no handler), closed at every level; no host (Pod Security baseline rejects one from policy v1.34), no httpGet.protocol or grpc.mode (alpha in Kubernetes 1.37). A null field or handler is absent, inside httpGet (definitions.probeHttpGetHandler) and grpc too; inside exec, shared with lifecycle, a null stays an error.",
       "additionalProperties": false, "type": "object",
       "oneOf": [
         { "required": ["exec"], "properties": { "exec": { "type": "object" } } },
@@ -587,7 +598,7 @@
       ],
       "properties": {
         "exec": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/execHandler" } },
-        "httpGet": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/httpGetHandler" } },
+        "httpGet": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/probeHttpGetHandler" } },
         "tcpSocket": { "type": ["object", "null"], "additionalProperties": false, "required": ["port"], "properties": { "port": { "type": ["integer", "string"] } } },
         "grpc": { "type": ["object", "null"], "additionalProperties": false, "required": ["port"], "properties": { "port": { "type": "integer", "minimum": 1, "maximum": 65535 }, "service": { "type": ["string", "null"] } } },
         "initialDelaySeconds": { "type": ["integer", "null"], "minimum": 0 },
@@ -598,13 +609,27 @@
         "terminationGracePeriodSeconds": { "type": ["integer", "null"], "minimum": 1 }
       }
     },
+    "livenessProbe": {
+      "description": "A liveness or startup probe: definitions.probe with successThreshold at most 1 (the API server requires 1 and defaults 0 to 1 before validating).",
+      "allOf": [
+        { "$ref": "#/definitions/probe" },
+        { "properties": { "successThreshold": { "maximum": 1 } } }
+      ]
+    },
+    "readinessProbe": {
+      "description": "A readiness probe: definitions.probe without terminationGracePeriodSeconds (the API server rejects it on a readiness probe; null is absent).",
+      "allOf": [
+        { "$ref": "#/definitions/probe" },
+        { "properties": { "terminationGracePeriodSeconds": { "type": "null" } } }
+      ]
+    },
     "sidecarProbes": {
-      "description": "The probes of a sidecar (definitions.probe each; null = none).",
+      "description": "The probes of a sidecar (definitions.livenessProbe and readinessProbe, the main container's contract; null = none).",
       "type": ["object", "null"], "additionalProperties": false,
       "properties": {
-        "startup": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/probe" } },
-        "liveness": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/probe" } },
-        "readiness": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/probe" } }
+        "startup": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/livenessProbe" } },
+        "liveness": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/livenessProbe" } },
+        "readiness": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/readinessProbe" } }
       }
     },
     "sidecarPort": {
@@ -914,12 +939,13 @@
       }
     },
     "probes": {
+      "description": "The main container's probes, the contract of a sidecar's (ADR-0059): {} and null are no probe; any other object is definitions.livenessProbe (startup, liveness) or readinessProbe.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "startup": { "type": "object" },
-        "liveness": { "type": "object" },
-        "readiness": { "type": "object" }
+        "startup": { "type": ["object", "null"], "if": { "type": "object", "minProperties": 1 }, "then": { "$ref": "#/definitions/livenessProbe" } },
+        "liveness": { "type": ["object", "null"], "if": { "type": "object", "minProperties": 1 }, "then": { "$ref": "#/definitions/livenessProbe" } },
+        "readiness": { "type": ["object", "null"], "if": { "type": "object", "minProperties": 1 }, "then": { "$ref": "#/definitions/readinessProbe" } }
       }
     },
     "autoscaling": {
@@ -1009,7 +1035,7 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "className": { "type": "string" },
-        "annotations": { "type": "object", "additionalProperties": { "type": "string" } },
+        "annotations": { "$ref": "#/definitions/extraAnnotations" },
         "hosts": {
           "type": "array",
           "items": {
@@ -1203,7 +1229,7 @@
           "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?([.][a-z0-9]([-a-z0-9]*[a-z0-9])?)*$",
           "maxLength": 253
         },
-        "annotations": { "type": "object", "additionalProperties": { "type": "string" } },
+        "annotations": { "$ref": "#/definitions/extraAnnotations" },
         "automountToken": { "type": "boolean" }
       }
     },
@@ -1215,12 +1241,8 @@
         "clusterRoles": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/definitions/rbacName" } }
       }
     },
-    "podAnnotations": { "type": "object", "additionalProperties": { "type": "string" } },
-    "podLabels": {
-      "type": "object",
-      "propertyNames": { "not": { "enum": ["app.kubernetes.io/name", "app.kubernetes.io/instance"] } },
-      "additionalProperties": { "type": "string" }
-    },
+    "podAnnotations": { "$ref": "#/definitions/extraAnnotations" },
+    "podLabels": { "$ref": "#/definitions/extraLabels" },
     "commonLabels": { "$ref": "#/definitions/extraLabels" },
     "extraObjects": { "type": ["object", "null"], "additionalProperties": { "$ref": "#/definitions/extraObject" } },
     "commonAnnotations": {
@@ -1319,7 +1341,7 @@
       "if": { "properties": { "ingress": { "properties": { "enabled": { "const": true } } } } },
       "then": {
         "properties": {
-          "ingress": { "required": ["hosts"], "properties": { "className": { "minLength": 1 }, "hosts": { "minItems": 1 } } },
+          "ingress": { "required": ["hosts", "className"], "properties": { "className": { "minLength": 1 }, "hosts": { "minItems": 1 } } },
           "service": { "properties": { "enabled": { "const": true } } }
         }
       }

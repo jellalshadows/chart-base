@@ -58,7 +58,6 @@ tests:
               app.kubernetes.io/name: chart-base
               app.kubernetes.io/instance: vending
               app.kubernetes.io/part-of: vending
-              app.kubernetes.io/component: deployment
               app.kubernetes.io/version: "1.4.2"
               app.kubernetes.io/managed-by: Helm
               helm.sh/chart: chart-base-0.0.0-test
@@ -195,7 +194,6 @@ tests:
             app.kubernetes.io/name: chart-base
             app.kubernetes.io/instance: vending
             app.kubernetes.io/part-of: vending
-            app.kubernetes.io/component: deployment
             app.kubernetes.io/version: "1.4.2"
             app.kubernetes.io/managed-by: Helm
             helm.sh/chart: chart-base-0.0.0-test
@@ -295,7 +293,6 @@ tests:
             app.kubernetes.io/name: chart-base
             app.kubernetes.io/instance: vending
             app.kubernetes.io/part-of: vending
-            app.kubernetes.io/component: deployment
             app.kubernetes.io/version: "1.4.2"
             app.kubernetes.io/managed-by: Helm
             helm.sh/chart: chart-base-0.0.0-test

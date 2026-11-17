@@ -67,21 +67,25 @@ Usage: include "chart-base.cleanPath" <path>
 
 {{/*
 chart-base.validateProbePorts: a probe port given by NAME (httpGet.port, tcpSocket.port) must be the name of an entry of
-the container's ports: the kubelet resolves the name among that container's ports only. Renders nothing; fails through
-chart-base.fail. A probe that is not a map is skipped, and so is a nil handler; a port that is not a string (a number, an
-absent port) and the exec and grpc handlers are not checked; a handler that is neither a map nor nil fails.
+the container's ports: the kubelet resolves the name among that container's ports only. The same rule for the httpGet
+port of a lifecycle hook (kinds postStart and preStop, subject "hook", ADR-0060). Renders nothing; fails through
+chart-base.fail. A probe or hook that is not a map is skipped, and so is a handler that is not a map (the schema types
+every handler as a map or null, ADR-0059); a port that is not a string (a number) and the exec, grpc and sleep handlers
+are not checked.
 Usage: include "chart-base.validateProbePorts" (dict "ctx" $ "path" "probes" "probes" .Values.probes "portNames" <list of
-the container's port names> "portsPath" "ports" "declared" <optional map>). `path` and `portsPath` name the values in
-the messages; the note about the Service and the NetworkPolicy is printed only for the main container (portsPath
-"ports"). `declared` maps a port name of another container of the pod to the values that declare it (a sidecar's
-ports, the main container's): when the unresolved name is there, the message says where (without it, the message is
-the same as before sidecars existed).
+the container's port names> "portsPath" "ports" "declared" <optional map> "kinds" <optional list> "subject" <optional>).
+`path` and `portsPath` name the values in the messages; the note about the Service and the NetworkPolicy is printed only
+for the main container (portsPath "ports"). `declared` maps a port name of another container of the pod to the values
+that declare it (a sidecar's ports, the main container's): when the unresolved name is there, the message says where
+(without it, the message is the same as before sidecars existed). `kinds` are the keys of `probes` to read (default
+startup, liveness, readiness) and `subject` the word of the messages (default probe).
 */}}
 {{- define "chart-base.validateProbePorts" -}}
 {{- $note := "" -}}
 {{- if eq .portsPath "ports" }}{{ $note = " (a ports entry also becomes a Service port when a Service is rendered, and is opened by networkPolicy.ingress.fromComponents/fromNamespaces)" }}{{ end -}}
+{{- $subject := .subject | default "probe" -}}
 {{- $probes := .probes | default dict -}}
-{{- range $kind := list "startup" "liveness" "readiness" -}}
+{{- range $kind := .kinds | default (list "startup" "liveness" "readiness") -}}
 {{- $probe := get $probes $kind -}}
 {{- if kindIs "map" $probe -}}
 {{- range $handler := list "httpGet" "tcpSocket" -}}
@@ -90,14 +94,32 @@ the same as before sidecars existed).
 {{- if kindIs "map" $h -}}
 {{- if and (kindIs "string" $h.port) (not (has $h.port $.portNames)) -}}
 {{- $where := "" -}}
-{{- if hasKey ($.declared | default dict) $h.port }}{{ $where = printf " (%q is declared in %s: a probe resolves a port name only among the ports of its own container)" $h.port (index $.declared $h.port) }}{{ end -}}
-{{- include "chart-base.fail" (list $.ctx (printf "%s.%s.%s.port %q is not the name of an entry in %s%s: the kubelet cannot resolve it and never runs the probe. Use the port number, or declare the name in %s%s, or remove the probe" $.path $kind $handler $h.port $.portsPath $where $.portsPath $note)) -}}
-{{- end -}}
-{{- else if not (kindIs "invalid" $h) -}}
-{{- include "chart-base.fail" (list $.ctx (printf "%s.%s.%s must be a map, e.g. {port: 8080}, got %s" $.path $kind $handler (kindOf $h))) -}}
+{{- if hasKey ($.declared | default dict) $h.port }}{{ $where = printf " (%q is declared in %s: a %s resolves a port name only among the ports of its own container)" $h.port (index $.declared $h.port) $subject }}{{ end -}}
+{{- include "chart-base.fail" (list $.ctx (printf "%s.%s.%s.port %q is not the name of an entry in %s%s: the kubelet cannot resolve it and never runs the %s. Use the port number, or declare the name in %s%s, or remove the %s" $.path $kind $handler $h.port $.portsPath $where $subject $.portsPath $note $subject)) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+chart-base.validateRunAsRoot: a container that would run as UID 0 with runAsNonRoot: true fails, since the kubelet never
+starts it. Each field is the container's, else the pod's (podSecurityContext), as Kubernetes applies them; a nil test,
+never a truthiness test (0 and false are values). Renders nothing; fails through chart-base.fail. The one rule of the
+main container and of every init container and sidecar (ADR-0060).
+Usage: include "chart-base.validateRunAsRoot" (dict "ctx" $ "who" "sidecars.proxy" "securityContext" <the container's
+security context, merged for an entry>)
+*/}}
+{{- define "chart-base.validateRunAsRoot" -}}
+{{- $sc := .securityContext | default dict -}}
+{{- $pod := .ctx.Values.podSecurityContext | default dict -}}
+{{- $uid := $sc.runAsUser -}}
+{{- if kindIs "invalid" $uid }}{{ $uid = $pod.runAsUser }}{{ end -}}
+{{- $nonRoot := $sc.runAsNonRoot -}}
+{{- if kindIs "invalid" $nonRoot }}{{ $nonRoot = $pod.runAsNonRoot }}{{ end -}}
+{{- if and (eq (toString $nonRoot) "true") (not (kindIs "invalid" $uid)) (eq (toString $uid) "0") -}}
+{{- include "chart-base.fail" (list .ctx (printf "%s would run as UID 0 with runAsNonRoot: true and the kubelet would never start it: set its securityContext.runAsUser to a non-zero UID, or securityContext.runAsNonRoot: false (Pod Security restricted then rejects the pod)" .who)) -}}
 {{- end -}}
 {{- end -}}

@@ -17,7 +17,7 @@ These apply to every release.
 
 ## Releases
 
-On 2026-11-02 the roadmap was cut to one more release before 1.0 (see [Cut before 1.0](#cut-before-10)). Each numbered release row is one squash-merged `feat:` PR, which is a minor release while the chart is pre-1.0, except 0.7.0: it is two PRs released together by one Release PR, first a `fix!:` PR with the fixes of released defects, then the volumes `feat:` PR. The docs backfill row is a `docs:` PR that makes no release, and the signing row changes only the publish job, with no contract change.
+On 2026-11-02 the roadmap was cut to one more release before 1.0 (see [Cut before 1.0](#cut-before-10)). Each numbered release row is one squash-merged `feat:` PR, which is a minor release while the chart is pre-1.0, except 0.7.0: it is two PRs released together by one Release PR, first a `fix!:` PR with the fixes of released defects, then the volumes `feat:` PR. The docs backfill row is a `docs:` PR that makes no release, and the signing row changes only the publish job, with no contract change. 0.12.0 is not a feature release: it is the 1.0 contract, the decisions this roadmap held for the contract freeze, taken on 2026-11-17 and shipped in one `feat!` PR, so that 1.0.0 changes no contract.
 
 | Release | Scope | Contract (summary) | Tested in the e2e with | Status |
 |---|---|---|---|---|
@@ -33,6 +33,7 @@ On 2026-11-02 the roadmap was cut to one more release before 1.0 (see [Cut befor
 | 0.9.0 | ExternalSecret `dataFrom`, templates and file mounts | Still one ExternalSecret and one Secret per component. `externalSecret.dataFrom` (External Secrets' list: `extract` with an optional `rewrite`, closed; the list order is the precedence, `data` wins), `.template` (`data`: keys rendered by External Secrets, at least one action each; `mergePolicy`, `Merge` by default, required), `.envFrom` (a required switch: `false` stops injecting the Secret whole), `.mountPath`, `.items`, `.defaultMode` (the volume `external-secret`, read-only, also mountable by an init container or a sidecar), `data.<KEY>.version` and `.decodingStrategy`, a `null` entry of `data` and of `template.data` absent; `env.<NAME>.valueFrom.externalSecretKeyRef: {key}`, a `secretKeyRef` on `<fullname>-secrets` resolved by the chart; while the Secret is injected its keys are variable names and no source decodes content, unless the block is templated with `Replace` (the sources are then template inputs only) | ESO fake provider: an extract next to `data` (the key set, the value both bring, a templated value, the chart's labels on the Secret, a key that is no variable name in the environment), the file in a pod and in a hook Job, a component that reads a decoded `dataFrom`-only Secret through `items` and `externalSecretKeyRef` without `envFrom` | Released (2026-10-12) |
 | 0.10.0 | HPA behavior and custom metrics, and KEDA ScaledObject | `autoscaling.behavior` (Kubernetes' `spec.behavior`, closed, no `tolerance`, not a converted map) and `autoscaling.metrics` (Kubernetes' list, validated per type; a non-empty list is the whole list, rendered as written, and a `ContainerResource` container must be the main container or a non-null sidecar; `[]` and `null` keep 0.8.0's built-in targets, `ContainerResource` of the main container once there is a sidecar, [ADR-0052](adr/0052-hpa-targets-measure-the-main-container-with-sidecars.md)); `keda: {enabled, minReplicaCount, maxReplicaCount, pollingInterval, cooldownPeriod, initialCooldownPeriod, fallback, behavior, triggers}`: a ScaledObject `<fullname>` for a Deployment, `minReplicaCount` 1 by default and required with `maxReplicaCount`, `triggers` a map keyed by the trigger's name (a `null` entry, optional field or metadata key absent; metadata rendered as strings), authentication by reference; exclusive with `autoscaling.enabled`, no `spec.replicas` while either is on; guards for what KEDA's webhook and operator reject, and 0.7.0's claim guard reads `keda.maxReplicaCount` ([ADR-0055](adr/0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md), [ADR-0056](adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)) | KEDA's chart and metrics-server: a ScaledObject with a `cron` window active one minute a year (1 January, 00:00 to 00:01 UTC) becomes Ready and scales its Deployment to zero, a second upgrade at zero, the switch back to the chart's HPA at zero (`ScalingDisabled`); the stored `behavior` of the `full` HPA; a native sidecar's usage reported by metrics-server | Released (2026-10-17) |
 | 0.11.0 | Common labels and annotations, Service annotations and `extraObjects` | `commonLabels` (every labels map the chart writes, the pod templates and an `ephemeral` claim template included, never a selector) and `commonAnnotations` (every object's metadata, never a template's: not the ExternalSecret's template metadata, which External Secrets executes as templates); a per-object map wins; they reject the chart's own label keys, the checksum and Reloader annotations and Helm's hook and `meta.helm.sh` keys; `service.annotations`; `extraObjects` (a map keyed by the object's key: named `<fullname>.<key>`, in the release namespace, a `null` entry or field absent at any depth through maps, rendered as written, nothing below `apiVersion`, `kind` and `metadata` checked; not a built-in workload, a `Service`, `Endpoints`, a `Secret`, a list, a RoleBinding named like the chart's or a cluster-scoped built-in kind; on a `job` component hooks of its phase) ([ADR-0057](adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)) | The `full` scenario: every object of the release carries the common label and annotation in the cluster, the Service its own annotation, the pods and the Secret External Secrets writes the common label, and the extra ConfigMap `full-chart-base.settings` exists | Released (2026-11-03) |
+| 0.12.0 | The 1.0 contract (`feat!`) | **Breaking:** the chart no longer writes `app.kubernetes.io/component`, which becomes the consumer's key (every Deployment rolls once, [ADR-0063](adr/0063-the-chart-does-not-write-app-kubernetes-io-component.md)); the main container's probes are closed like a sidecar's (no `host`, no unknown field, a gRPC port a number), every container's liveness and startup `successThreshold` is at most 1 and a readiness probe takes no `terminationGracePeriodSeconds`, and a `null` field of a main-container probe is absent ([ADR-0059](adr/0059-one-probe-contract-for-every-container.md)); the main container gets the checks of init containers and sidecars (a `lifecycle` port name declared in `ports`, a `subPath` that names an `items` path, UID 0 with `runAsNonRoot`), and `configFiles.mountPath` the token-directory rule of every mount ([ADR-0060](adr/0060-the-main-container-takes-the-entries-checks-and-one-token-directory-rule.md)); `podLabels`, `podAnnotations`, `ingress.annotations` and `serviceAccount.annotations` reject the chart's and Helm's keys, and `ingress.className` is required while the Ingress is enabled, `null` included ([ADR-0061](adr/0061-reserved-metadata-keys-and-a-required-ingress-class.md)); a PodDisruptionBudget must allow one eviction at the replica floor of every scaling mode ([ADR-0062](adr/0062-a-pdb-never-blocks-a-drain-at-the-replica-floor.md)). **The freeze:** [ADR-0058](adr/0058-the-1-0-contract-and-how-it-stays-frozen.md), `tests/contract_test.yaml` (names, selectors, label keys) and the values key list checked in CI (`contract-keys.sh`). **Documentation:** recipes for a sibling component's address, umbrella-wide defaults with YAML anchors, a Secret on the command line and an image pinned by digest, the OpenTelemetry service identity, and the README's comparison matrix | Every scenario as in 0.11.0; an umbrella with a Deployment, a CronJob and a Job alias installed, changed, rolled back and uninstalled, with each revision's objects, uids and selectors checked; every README recipe rendered and validated for 1.33 and 1.37 (lint job) | In progress |
 
 ## Open decisions
 
@@ -49,17 +50,8 @@ On 2026-11-02 the roadmap was cut to one more release before 1.0 (see [Cut befor
   `securityContext` that `values.yaml` does not define), rendered as `null` today, so converting it changes the
   manifest; `httpRoute.matches`; one entry of `commonLabels`, `commonAnnotations` or `service.annotations`. Converting a map
   converts its template readers and guards with
-  it.
-- **`ingress.className: null`** renders an Ingress without a class ([upgrade guide](upgrading.md)): close it with
-  `required`, or support "no class" on purpose, at the 1.0 contract freeze.
-- **One rule for the ServiceAccount token directory as a mount path**: `configFiles.mountPath` rejects it only while
-  `serviceAccount.automountToken` is true ([ADR-0046](adr/0046-configfiles-mountpath-compared-normalized-rendered-as-written.md)); `volumes` (0.7.0,
-  [ADR-0049](adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)) and the mounts that later releases add reserve it always. Unify at the 1.0
-  contract freeze.
-- **A per-volume Reloader opt-out** (`volumes.<name>.reloadOnChange`): every rotation of a mounted ConfigMap or Secret
-  restarts the Deployment, and `reloadOnChange: false` also stops the restarts for `env`/`envFrom` Secrets
-  ([ADR-0049](adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)). Decide with the first real umbrella (1.0 criterion 2): adding the key is
-  additive, removing it is not.
+  it. 0.12.0 converted one of those pass-through objects, the main container's probes: a `null` field is absent there
+  now, as in a sidecar's ([ADR-0059](adr/0059-one-probe-contract-for-every-container.md)).
 
 - **Follow-ups of 0.8.0** ([ADR-0051](adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)), each additive: a per-entry `automountToken: false` (today every
   init container and sidecar gets the token when the pod does); an entry-level `config` for literal variables (the
@@ -78,34 +70,49 @@ On 2026-11-02 the roadmap was cut to one more release before 1.0 (see [Cut befor
   of the [upgrade guide](upgrading.md#switching-to-keda)); `tolerance` once the floor reaches Kubernetes 1.35; a
   chart-rendered TriggerAuthentication and a ScaledJob; `autoscaling.behavior` converted to "a `null` means absent"; a
   check of the variables that a `...FromEnv` parameter names.
-- **`pdb.minAvailable` against the autoscaler's minimum** (O2 of the 0.10.0 design, the 1.0 contract freeze): an
-  integer `minAvailable` at or above the minimum blocks a node drain, with fixed `replicas`, the HPA or KEDA alike; with
-  `minReplicaCount: 0` the workload often runs one pod, and any integer `minAvailable` of 1 or more then blocks drains.
-  A guard for the three modes would reject values that render today, and one for KEDA alone would suggest that the
-  others are checked.
-- **Checks that would reject values that render today** (a breaking release, or the 1.0 contract freeze): a
-  `lifecycle` hook's `httpGet.port` given by a name that `ports` does not declare (a `preStop` hook then fails with only
-  a `FailedPreStopHook` event: kubelet source reading); a `subPath` of the main container's `configMap` or `secret`
-  mount that names no `items[].path` (an empty directory is mounted; 0.8.0 checks it for init containers and sidecars);
-  UID 0 with `runAsNonRoot: true` on the main container (0.8.0 checks it for init containers and sidecars); the main
-  container's `probes` closed like a sidecar's (`definitions.probe`: no `host`, no misspelt field; until the 1.0 contract
-  freeze the chart has two probe contracts, [ADR-0051](adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)); `podLabels`
-  rejecting the chart's own label keys, `podAnnotations` rejecting the checksum annotations (overriding one silently
-  stops config changes from rolling the pods), and `ingress.annotations` and `serviceAccount.annotations` rejecting
-  Helm's `helm.sh/hook*` and `meta.helm.sh/*` keys (one there turns the object into a Helm hook): the new common maps of
-  0.11.0 reject them from the start.
+- **Literal variables for an init container** (the first real umbrella's finding G4): the entry-level `config` of the
+  0.8.0 follow-ups above, additive ([ADR-0058](adr/0058-the-1-0-contract-and-how-it-stays-frozen.md)).
 
 The decision whether NetworkPolicy becomes on by default after 0.5.0 was taken with 0.5.0: it stays off.
 On a CNI that does not enforce it, a policy changes nothing, and its rules depend on facts of each cluster (the
 namespaces of the Gateway and of Prometheus, the cluster DNS); turning it on would make them mandatory configuration
 ([ADR-0040](adr/0040-networkpolicy-per-component-with-sibling-references.md)).
 
+### Taken for the 1.0 contract (0.12.0)
+
+The decisions that this section held for the contract freeze were taken on 2026-11-17 and ship in 0.12.0
+([upgrade guide](upgrading.md#011x--0120)):
+
+- **`ingress.className: null`**, which rendered an Ingress without a class: the class is required while the Ingress is
+  enabled, `null` included; "no class" on purpose was rejected, because it hands the choice to a fact of the cluster
+  that the values do not show ([ADR-0061](adr/0061-reserved-metadata-keys-and-a-required-ingress-class.md)).
+- **One rule for the ServiceAccount token directory as a mount path**: `configFiles.mountPath` now rejects it whether
+  or not the token is mounted, as `volumes` and every later mount did
+  ([ADR-0060](adr/0060-the-main-container-takes-the-entries-checks-and-one-token-directory-rule.md)).
+- **A per-volume Reloader opt-out**: not added. The first real umbrella mounts no ConfigMap or Secret volume and did not
+  ask; adding the key later is additive ([ADR-0058](adr/0058-the-1-0-contract-and-how-it-stays-frozen.md)).
+- **`pdb.minAvailable` against the autoscaler's minimum**: a guard in all three modes, fixed `replicas`, the HPA and
+  KEDA, at the replica floor (`max(keda.minReplicaCount, 1)` with KEDA); a budget that blocks drains on purpose goes in
+  `extraObjects` ([ADR-0062](adr/0062-a-pdb-never-blocks-a-drain-at-the-replica-floor.md)).
+- **The checks that rejected values that rendered**: all of them. A `lifecycle` port name must be in `ports`, a
+  main-container `subPath` must name an `items` path, and UID 0 with `runAsNonRoot: true` fails on the main container
+  too ([ADR-0060](adr/0060-the-main-container-takes-the-entries-checks-and-one-token-directory-rule.md)). The main
+  container's probes are closed like a sidecar's, so the chart has one probe contract
+  ([ADR-0059](adr/0059-one-probe-contract-for-every-container.md)). `podLabels`, `podAnnotations`,
+  `ingress.annotations` and `serviceAccount.annotations` reject the chart's and Helm's keys
+  ([ADR-0061](adr/0061-reserved-metadata-keys-and-a-required-ingress-class.md)).
+- **`app.kubernetes.io/component`** (the first real umbrella's finding G6): the chart wrote the workload type there; it no
+  longer writes the key, which is the consumer's ([ADR-0063](adr/0063-the-chart-does-not-write-app-kubernetes-io-component.md)).
+
 ## 1.0.0 criteria
 
-1. All feature releases above (0.2.0 to 0.11.0) and the cosign signing step are published, each with its e2e green on Kubernetes 1.33 and 1.37 (or the supported versions current at that time).
-2. The chart is validated by the first real domain umbrella, deployed with helmfile. Whatever that use reveals is fixed before 1.0.
-3. The contract is frozen: selector labels and key names. From 1.0 on, only additive changes (`feat:`) or explicit majors.
-4. The README carries a comparison matrix (dated, with the versions checked) that backs the positioning above, re-verified against the current versions of the other charts before it is published.
+1. All feature releases above (0.2.0 to 0.11.0) and the cosign signing step are published, each with its e2e green on Kubernetes 1.33 and 1.37 (or the supported versions current at that time). **Met:** 0.11.0 was published on 2026-11-03.
+2. The chart is validated by the first real domain umbrella, deployed with helmfile. Whatever that use reveals is fixed before 1.0. **Met on 2026-11-17:** `jellalshadows/domain-boutique`, CI green on kind 1.33 and 1.37. Its findings are answered in 0.12.0: two by contract changes (the closed probes, the component label), four by documentation (a sibling's address, umbrella-wide defaults, a Secret on the command line, the version label under a digest), one by the umbrella lifecycle check in CI (CronJob and Job aliases), and one deferred as an additive follow-up (literal variables for an init container).
+3. The contract is frozen: selector labels and key names. From 1.0 on, only additive changes (`feat:`) or explicit majors. **Frozen by 0.12.0:** [ADR-0058](adr/0058-the-1-0-contract-and-how-it-stays-frozen.md) lists the contract, `tests/contract_test.yaml` pins the names, selectors and label keys, and CI fails on a removed or renamed values key (`contract-keys.sh`).
+4. The README carries a comparison matrix (dated, with the versions checked) that backs the positioning above, re-verified against the current versions of the other charts before it is published. **Met:** [How it compares](../README.md#how-it-compares), checked on 2026-11-17.
+
+1.0.0 changes no contract. It is cut after a validation campaign on kind against the published 0.12.0; a defect that the
+campaign finds ships first as a `fix:` 0.12.x.
 
 ## Out of scope
 
@@ -134,10 +141,12 @@ offer in the meantime.
 
 - **GRPCRoute, HTTPRoute rules and `ports[].appProtocol`** (the former 0.11.0), and the stricter checks of the existing
   `httpRoute` fields that made it breaking: the API server already rejects those values at install.
-- **A chart-wide "a `null` entry means absent" rule** (part of the former 0.12.0; see [Open decisions](#open-decisions)).
+- **A chart-wide "a `null` entry means absent" rule** (part of the 0.12.0 planned before the cut; the 0.12.0 that
+  shipped converts only the main container's probes; see [Open decisions](#open-decisions)).
 - **The StatefulSet workload type** (the former 0.13.0): stateful systems usually run under their own operators.
-- **Closing the existing label and annotation maps** to the chart's and Helm's own keys (part of the former 0.12.0):
-  breaking, so it joins the checks listed for the 1.0 contract freeze.
+- **Closing the existing label and annotation maps** to the chart's and Helm's own keys (part of the 0.12.0 planned
+  before the cut): breaking, so it joined the checks of the 1.0 contract freeze, and 0.12.0 takes it
+  ([ADR-0061](adr/0061-reserved-metadata-keys-and-a-required-ingress-class.md)).
 
 ## How each release is made
 

@@ -229,3 +229,42 @@ tests:
           path: spec.template.spec.containers[0].resources
           value:
             requests: {cpu: 100m, memory: 128Mi}
+
+  - it: renders a main-container probe without its null fields and null handler (as a sidecar's, ADR-0059)
+    template: templates/deployment.yaml
+    set:
+      probes.liveness: {httpGet: null, tcpSocket: {port: 8080}, periodSeconds: null, failureThreshold: 3}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe
+          value:
+            tcpSocket: {port: 8080}
+            failureThreshold: 3
+
+  - it: renders a main-container probe's httpGet and grpc without their null path, scheme, httpHeaders and service
+    template: templates/deployment.yaml
+    set:
+      probes.liveness: {httpGet: {path: null, port: 8080, scheme: null, httpHeaders: null}, periodSeconds: 5}
+      probes.readiness: {grpc: {port: 9090, service: null}}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe
+          value:
+            httpGet: {port: 8080}
+            periodSeconds: 5
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe
+          value:
+            grpc: {port: 9090}
+
+  - it: renders no probe for an empty or null main-container probe
+    set:
+      probes.startup: {}
+      probes.liveness: null
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].startupProbe
+        template: templates/deployment.yaml
+      - notExists:
+          path: spec.template.spec.containers[0].livenessProbe
+        template: templates/deployment.yaml

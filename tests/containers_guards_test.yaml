@@ -235,6 +235,7 @@ tests:
   - it: rejects a sidecar without a securityContext when podSecurityContext.runAsUser is 0 (runAsNonRoot true from the hardened default)
     set:
       podSecurityContext.runAsUser: 0
+      securityContext.runAsUser: 65532 # the main container's own UID: its rule is pinned in validate_test (ADR-0060)
       sidecars:
         proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
     asserts:
@@ -456,13 +457,40 @@ tests:
       - failedTemplate:
           errorPattern: "at '/sidecars/mesh/probes/readiness/grpc': additional properties 'mode' not allowed"
 
-  - it: rejects a null inside a sidecar probe's httpGet (the definition is shared with lifecycle)
+  - it: accepts a null path, scheme and httpHeaders in a sidecar probe's httpGet, and a null grpc.service (a null field is absent)
     set:
       sidecars:
-        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, probes: {liveness: {httpGet: {port: 9090, path: null}}}}
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, probes: {liveness: {httpGet: {port: 9090, path: null, scheme: null, httpHeaders: null}}, readiness: {grpc: {port: 9091, service: null}}}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects successThreshold 2 on a sidecar's liveness and startup probes (the kind rule of every container)
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, probes: {liveness: {tcpSocket: {port: 9090}, successThreshold: 2}}}
+        mesh: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, probes: {startup: {tcpSocket: {port: 9091}, successThreshold: 2}}}
     asserts:
       - failedTemplate:
-          errorPattern: "at '/sidecars/proxy/probes/liveness/httpGet/path': got null, want string"
+          errorPattern: "at '/sidecars/proxy/probes/liveness/successThreshold': maximum: got 2, want 1"
+      - failedTemplate:
+          errorPattern: "at '/sidecars/mesh/probes/startup/successThreshold': maximum: got 2, want 1"
+
+  - it: rejects terminationGracePeriodSeconds on a sidecar's readiness probe (the kind rule of every container)
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, probes: {readiness: {tcpSocket: {port: 9090}, terminationGracePeriodSeconds: 10}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/sidecars/proxy/probes/readiness/terminationGracePeriodSeconds': got number, want null"
+
+  - it: accepts successThreshold 2 on a sidecar's readiness probe and a grace period on its liveness probe
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, probes: {readiness: {tcpSocket: {port: 9090}, successThreshold: 2}, liveness: {tcpSocket: {port: 9090}, successThreshold: 1, terminationGracePeriodSeconds: 10}}}
+    asserts:
+      - hasDocuments:
+          count: 0
 
   - it: rejects probes under an init container (the API forbids them)
     set:
@@ -523,19 +551,19 @@ tests:
       - failedTemplate:
           errorPattern: 'chart-base\[chart-base\]: probes.liveness.httpGet.port "proxy-health" is not the name of an entry in ports \("proxy-health" is declared in sidecars.db-proxy.ports: a probe resolves a port name only among the ports of its own container\): the kubelet cannot resolve it and never runs the probe. Use the port number, or declare the name in ports \(a ports entry also becomes a Service port when a Service is rendered, and is opened by networkPolicy.ingress.fromComponents/fromNamespaces\), or remove the probe'
 
-  - it: rejects a main-container probe handler that is a number (from a values file or set, a float64)
+  - it: rejects a main-container probe handler that is a number, in the schema (ADR-0059)
     set:
       probes.liveness.tcpSocket: 8080
     asserts:
       - failedTemplate:
-          errorPattern: 'probes.liveness.tcpSocket must be a map, e.g. .port: 8080., got float64$'
+          errorPattern: "at '/probes/liveness/tcpSocket': got number, want "
 
-  - it: rejects a main-container probe handler that is a boolean
+  - it: rejects a main-container probe handler that is a boolean, in the schema (ADR-0059)
     set:
       probes.readiness.httpGet: true
     asserts:
       - failedTemplate:
-          errorPattern: 'probes.readiness.httpGet must be a map, e.g. .port: 8080., got bool$'
+          errorPattern: "at '/probes/readiness/httpGet': got boolean, want "
 
   - it: rejects a sidecar port name already declared in the component's ports
     set:
@@ -930,6 +958,7 @@ tests:
     set:
       podSecurityContext.runAsUser: 0
       podSecurityContext.runAsNonRoot: true
+      securityContext.runAsUser: 65532 # the main container's own UID (ADR-0060)
       sidecars:
         proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, securityContext: {runAsUser: 1000}}
     asserts:
@@ -940,6 +969,7 @@ tests:
     set:
       podSecurityContext.runAsUser: 0
       podSecurityContext.runAsNonRoot: true
+      securityContext.runAsUser: 65532 # the main container's own UID (ADR-0060)
       sidecars:
         proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, securityContext: {runAsUser: null}}
     asserts:

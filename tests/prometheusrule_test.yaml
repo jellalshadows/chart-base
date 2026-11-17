@@ -72,9 +72,8 @@ tests:
     asserts:
       - isKind:
           of: PrometheusRule
-      - equal:
+      - notExists:
           path: metadata.labels["app.kubernetes.io/component"]
-          value: cronjob
 
   - it: renders a PrometheusRule on a Job component as a regular release object, not a hook
     values:

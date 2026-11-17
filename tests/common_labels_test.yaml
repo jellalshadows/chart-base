@@ -133,7 +133,6 @@ tests:
             app.kubernetes.io/name: chart-base
             app.kubernetes.io/instance: vending
             app.kubernetes.io/part-of: vending
-            app.kubernetes.io/component: deployment
             app.kubernetes.io/version: "1.4.2"
             app.kubernetes.io/managed-by: Helm
             helm.sh/chart: chart-base-0.0.0-test
@@ -203,7 +202,6 @@ tests:
             app.kubernetes.io/name: chart-base
             app.kubernetes.io/instance: vending
             app.kubernetes.io/part-of: vending
-            app.kubernetes.io/component: deployment
             app.kubernetes.io/version: "1.4.2"
             team: payments
             tier: backend
@@ -225,7 +223,6 @@ tests:
             app.kubernetes.io/name: chart-base
             app.kubernetes.io/instance: vending
             app.kubernetes.io/part-of: vending
-            app.kubernetes.io/component: cronjob
             app.kubernetes.io/version: "1.4.2"
             team: payments
             tier: batch
@@ -235,7 +232,6 @@ tests:
             app.kubernetes.io/name: chart-base
             app.kubernetes.io/instance: vending
             app.kubernetes.io/part-of: vending
-            app.kubernetes.io/component: cronjob
             app.kubernetes.io/version: "1.4.2"
             team: payments
             tier: batch
@@ -254,7 +250,6 @@ tests:
             app.kubernetes.io/name: chart-base
             app.kubernetes.io/instance: vending
             app.kubernetes.io/part-of: vending
-            app.kubernetes.io/component: job
             app.kubernetes.io/version: "1.4.2"
             team: payments
             tier: batch
@@ -287,7 +282,6 @@ tests:
             app.kubernetes.io/name: chart-base
             app.kubernetes.io/instance: vending
             app.kubernetes.io/part-of: vending
-            app.kubernetes.io/component: deployment
             app.kubernetes.io/version: "2.66.1"
             app.kubernetes.io/managed-by: Helm
             helm.sh/chart: chart-base-0.0.0-test
@@ -370,7 +364,6 @@ tests:
             app.kubernetes.io/name: chart-base
             app.kubernetes.io/instance: vending
             app.kubernetes.io/part-of: vending
-            app.kubernetes.io/component: deployment
             app.kubernetes.io/version: "1.4.2"
             app.kubernetes.io/managed-by: Helm
             helm.sh/chart: chart-base-0.0.0-test
@@ -381,7 +374,6 @@ tests:
             app.kubernetes.io/name: chart-base
             app.kubernetes.io/instance: vending
             app.kubernetes.io/part-of: vending
-            app.kubernetes.io/component: deployment
             app.kubernetes.io/version: "1.4.2"
         template: templates/deployment.yaml
       - equal:
@@ -415,13 +407,28 @@ tests:
       - failedTemplate:
           errorPattern: "invalid propertyName 'app.kubernetes.io/part-of'"
 
-  - it: rejects app.kubernetes.io/component in commonLabels (a chart key) (T7)
-    template: templates/service.yaml
+  - it: accepts app.kubernetes.io/component in commonLabels, the consumer's key since the chart stopped writing it (ADR-0063)
+    template: templates/deployment.yaml
     set:
-      commonLabels: {app.kubernetes.io/component: x}
+      commonLabels: {app.kubernetes.io/component: database}
     asserts:
-      - failedTemplate:
-          errorPattern: "invalid propertyName 'app.kubernetes.io/component'"
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: database
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/component"]
+          value: database
+
+  - it: accepts app.kubernetes.io/component in podLabels, rendered once on the pod template (ADR-0063)
+    template: templates/deployment.yaml
+    set:
+      podLabels: {app.kubernetes.io/component: database}
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/component"]
+          value: database
+      - notExists:
+          path: metadata.labels["app.kubernetes.io/component"]
 
   - it: rejects app.kubernetes.io/version in commonLabels (a chart key) (T7)
     template: templates/service.yaml

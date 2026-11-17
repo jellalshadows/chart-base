@@ -254,6 +254,82 @@ tests:
       - hasDocuments:
           count: 0
 
+  # A lifecycle hook's httpGet port given by NAME must be a ports entry (ADR-0060), like a probe's.
+  - it: rejects a preStop httpGet port name that is not a ports entry (the drain hook would never run)
+    set:
+      preStopSleepSeconds: 0
+      lifecycle.preStop.httpGet: {path: /drain, port: admin}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: lifecycle.preStop.httpGet.port "admin" is not the name of an entry in ports: the kubelet cannot resolve it and never runs the hook. Use the port number, or declare the name in ports \(a ports entry also becomes a Service port when a Service is rendered, and is opened by networkPolicy.ingress.fromComponents/fromNamespaces\), or remove the hook'
+
+  - it: rejects a postStart httpGet port name that is not a ports entry on a CronJob too (every workload type)
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 3 * * *"
+      lifecycle.postStart.httpGet: {path: /warm, port: admin}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'lifecycle.postStart.httpGet.port "admin" is not the name of an entry in ports: the kubelet cannot resolve it and never runs the hook'
+
+  - it: rejects a lifecycle port name of a sidecar's ports, naming where it is declared
+    set:
+      preStopSleepSeconds: 0
+      lifecycle.preStop.httpGet: {path: /drain, port: proxy-admin}
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, ports: [{name: proxy-admin, containerPort: 9901}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'lifecycle.preStop.httpGet.port "proxy-admin" is not the name of an entry in ports \("proxy-admin" is declared in sidecars.proxy.ports: a hook resolves a port name only among the ports of its own container\)'
+
+  - it: accepts a lifecycle httpGet port given by a declared name or by number
+    set:
+      preStopSleepSeconds: 0
+      lifecycle.preStop.httpGet: {path: /drain, port: http}
+      lifecycle.postStart.httpGet: {path: /warm, port: 9901}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # UID 0 with runAsNonRoot on the main container (ADR-0060), the rule of an init container or a sidecar.
+  - it: rejects securityContext.runAsUser 0 with the default runAsNonRoot true (the kubelet never starts it)
+    set:
+      securityContext.runAsUser: 0
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: the main container would run as UID 0 with runAsNonRoot: true and the kubelet would never start it: set its securityContext.runAsUser to a non-zero UID, or securityContext.runAsNonRoot: false \(Pod Security restricted then rejects the pod\)'
+
+  - it: rejects podSecurityContext.runAsUser 0 that the main container inherits
+    set:
+      podSecurityContext.runAsUser: 0
+    asserts:
+      - failedTemplate:
+          errorPattern: 'the main container would run as UID 0 with runAsNonRoot: true'
+
+  - it: rejects UID 0 with the pod's runAsNonRoot when the container's is null (the pod's applies)
+    set:
+      securityContext.runAsUser: 0
+      securityContext.runAsNonRoot: null
+    asserts:
+      - failedTemplate:
+          errorPattern: 'the main container would run as UID 0 with runAsNonRoot: true'
+
+  - it: accepts podSecurityContext.runAsUser 0 overridden by the container's UID
+    set:
+      podSecurityContext.runAsUser: 0
+      securityContext.runAsUser: 1000
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts UID 0 with securityContext.runAsNonRoot false (Pod Security is the cluster's business)
+    set:
+      securityContext.runAsUser: 0
+      securityContext.runAsNonRoot: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
   - it: checks a postStart sleep of a CronJob against terminationGracePeriodSeconds too (every pod is validated)
     set:
       workload.type: cronjob
@@ -943,39 +1019,39 @@ tests:
       - failedTemplate:
           errorPattern: 'configFiles.mountPath must not be / \("/\.\." is / once normalized\)'
 
-  - it: rejects configFiles.mountPath /var/run/secrets/kubernetes.io/serviceaccount (the token directory) while serviceAccount.automountToken is true
+  - it: rejects configFiles.mountPath /var/run/secrets/kubernetes.io/serviceaccount (the token directory) with serviceAccount.automountToken true
     set:
       configFiles.mountPath: /var/run/secrets/kubernetes.io/serviceaccount
       serviceAccount.automountToken: true
     asserts:
       - failedTemplate:
-          errorPattern: '"/var/run/secrets/kubernetes.io/serviceaccount" is that directory once normalized\): the ServiceAccount token is mounted there; choose another directory, or set serviceAccount.automountToken: false'
+          errorPattern: 'chart-base\[chart-base\]: configFiles.mountPath "/var/run/secrets/kubernetes.io/serviceaccount" is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized: a volume there replaces the token, whether or not serviceAccount.automountToken is true now; choose another directory'
 
-  - it: rejects configFiles.mountPath /var/run/secrets/kubernetes.io/serviceaccount/ (the token directory) while serviceAccount.automountToken is true
+  - it: rejects configFiles.mountPath /var/run/secrets/kubernetes.io/serviceaccount/ (the token directory) with serviceAccount.automountToken true
     set:
       configFiles.mountPath: /var/run/secrets/kubernetes.io/serviceaccount/
       serviceAccount.automountToken: true
     asserts:
       - failedTemplate:
-          errorPattern: '"/var/run/secrets/kubernetes.io/serviceaccount/" is that directory once normalized\): the ServiceAccount token is mounted there'
+          errorPattern: 'configFiles.mountPath "/var/run/secrets/kubernetes.io/serviceaccount/" is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized'
 
-  - it: rejects configFiles.mountPath //var/run/secrets/kubernetes.io/serviceaccount (the token directory) while serviceAccount.automountToken is true
+  - it: rejects configFiles.mountPath //var/run/secrets/kubernetes.io/serviceaccount (the token directory) with serviceAccount.automountToken true
     set:
       configFiles.mountPath: //var/run/secrets/kubernetes.io/serviceaccount
       serviceAccount.automountToken: true
     asserts:
       - failedTemplate:
-          errorPattern: '"//var/run/secrets/kubernetes.io/serviceaccount" is that directory once normalized\): the ServiceAccount token is mounted there'
+          errorPattern: 'configFiles.mountPath "//var/run/secrets/kubernetes.io/serviceaccount" is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized'
 
-  - it: accepts the token directory as configFiles.mountPath while serviceAccount.automountToken is false
+  - it: rejects the token directory as configFiles.mountPath with serviceAccount.automountToken false too (one rule for every mount, ADR-0060)
     set:
       configFiles.mountPath: /var/run/secrets/kubernetes.io/serviceaccount
       serviceAccount.automountToken: false
     asserts:
-      - hasDocuments:
-          count: 0
+      - failedTemplate:
+          errorPattern: 'configFiles.mountPath "/var/run/secrets/kubernetes.io/serviceaccount" is the ServiceAccount token directory /var/run/secrets/kubernetes.io/serviceaccount once normalized: a volume there replaces the token, whether or not serviceAccount.automountToken is true now'
 
-  - it: accepts /var/run/secrets as configFiles.mountPath with the token (a parent of the token directory is not checked)
+  - it: accepts an ancestor of the token directory (/var/run/secrets) as configFiles.mountPath with the token, as on every mount (ADR-0060)
     set:
       configFiles.mountPath: /var/run/secrets
       serviceAccount.automountToken: true
@@ -1087,19 +1163,19 @@ tests:
       - failedTemplate:
           errorPattern: 'probes.liveness.httpGet.port "8080" is not the name of an entry in ports: the kubelet cannot resolve it and never runs the probe'
 
-  - it: rejects a probe handler that is a string
+  - it: rejects a probe handler that is a string, in the schema (ADR-0059)
     set:
       probes.readiness.httpGet: x
     asserts:
       - failedTemplate:
-          errorPattern: 'probes.readiness.httpGet must be a map, e.g. .port: 8080., got string'
+          errorPattern: "at '/probes/readiness/httpGet': got string, want "
 
-  - it: rejects a probe handler that is a list
+  - it: rejects a probe handler that is a list, in the schema (ADR-0059)
     set:
       probes.startup.tcpSocket: [8080]
     asserts:
       - failedTemplate:
-          errorPattern: 'probes.startup.tcpSocket must be a map, e.g. .port: 8080., got slice'
+          errorPattern: "at '/probes/startup/tcpSocket': got array, want "
 
   - it: accepts numeric probe ports with no ports entry (a worker with ports [])
     set:
@@ -1136,9 +1212,16 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: accepts a probe handler without a port (not checked here)
+  - it: rejects an httpGet probe handler without a port, in the schema (ADR-0059)
     set:
       probes.readiness.httpGet: {path: /ready}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/probes/readiness/httpGet': missing property 'port'"
+
+  - it: accepts a probe handler with a port (the port name checked above)
+    set:
+      probes.readiness.httpGet: {path: /ready, port: 8080}
     asserts:
       - hasDocuments:
           count: 0

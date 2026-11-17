@@ -1,6 +1,6 @@
 # ADR-0016: HTTPRoute first, Ingress optional
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0061](0061-reserved-metadata-keys-and-a-required-ingress-class.md) (0.12.0)
 - **Date:** 2026-09-27
 - **Since:** 0.1.0
 

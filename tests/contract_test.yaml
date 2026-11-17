@@ -1,0 +1,365 @@
+suite: the 1.0 contract (ADR-0058) - names, selectors, label and annotation keys, on every workload type
+# Each case pins a part of the frozen set. A failure here is a breaking change for every consumer: object names,
+# selector labels and the keys the chart writes do not change after 1.0 (a selector label never: Deployment
+# .spec.selector is immutable). The values keys are pinned by .github/scripts/contract-keys.sh.
+templates:
+  - templates/configmap-env.yaml
+  - templates/configmap-files.yaml
+  - templates/cronjob.yaml
+  - templates/deployment.yaml
+  - templates/externalsecret.yaml
+  - templates/extraobjects.yaml
+  - templates/hpa.yaml
+  - templates/httproute.yaml
+  - templates/ingress.yaml
+  - templates/job.yaml
+  - templates/networkpolicy.yaml
+  - templates/pdb.yaml
+  - templates/podmonitor.yaml
+  - templates/prometheusrule.yaml
+  - templates/role.yaml
+  - templates/rolebinding.yaml
+  - templates/scaledobject.yaml
+  - templates/service.yaml
+  - templates/serviceaccount.yaml
+  - templates/servicemonitor.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+values:
+  - values/base.yaml
+tests:
+  # Object names: <release>-<alias>, the two ConfigMaps -env and -files, the Secret -secrets, an extra object
+  # <fullname>.<key> and a RoleBinding to a ClusterRole <fullname>.<clusterRole>.
+  - it: names every object of a deployment <release>-<alias>, with the -env, -files, -secrets, .<key> and .<clusterRole> forms
+    values:
+      - ../ci/full-values.yaml
+    asserts:
+      - equal: {path: metadata.name, value: vending-chart-base}
+        template: templates/deployment.yaml
+      - equal: {path: metadata.name, value: vending-chart-base}
+        template: templates/service.yaml
+      - equal: {path: metadata.name, value: vending-chart-base}
+        template: templates/serviceaccount.yaml
+      - equal: {path: metadata.name, value: vending-chart-base}
+        template: templates/hpa.yaml
+      - equal: {path: metadata.name, value: vending-chart-base}
+        template: templates/pdb.yaml
+      - equal: {path: metadata.name, value: vending-chart-base}
+        template: templates/httproute.yaml
+      - equal: {path: metadata.name, value: vending-chart-base}
+        template: templates/ingress.yaml
+      - equal: {path: metadata.name, value: vending-chart-base}
+        template: templates/networkpolicy.yaml
+      - equal: {path: metadata.name, value: vending-chart-base}
+        template: templates/servicemonitor.yaml
+      - equal: {path: metadata.name, value: vending-chart-base}
+        template: templates/prometheusrule.yaml
+      - equal: {path: metadata.name, value: vending-chart-base}
+        template: templates/role.yaml
+      - equal: {path: metadata.name, value: vending-chart-base-env}
+        template: templates/configmap-env.yaml
+      - equal: {path: metadata.name, value: vending-chart-base-files}
+        template: templates/configmap-files.yaml
+      - equal: {path: metadata.name, value: vending-chart-base-secrets}
+        template: templates/externalsecret.yaml
+      - equal: {path: spec.target.name, value: vending-chart-base-secrets}
+        template: templates/externalsecret.yaml
+      - equal: {path: metadata.name, value: vending-chart-base.settings}
+        template: templates/extraobjects.yaml
+      - equal: {path: metadata.name, value: vending-chart-base}
+        template: templates/rolebinding.yaml
+        documentIndex: 0
+      - equal: {path: metadata.name, value: vending-chart-base.view}
+        template: templates/rolebinding.yaml
+        documentIndex: 1
+      - equal: {path: spec.scaleTargetRef.name, value: vending-chart-base}
+        template: templates/hpa.yaml
+
+  - it: names the PodMonitor of a worker <release>-<alias>, without app.kubernetes.io/component
+    values:
+      - ../ci/worker-values.yaml
+    asserts:
+      - equal: {path: metadata.name, value: vending-chart-base}
+        template: templates/podmonitor.yaml
+      - notExists: {path: 'metadata.labels["app.kubernetes.io/component"]'}
+        template: templates/podmonitor.yaml
+
+  - it: names the ScaledObject <release>-<alias>, without app.kubernetes.io/component, and points it at the Deployment
+    values:
+      - ../ci/keda-values.yaml
+    asserts:
+      - equal: {path: metadata.name, value: vending-chart-base}
+        template: templates/scaledobject.yaml
+      - equal: {path: spec.scaleTargetRef.name, value: vending-chart-base}
+        template: templates/scaledobject.yaml
+      - notExists: {path: 'metadata.labels["app.kubernetes.io/component"]'}
+        template: templates/scaledobject.yaml
+
+  - it: names a CronJob <release>-<alias> and its container the alias, without app.kubernetes.io/component
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 3 * * *"
+    asserts:
+      - equal: {path: metadata.name, value: vending-chart-base}
+        template: templates/cronjob.yaml
+      - equal: {path: "spec.jobTemplate.spec.template.spec.containers[0].name", value: chart-base}
+        template: templates/cronjob.yaml
+      - notExists: {path: 'metadata.labels["app.kubernetes.io/component"]'}
+        template: templates/cronjob.yaml
+      - notExists: {path: 'spec.jobTemplate.metadata.labels["app.kubernetes.io/component"]'}
+        template: templates/cronjob.yaml
+      - notExists: {path: 'spec.jobTemplate.spec.template.metadata.labels["app.kubernetes.io/component"]'}
+        template: templates/cronjob.yaml
+
+  - it: names a Job <release>-<alias> and its container the alias, without app.kubernetes.io/component
+    set:
+      workload.type: job
+    asserts:
+      - equal: {path: metadata.name, value: vending-chart-base}
+        template: templates/job.yaml
+      - equal: {path: "spec.template.spec.containers[0].name", value: chart-base}
+        template: templates/job.yaml
+      - notExists: {path: 'metadata.labels["app.kubernetes.io/component"]'}
+        template: templates/job.yaml
+      - notExists: {path: 'spec.template.metadata.labels["app.kubernetes.io/component"]'}
+        template: templates/job.yaml
+
+  # Selector labels: exactly app.kubernetes.io/name (the alias) and app.kubernetes.io/instance (the release), in every
+  # selector the chart renders, and on every pod template.
+  - it: selects with exactly the two selector labels in every selector of a deployment
+    values:
+      - ../ci/full-values.yaml
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels
+          value: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+        template: templates/deployment.yaml
+      - equal:
+          path: "spec.template.spec.topologySpreadConstraints[0].labelSelector.matchLabels"
+          value: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+        template: templates/deployment.yaml
+      - equal:
+          path: spec.selector
+          value: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+        template: templates/service.yaml
+      - equal:
+          path: spec.selector.matchLabels
+          value: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+        template: templates/pdb.yaml
+      - equal:
+          path: spec.podSelector.matchLabels
+          value: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+        template: templates/networkpolicy.yaml
+      # A sibling component's pods (fromComponents and toComponents): its two selector labels, the alias and the release.
+      - equal:
+          path: "spec.ingress[0].from[0].podSelector.matchLabels"
+          value: {app.kubernetes.io/name: web, app.kubernetes.io/instance: vending}
+        template: templates/networkpolicy.yaml
+      - equal:
+          path: "spec.egress[1].to[0].podSelector.matchLabels"
+          value: {app.kubernetes.io/name: payments, app.kubernetes.io/instance: vending}
+        template: templates/networkpolicy.yaml
+      - equal:
+          path: spec.selector.matchLabels
+          value: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+        template: templates/servicemonitor.yaml
+
+  - it: selects the pods of a worker's PodMonitor with exactly the two selector labels
+    values:
+      - ../ci/worker-values.yaml
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels
+          value: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+        template: templates/podmonitor.yaml
+
+  # The label keys the chart writes: name, instance, part-of and version (from the tag) everywhere; managed-by and
+  # helm.sh/chart on every object's metadata, never on a pod template (ADR-0010).
+  - it: writes name, instance, part-of, version, managed-by and helm.sh/chart on every object of a deployment
+    templates:
+      - templates/configmap-env.yaml
+      - templates/configmap-files.yaml
+      - templates/deployment.yaml
+      - templates/externalsecret.yaml
+      - templates/extraobjects.yaml
+      - templates/hpa.yaml
+      - templates/httproute.yaml
+      - templates/ingress.yaml
+      - templates/networkpolicy.yaml
+      - templates/pdb.yaml
+      - templates/prometheusrule.yaml
+      - templates/role.yaml
+      - templates/rolebinding.yaml
+      - templates/service.yaml
+      - templates/serviceaccount.yaml
+      - templates/servicemonitor.yaml
+    values:
+      - ../ci/full-values.yaml
+    asserts:
+      - equal: {path: 'metadata.labels["app.kubernetes.io/name"]', value: chart-base}
+      - equal: {path: 'metadata.labels["app.kubernetes.io/instance"]', value: vending}
+      - equal: {path: 'metadata.labels["app.kubernetes.io/part-of"]', value: vending}
+      - equal: {path: 'metadata.labels["app.kubernetes.io/version"]', value: "2.66.1"}
+      - equal: {path: 'metadata.labels["app.kubernetes.io/managed-by"]', value: Helm}
+      - equal: {path: 'metadata.labels["helm.sh/chart"]', value: chart-base-0.0.0-test}
+
+  # app.kubernetes.io/component is the consumer's key (ADR-0063): the chart writes it nowhere.
+  - it: writes no app.kubernetes.io/component on any object of a deployment, nor on the ExternalSecret's template
+    templates:
+      - templates/configmap-env.yaml
+      - templates/configmap-files.yaml
+      - templates/deployment.yaml
+      - templates/externalsecret.yaml
+      - templates/extraobjects.yaml
+      - templates/hpa.yaml
+      - templates/httproute.yaml
+      - templates/ingress.yaml
+      - templates/networkpolicy.yaml
+      - templates/pdb.yaml
+      - templates/prometheusrule.yaml
+      - templates/role.yaml
+      - templates/rolebinding.yaml
+      - templates/service.yaml
+      - templates/serviceaccount.yaml
+      - templates/servicemonitor.yaml
+    values:
+      - ../ci/full-values.yaml
+    asserts:
+      - notExists: {path: 'metadata.labels["app.kubernetes.io/component"]'}
+      - notExists: {path: 'spec.target.template.metadata.labels["app.kubernetes.io/component"]'}
+        template: templates/externalsecret.yaml
+      - notExists: {path: 'spec.template.metadata.labels["app.kubernetes.io/component"]'}
+        template: templates/deployment.yaml
+
+  - it: writes name, instance, part-of and version on a Deployment's pod template, never managed-by or helm.sh/chart
+    asserts:
+      - equal: {path: 'spec.template.metadata.labels["app.kubernetes.io/name"]', value: chart-base}
+        template: templates/deployment.yaml
+      - equal: {path: 'spec.template.metadata.labels["app.kubernetes.io/instance"]', value: vending}
+        template: templates/deployment.yaml
+      - equal: {path: 'spec.template.metadata.labels["app.kubernetes.io/part-of"]', value: vending}
+        template: templates/deployment.yaml
+      - equal: {path: 'spec.template.metadata.labels["app.kubernetes.io/version"]', value: "1.4.2"}
+        template: templates/deployment.yaml
+      - notExists: {path: 'spec.template.metadata.labels["app.kubernetes.io/managed-by"]'}
+        template: templates/deployment.yaml
+      - notExists: {path: 'spec.template.metadata.labels["helm.sh/chart"]'}
+        template: templates/deployment.yaml
+      - equal: {path: "spec.template.spec.containers[0].name", value: chart-base}
+        template: templates/deployment.yaml
+
+  - it: writes the same pod labels on a CronJob's job template and pod template
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 3 * * *"
+    asserts:
+      - equal: {path: 'spec.jobTemplate.metadata.labels["app.kubernetes.io/name"]', value: chart-base}
+        template: templates/cronjob.yaml
+      - equal: {path: 'spec.jobTemplate.metadata.labels["app.kubernetes.io/instance"]', value: vending}
+        template: templates/cronjob.yaml
+      - equal: {path: 'spec.jobTemplate.metadata.labels["app.kubernetes.io/part-of"]', value: vending}
+        template: templates/cronjob.yaml
+      - equal: {path: 'spec.jobTemplate.metadata.labels["app.kubernetes.io/version"]', value: "1.4.2"}
+        template: templates/cronjob.yaml
+      - notExists: {path: 'spec.jobTemplate.metadata.labels["helm.sh/chart"]'}
+        template: templates/cronjob.yaml
+      - equal: {path: 'spec.jobTemplate.spec.template.metadata.labels["app.kubernetes.io/name"]', value: chart-base}
+        template: templates/cronjob.yaml
+      - equal: {path: 'spec.jobTemplate.spec.template.metadata.labels["app.kubernetes.io/instance"]', value: vending}
+        template: templates/cronjob.yaml
+      - equal: {path: 'spec.jobTemplate.spec.template.metadata.labels["app.kubernetes.io/part-of"]', value: vending}
+        template: templates/cronjob.yaml
+      - equal: {path: 'spec.jobTemplate.spec.template.metadata.labels["app.kubernetes.io/version"]', value: "1.4.2"}
+        template: templates/cronjob.yaml
+      - notExists: {path: 'spec.jobTemplate.spec.template.metadata.labels["app.kubernetes.io/managed-by"]'}
+        template: templates/cronjob.yaml
+      - notExists: {path: 'spec.jobTemplate.spec.template.metadata.labels["helm.sh/chart"]'}
+        template: templates/cronjob.yaml
+
+  - it: writes the same pod labels on a Job's pod template
+    set:
+      workload.type: job
+    asserts:
+      - equal: {path: 'spec.template.metadata.labels["app.kubernetes.io/name"]', value: chart-base}
+        template: templates/job.yaml
+      - equal: {path: 'spec.template.metadata.labels["app.kubernetes.io/instance"]', value: vending}
+        template: templates/job.yaml
+      - equal: {path: 'spec.template.metadata.labels["app.kubernetes.io/part-of"]', value: vending}
+        template: templates/job.yaml
+      - equal: {path: 'spec.template.metadata.labels["app.kubernetes.io/version"]', value: "1.4.2"}
+        template: templates/job.yaml
+      - notExists: {path: 'spec.template.metadata.labels["app.kubernetes.io/managed-by"]'}
+        template: templates/job.yaml
+      - notExists: {path: 'spec.template.metadata.labels["helm.sh/chart"]'}
+        template: templates/job.yaml
+
+  - it: writes no version label without a tag (an image by digest alone)
+    set:
+      image.tag: null
+      image.digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    asserts:
+      - notExists: {path: 'metadata.labels["app.kubernetes.io/version"]'}
+        template: templates/deployment.yaml
+      - notExists: {path: 'spec.template.metadata.labels["app.kubernetes.io/version"]'}
+        template: templates/deployment.yaml
+
+  # The chart's volume names and annotation keys.
+  - it: names the chart's volumes tmp, config-files and external-secret
+    values:
+      - ../ci/full-values.yaml
+    asserts:
+      - equal: {path: "spec.template.spec.volumes[0].name", value: tmp}
+        template: templates/deployment.yaml
+      - equal: {path: "spec.template.spec.volumes[1].name", value: config-files}
+        template: templates/deployment.yaml
+      - equal: {path: "spec.template.spec.volumes[2].name", value: external-secret}
+        template: templates/deployment.yaml
+
+  - it: writes the checksum keys on the pod template and the two Reloader keys on the Deployment
+    values:
+      - ../ci/full-values.yaml
+    asserts:
+      - exists: {path: 'spec.template.metadata.annotations["checksum/config-env"]'}
+        template: templates/deployment.yaml
+      - exists: {path: 'spec.template.metadata.annotations["checksum/config-files"]'}
+        template: templates/deployment.yaml
+      - exists: {path: 'metadata.annotations["secret.reloader.stakater.com/reload"]'}
+        template: templates/deployment.yaml
+      - exists: {path: 'metadata.annotations["configmap.reloader.stakater.com/reload"]'}
+        template: templates/deployment.yaml
+
+  - it: writes the hook keys of a job component on the Job (weight 0) and its support objects (weight -10)
+    set:
+      workload.type: job
+      config: {APP_MODE: migrate}
+    asserts:
+      - equal: {path: 'metadata.annotations["helm.sh/hook"]', value: "pre-install,pre-upgrade"}
+        template: templates/job.yaml
+      - equal: {path: 'metadata.annotations["helm.sh/hook-weight"]', value: "0"}
+        template: templates/job.yaml
+      - equal: {path: 'metadata.annotations["helm.sh/hook-delete-policy"]', value: before-hook-creation}
+        template: templates/job.yaml
+      - equal: {path: 'metadata.annotations["helm.sh/hook"]', value: "pre-install,pre-upgrade"}
+        template: templates/configmap-env.yaml
+      - equal: {path: 'metadata.annotations["helm.sh/hook-weight"]', value: "-10"}
+        template: templates/configmap-env.yaml
+      - equal: {path: 'metadata.annotations["helm.sh/hook-delete-policy"]', value: "before-hook-creation,hook-succeeded"}
+        template: templates/configmap-env.yaml
+      - equal: {path: 'metadata.annotations["helm.sh/hook-weight"]', value: "-10"}
+        template: templates/serviceaccount.yaml
+
+  - it: writes the post-deploy hooks with job.phase post-deploy
+    set:
+      workload.type: job
+      job.phase: post-deploy
+    asserts:
+      - equal: {path: 'metadata.annotations["helm.sh/hook"]', value: "post-install,post-upgrade"}
+        template: templates/job.yaml
+      - equal: {path: 'metadata.annotations["helm.sh/hook"]', value: "post-install,post-upgrade"}
+        template: templates/serviceaccount.yaml

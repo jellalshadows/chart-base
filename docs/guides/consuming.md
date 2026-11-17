@@ -119,13 +119,13 @@ pinned by one check of the alias contract, on both Helm versions
 | The `null` is written on | From `-f`/`--set`; from the umbrella's own values on Helm 3.22; from the umbrella's own values on Helm 4.3 when a `-f`/`--set` value names that alias | From the umbrella's own values on Helm 4.3 when nothing is passed for that alias |
 |---|---|---|
 | a chart default the schema requires ([ADR-0027](../adr/0027-required-keys-in-the-schema.md): `serviceAccount.automountToken`, `job.ttlSecondsAfterFinished`, `podSecurityContext`, `keda.minReplicaCount` and `keda.maxReplicaCount`) | Helm removes it; the render fails (`missing property`) | ignored: the default stays (nothing fails when the default is valid; `resources` and `image.repository` then fail the schema like the next row) |
-| a key that an enabled block needs ([ADR-0047](../adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md): `cronjob.schedule`, `externalSecret.secretStoreRef.kind` and `.name`, `httpRoute.parentRefs`, `ingress.hosts`) | Helm removes it; the render fails (`missing property`) | ignored: the default (`""`, `[]`) stays and fails the schema (`minLength: got 0, want 1`, `minItems`); for `secretStoreRef.kind` the default `ClusterSecretStore` stays and renders |
-| any other chart default (`podSecurityContext.runAsUser`, `securityContext.readOnlyRootFilesystem`, `ingress.className`) | the default is gone | ignored: the default stays |
+| a key that an enabled block needs ([ADR-0047](../adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md): `cronjob.schedule`, `externalSecret.secretStoreRef.kind` and `.name`, `httpRoute.parentRefs`, `ingress.hosts`; [ADR-0061](../adr/0061-reserved-metadata-keys-and-a-required-ingress-class.md): `ingress.className`) | Helm removes it; the render fails (`missing property`) | ignored: the default (`""`, `[]`) stays and fails the schema (`minLength: got 0, want 1`, `minItems`); for `secretStoreRef.kind` the default `ClusterSecretStore` stays and renders |
+| any other chart default (`podSecurityContext.runAsUser`, `securityContext.readOnlyRootFilesystem`, `ingress.className` while the Ingress is off) | the default is gone | ignored: the default stays |
 | a whole map that the chart's `values.yaml` defines (`config`, `env`, `podLabels`, `podAnnotations`, `nodeSelector`, `configFiles.files`, `volumes`, `initContainers`, `sidecars`, `keda`, `commonLabels`, `commonAnnotations`, `service.annotations`, `extraObjects`), and `autoscaling.behavior` and the list `autoscaling.metrics` | cleared (`keda: null` is KEDA off; `metrics: null` renders the built-in targets) | same result |
 | a whole map that the chart's `values.yaml` does not define (`resources.requests`) | schema error `got null, want object` | Helm drops it, and the required `requests` is then missing (`missing property 'requests'`) |
-| one entry of a typed map (`config.<KEY>`, `env.<NAME>`, labels, annotations, `commonLabels.<key>`, `commonAnnotations.<key>`, `service.annotations.<key>`, `nodeSelector.<key>`), or an optional member of a closed object (`lifecycle.postStart`, `strategy.rollingUpdate.maxSurge`, `dnsConfig.options`, `autoscaling.behavior.scaleUp`); a field inside an init container's or a sidecar's env `valueFrom` or probe `httpGet` or `exec` (definitions shared with the main container) | schema error `got null, want …` | Helm drops the entry |
-| a key inside a pass-through object (`affinity.<key>`, a key of a main-container probe) | rendered as `null` in the manifest | dropped |
-| a file of `configFiles.files` or a key of a map-form file (maps reached through maps); an entry of `resources.limits`, an entry of `resources.requests` other than `cpu` and `memory`, or `resources.limits` itself; an entry of `volumes` or a field of an entry; `strategy.rollingUpdate`; an entry of `initContainers` or `sidecars`, or an optional field of an entry at any depth, not inside a list (`env.<NAME>`, a mount, a probe, a `securityContext` field: the hardened default comes back); an entry of `externalSecret.data` or an optional field of one (`property`, `version`, `decodingStrategy`), and an entry of `externalSecret.template.data`; an entry of `keda.triggers`, or an optional field or a metadata key of one; an entry of `extraObjects`, or a field of one at any depth through maps (a list kept as written) | removed by chart-base ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md), [ADR-0045](../adr/0045-null-in-configfiles-and-resources-is-absent.md), [ADR-0049](../adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md), [ADR-0050](../adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md), [ADR-0051](../adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md), [ADR-0053](../adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md), [ADR-0056](../adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)) | removed |
+| one entry of a typed map (`config.<KEY>`, `env.<NAME>`, labels, annotations, `commonLabels.<key>`, `commonAnnotations.<key>`, `service.annotations.<key>`, `nodeSelector.<key>`), or an optional member of a closed object (`lifecycle.postStart`, `strategy.rollingUpdate.maxSurge`, `dnsConfig.options`, `autoscaling.behavior.scaleUp`); a field inside an init container's or a sidecar's env `valueFrom` or probe `exec` (definitions shared with the main container), or inside a `lifecycle` hook's `httpGet` or `exec` | schema error `got null, want …` | Helm drops the entry |
+| a key inside a pass-through object (`affinity.<key>`) | rendered as `null` in the manifest | dropped |
+| a file of `configFiles.files` or a key of a map-form file (maps reached through maps); an entry of `resources.limits`, an entry of `resources.requests` other than `cpu` and `memory`, or `resources.limits` itself; an entry of `volumes` or a field of an entry; `strategy.rollingUpdate`; a field or handler of a main-container probe, also inside its `httpGet` and `grpc`; an entry of `initContainers` or `sidecars`, or an optional field of an entry at any depth, not inside a list (`env.<NAME>`, a mount, a probe, a `securityContext` field: the hardened default comes back); an entry of `externalSecret.data` or an optional field of one (`property`, `version`, `decodingStrategy`), and an entry of `externalSecret.template.data`; an entry of `keda.triggers`, or an optional field or a metadata key of one; an entry of `extraObjects`, or a field of one at any depth through maps (a list kept as written) | removed by chart-base ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md), [ADR-0045](../adr/0045-null-in-configfiles-and-resources-is-absent.md), [ADR-0049](../adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md), [ADR-0050](../adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md), [ADR-0051](../adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md), [ADR-0053](../adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md), [ADR-0056](../adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md), [ADR-0059](../adr/0059-one-probe-contract-for-every-container.md)) | removed |
 
 `externalSecret.data: null` with `externalSecret.enabled: true` and no `dataFrom` entry is cleared and then fails the
 source guard ([ADR-0047](../adr/0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md)). In `externalSecret.data` a `null` entry, and a `null`
@@ -140,7 +140,8 @@ file a key whose value is `null` or empty (`key:`) is removed; a list inside it 
 `null` entry or field is absent: an entry can also be removed with `null` and re-added under another name, and an
 overlay changes a volume's type by setting the previous type's fields to `null`
 ([ADR-0049](../adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)). In `initContainers` and `sidecars`, a `null` entry or optional field is absent at any
-depth (a list is kept as written, and a required field such as a mount's `mountPath` or a probe's `port` stays a schema error), except inside an env variable's `valueFrom` and a probe's `httpGet` or `exec`, which the main container shares:
+depth (a list is kept as written, and a required field such as a mount's `mountPath` or a probe's `port` stays a schema error), also inside a probe's `httpGet` and `grpc` as on the main container
+([ADR-0059](../adr/0059-one-probe-contract-for-every-container.md)), except inside an env variable's `valueFrom` and a probe's `exec`, which the main container shares:
 replace or remove such an object whole ([ADR-0051](../adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)). So a sidecar's `env.<NAME>: null` removes the
 variable, while the main container's `env.<NAME>: null` stays a schema error (row 6) until a chart-wide rule ships.
 These are rules of these maps (`configFiles.files`, `resources`, `volumes`, `initContainers`, `sidecars`,
@@ -364,7 +365,8 @@ An extra object is named `<release>-<alias>.<key>` and installed in the release 
 component every extra object is a hook of the Job's phase. A custom kind needs its CRD in the cluster, or the whole
 release fails, and `validate-manifests.sh`'s kubeconform needs a schema location for it (add one, or pass
 `-ignore-missing-schemas` in your own pipeline). An extra autoscaler or budget of the component's own pods fights the
-chart: use `autoscaling`, `keda` and `pdb` ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)).
+chart: use `autoscaling`, `keda` and `pdb` ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)); the one extra budget that does not is a blocking one with `pdb.enabled: false`
+([ADR-0062](../adr/0062-a-pdb-never-blocks-a-drain-at-the-replica-floor.md)).
 
 **Job components: expect them to run as Helm hooks.**
 A component with `workload.type: job` is rendered as a Helm hook (`job.phase: pre-deploy` by default,
@@ -524,9 +526,17 @@ must know:
   cannot scale from zero: a component scaled only by them keeps `minReplicaCount` at 1 or more (the render fails
   otherwise).
 - **Scale to zero is written on purpose** (`minReplicaCount: 0`; the chart's default is 1, KEDA's own 0). At zero the
-  component has no pod behind its Service or route. The PodDisruptionBudget is not checked against the minimum: with
-  `minReplicaCount: 0` the workload often runs one pod, and any integer `pdb.minAvailable` of 1 or more then blocks a
-  node drain (the default `maxUnavailable: 1` does not; [roadmap](../roadmap.md#open-decisions)).
+  component has no pod behind its Service or route. The PodDisruptionBudget is checked against a floor of one pod: with
+  `minReplicaCount: 0` the workload runs at least one pod while a trigger is active, and a `pdb.minAvailable` of 1 or
+  more would then block every node drain, so it fails the render (the default `maxUnavailable: 1` does not).
+- **The PodDisruptionBudget must allow one eviction at the replica floor**, in every mode
+  ([ADR-0062](../adr/0062-a-pdb-never-blocks-a-drain-at-the-replica-floor.md)). The floor is `max(keda.minReplicaCount,
+  1)` with KEDA, `autoscaling.minReplicas` with the HPA, otherwise `replicas` (at 0 nothing is checked). The render
+  fails, naming the floor's source, when an integer `pdb.minAvailable` is at or above the floor, when a percentage
+  `minAvailable` reaches it once rounded up (the disruption controller rounds both percentages up: `"50%"` of 2 pods is
+  1, `"51%"` is 2, and `"50%"` of 1 pod is 1), or when `pdb.maxUnavailable` is `0` or `"0%"`. A budget that blocks
+  evictions on purpose (a quorum that must never lose a member to a drain) is written with `pdb.enabled: false` and a
+  PodDisruptionBudget in `extraObjects`, which the chart does not check.
 - **A native sidecar's usage is reported** by metrics-server next to the main container's (source reading of the
   kubelet's CRI stats provider at v1.33.12 and v1.37.0 and of metrics-server 0.9.0; the kind e2e asserts it), so a
   `ContainerResource` metric or a `containerName` may name a sidecar. An init container cannot be named: it has exited
@@ -561,7 +571,9 @@ offer ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-
    under `helm lint` ([ADR-0044](../adr/0044-guards-fail-the-render-helm-lint-reports-them.md)).
 4. **An extra autoscaler on the component's Deployment fights the chart**, with the chart's autoscalers off too: the
    chart then renders `spec.replicas`, which Helm 3 resets at every upgrade and Helm 4 can conflict on. Use
-   `autoscaling` or `keda`; likewise `pdb` for a budget of the component's own pods.
+   `autoscaling` or `keda`; likewise `pdb` for a budget of the component's own pods, or, for a budget that blocks
+   evictions on purpose, `pdb.enabled: false` and the PodDisruptionBudget in `extraObjects` (two budgets over one pod
+   make the eviction API refuse every eviction of it).
 5. **`helm.sh/resource-policy: keep` in `commonAnnotations`** keeps the regular objects on uninstall, never a `job`
    component's hooks: Helm deletes a hook without reading it
    ([ADR-0042](../adr/0042-existing-serviceaccount-and-namespaced-rbac.md)).
@@ -575,14 +587,17 @@ offer ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-
    PersistentVolumeClaim); the chart's integrated secret path stays `externalSecret`, and a plain `Secret` is rejected.
    Values are rendered as written, never as templates.
 8. **A reserved key's message names the key at an unrelated path** (`invalid propertyName '<key>'`, at a path such as
-   `'/prometheusRule'` that moves between Helm versions). Which maps reject which keys: `commonLabels`, `podLabels`
-   (the two selector labels only), `metrics.labels`, `prometheusRule.labels` and an extra object's own labels reject the
-   chart's label keys (`app.kubernetes.io/name`, `instance`, `part-of`, `component`, `version`, `managed-by`,
-   `helm.sh/chart`); `commonAnnotations`, `service.annotations` and an extra object's own annotations reject
-   `helm.sh/hook*`, `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files`, and `commonAnnotations` also
-   the two Reloader keys the chart computes (`secret.reloader.stakater.com/reload`,
-   `configmap.reloader.stakater.com/reload`). `podAnnotations`, `ingress.annotations` and `serviceAccount.annotations`
-   reject nothing yet (the 1.0 contract freeze).
+   `'/prometheusRule'` that moves between Helm versions). Which maps reject which keys: `commonLabels`, `podLabels`,
+   `metrics.labels`, `prometheusRule.labels` and an extra object's own labels reject the chart's label keys
+   (`app.kubernetes.io/name`, `instance`, `part-of`, `version`, `managed-by`, `helm.sh/chart`; not
+   `app.kubernetes.io/component`, which the chart does not write since 0.12.0); every annotations map of an object's
+   or a pod template's metadata (`commonAnnotations`, `podAnnotations`, `service.annotations`, `ingress.annotations`,
+   `serviceAccount.annotations` and an extra object's own annotations) rejects `helm.sh/hook*`, `meta.helm.sh/*`,
+   `checksum/config-env` and `checksum/config-files`, and `commonAnnotations` also the two Reloader keys the chart
+   computes (`secret.reloader.stakater.com/reload`, `configmap.reloader.stakater.com/reload`). Up to 0.11.0
+   `podLabels` rejected the two selector labels only and the other three annotations maps nothing
+   ([ADR-0061](../adr/0061-reserved-metadata-keys-and-a-required-ingress-class.md)). The labels and annotations of a
+   PrometheusRule's rules are alert fields, not metadata, and reject nothing.
 9. **Changing `commonLabels` rolls a Deployment's pods** (the pod template changes); the next CronJob run and the next
    Job get them. `commonAnnotations` roll nothing.
 
@@ -610,14 +625,15 @@ release name and `--namespace`, not on `helm lint`
   line (`funcMap fail` on Helm 4, `[INFO] Fail:` on Helm 3), exits 0, and renders under the placeholder release name
   `test-release`, so the name guards judge a name the deploy never uses. The guards are, for example, a name that is
   not a DNS-1035 label, a name longer than 63 characters (52 for a CronJob), a Kubernetes version below 1.33,
-  `autoscaling.minReplicas` greater than `maxReplicas`, a rollout that Kubernetes would reject (`maxSurge` and
+  `autoscaling.minReplicas` greater than `maxReplicas`, a PodDisruptionBudget that allows no eviction at the replica
+  floor (see [Autoscaling](#autoscaling-the-hpa-and-keda)), a rollout that Kubernetes would reject (`maxSurge` and
   `maxUnavailable` both 0, `minReadySeconds` not lower than `progressDeadlineSeconds`, a `strategy.rollingUpdate` next
   to `Recreate`), a custom
   `lifecycle.preStop` next to the built-in preStop sleep, a lifecycle `sleep` longer than
   `terminationGracePeriodSeconds`, a `metrics.port` that is not the name of an entry in `ports`, a probe
-  `httpGet.port` or `tcpSocket.port` given by a name that no `ports` entry declares (or a probe handler that is not a
-  map), a `configFiles.mountPath` that is `/tmp` or `/` once normalized (or the ServiceAccount token directory while
-  `serviceAccount.automountToken` is true), `externalSecret.enabled` without a source (no non-null `data` entry and no `dataFrom` entry), and with
+  `httpGet.port` or `tcpSocket.port` or a `lifecycle` hook `httpGet.port` given by a name that no `ports` entry declares,
+  a main container that would run as UID 0 with `runAsNonRoot: true`, a `configFiles.mountPath` that is `/tmp`, `/` or
+  the ServiceAccount token directory once normalized, `externalSecret.enabled` without a source (no non-null `data` entry and no `dataFrom` entry), and with
   `networkPolicy` on: `metrics` or a route (`httpRoute`, `ingress`) without a source in the policy (or without
   `routeTrafficAllowedElsewhere: true`), `routeTrafficAllowedElsewhere` without a route,
   `metricsFromNamespaces` without `metrics`, `fromComponents` or `fromNamespaces` with no `ports`, an `endPort`
@@ -636,7 +652,8 @@ release name and `--namespace`, not on `helm lint`
 - The guards of `volumes` ([ADR-0049](../adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md), [ADR-0050](../adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md)): a volume
   name that is not a DNS-1123 label or that chart-base reserves; a field of another type, or a `null` in a type's
   required field; a mount path that is another mount's once normalized, `/`, or the token directory; a `subPath` or
-  `items[].path` that is absolute or has a `..` element, and two items with one path; a `configMap` or `secret` file
+  `items[].path` that is absolute or has a `..` element, and two items with one path; with `items`, a `subPath` that is
+  not one of their paths, a directory that holds one, or `.`; a `configMap` or `secret` file
   (`subPath`) beneath a ConfigMap or Secret mount; a `readOnly` that the type contradicts; a size of zero;
   `medium: Memory` without `sizeLimit`; a reference to the component's own ConfigMaps or Secret; two entries of one
   claim; an existing claim declared `ReadWriteOnce` or `ReadWriteOncePod` on a Deployment that can run two pods; a
@@ -733,13 +750,7 @@ What fails **at rollout**, in the cluster:
 - A `subPath` FILE of an `emptyDir`, a claim or an ephemeral volume beneath a ConfigMap or Secret mount of the same
   container fails at container start (the kubelet creates that mount point as a directory: source reading); the chart
   checks this only for files of ConfigMaps and Secrets, because it cannot tell a file from a directory in the other
-  volumes. And a `subPath` of the main container's `configMap` or `secret` mount that names no `items[].path` mounts an
-  empty directory without an error: the chart checks it for init containers and sidecars only (for the main container
-  the check would reject values that rendered before 0.8.0).
-- A `lifecycle` hook whose `httpGet.port` is a name that `ports` does not declare: a `preStop` hook fails with nothing
-  but a `FailedPreStopHook` event while termination goes on, and a `postStart` hook kills the container (kubelet
-  source reading, `pkg/kubelet/lifecycle/handlers.go` and `kuberuntime_container.go` at v1.33.12 and v1.37.0). The
-  chart checks probe port names, not hook port names.
+  volumes.
 - A `ReadWriteOnce` or `ReadWriteOncePod` claim belongs to ONE component (source reading, unverified): a cronjob or a
   job that shares the claim of a running Deployment waits on another node for the attachment; with
   `job.activeDeadlineSeconds: null` and `concurrencyPolicy: Forbid` every later run is skipped without an error, and

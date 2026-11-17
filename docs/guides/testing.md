@@ -13,7 +13,10 @@ Contents:
 - [Lint on Helm 3 and 4](#lint-on-helm-3-and-4)
 - [Manifest validation with kubeconform](#manifest-validation-with-kubeconform)
 - [The alias contract](#the-alias-contract)
+- [The 1.0 contract](#the-10-contract)
+- [README recipes](#readme-recipes)
 - [End-to-end on kind](#end-to-end-on-kind)
+- [Umbrella lifecycle on kind](#umbrella-lifecycle-on-kind)
 - [Documentation checks](#documentation-checks)
 - [Workflow checks](#workflow-checks)
 - [Release signing checks](#release-signing-checks)
@@ -28,7 +31,10 @@ Contents:
 | `helm lint --strict` | The chart lints on every scenario, on real Helm 3.22 and 4.3 | Yes | `lint` |
 | kubeconform | The rendered manifests are valid for Kubernetes 1.33 and 1.37 | Yes (needs network) | `lint` |
 | Alias contract | Several aliases in one umbrella work and stay independent | Yes | `lint` |
+| 1.0 contract | No values key is removed or renamed, and every new key is listed (names, selectors and label keys: the unit tests) | Yes (jq) | `lint` |
+| README recipes | Every YAML block under the README's `## Recipes` renders and is valid for Kubernetes 1.33 and 1.37 | Yes (needs network) | `lint` |
 | End-to-end | The manifests really install and run in a cluster, kindnet enforces the NetworkPolicies as rendered, and the API server grants what the RBAC objects say | No (needs kind) | `e2e` |
+| Umbrella lifecycle | An umbrella with a Deployment, a CronJob and a Job alias survives an install, a values change, a rollback and an uninstall: the object set of each revision, no object recreated, no selector changed, the Job hook run per phase, nothing left | No (needs kind) | `e2e` |
 | Documentation | The README is not stale; every link and anchor resolves | Yes | `docs` |
 | Workflows | The workflow files are sound; the PR title is a conventional commit | Yes (actionlint) | `workflows`, `pr-title` |
 | Release signing | The signing steps of `release.yaml` verify a real signed release, and refuse a wrong identity, a missing bundle type and a bad digest | Yes (needs network; cosign, jq, yq, curl) | `release signing checks (cosign)` |
@@ -57,7 +63,7 @@ A single required check, `ci-ok`, depends on all the jobs. chart-testing (`ct`) 
   `externalSecretKeyRef` source, the file mount, on every workload type), `externalsecret_guards` (the schema rules and
   guards of `externalSecret` and of `externalSecretKeyRef`), `autoscaling_guards` (the schema rules and guards of
   `autoscaling.behavior` and `autoscaling.metrics`), `keda` (the ScaledObject), `keda_guards` (the schema rules and
-  guards of `keda`)). Each suite names the templates it renders, and only those
+  guards of `keda`), `contract` (the frozen names, selectors and keys, [the 1.0 contract](#the-10-contract))). Each suite names the templates it renders, and only those
   are rendered: a guard test lists `templates/validate.yaml`.
 - Shared values in `tests/values/`: `base.yaml` (the minimum valid values every suite starts from),
   `env-refs.yaml` (one reference of every kind plus `envFrom` sources, for the `env` suite),
@@ -245,6 +251,96 @@ because Helm 4 skips subchart schema validation in `helm lint` when the umbrella
 ```
 
 It ends with `alias contract: all checks passed`.
+
+**In CI.** The `lint` job, on Helm 3.22.0 and 4.3.0.
+
+## The 1.0 contract
+
+**What it proves.** That the frozen part of the chart ([ADR-0058](../adr/0058-the-1-0-contract-and-how-it-stays-frozen.md))
+has not changed: the object names, the selector labels, the main container's and the chart's volume names, the label and
+annotation keys the chart writes, and every values key name. Two layers share it:
+
+- `tests/contract_test.yaml`, a unit suite, pins the names, selectors and keys on the three workload types. A failure
+  there is a breaking change for every consumer.
+- `.github/scripts/contract-keys.sh <chart-dir> [<keys-file>]` lists every key a values file can set, as a path read
+  from `values.schema.json` (`ports[].name`, `volumes.<name>.subPath`, through every `$ref`), and compares it with the
+  committed `tests/contract/keys.txt`. A key that is gone fails: a removed or renamed key is a major change. A key that
+  is not in the list fails too: a new key is committed with the list that holds it.
+- `.github/scripts/contract-keys.sh --base <commit> <chart-dir> [<pr-title>]` fails when `tests/contract/keys.txt`
+  lost a line against the same file at `<commit>`, unless the title is a breaking Conventional Commit (`type!:` or
+  `type(scope)!:`). CI runs it on every pull request against its base commit, so a pull request cannot pass the
+  compare by rewriting the list.
+
+**Run locally.** Needs `jq`:
+
+```bash
+.github/scripts/contract-keys.sh .
+```
+
+It ends with `contract-keys: the <n> keys of values.schema.json match ./tests/contract/keys.txt`. After adding a key,
+add it to the list and commit the list with the change (the diff shows the reviewer the new keys):
+
+```bash
+.github/scripts/contract-keys.sh --add .
+```
+
+`--add` writes the union of the list and the schema's keys: it never removes a line, so after a rename the old key
+stays listed and the compare keeps failing. A removal for a major is a line deleted by hand. `--list .` prints the
+schema's keys alone. The base check, against `main` or the pull request's base:
+
+```bash
+.github/scripts/contract-keys.sh --base main . "feat!: remove image.pullPolicy"
+```
+
+It ends with `contract-keys: no line of tests/contract/keys.txt at main is gone (...)`, or lists the lost lines with
+`  - <key>` and fails, or accepts them after `contract-keys: the pull request title marks a breaking change (type!:)`.
+A base without the list passes (`main has no tests/contract/keys.txt: nothing to compare`).
+
+**In CI.** The unit suite in the `unit tests` job; the compare and, on a pull request, the base check (base commit
+`github.event.pull_request.base.sha`, the title through `env:`, a checkout with `fetch-depth: 0`) in the `lint` job.
+
+## README recipes
+
+**What it proves.** That every recipe of the README is values a consumer can paste: each YAML block under `## Recipes`
+renders through a throwaway umbrella with real Helm, and the manifests are valid for Kubernetes 1.33.12 and 1.37.0 with
+the schemas of [kubeconform](#manifest-validation-with-kubeconform). A recipe that drifts from the chart (a renamed
+key, a check that now rejects it) fails here, not in a consumer's pipeline.
+
+**Where it lives.** `.github/scripts/readme-recipes.sh <chart-dir> [<out-dir>]`. The extraction is deterministic, so a
+recipe author knows what is checked:
+
+- It reads `README.md`, the generated file (where the template escapes of `README.md.gotmpl` are resolved), from the
+  line `## Recipes` to the next `## ` heading. A line that is exactly `` ```yaml `` opens a block and the next line that
+  is exactly `` ``` `` closes it; any other fence (`` ```bash ``) is skipped whole. Blocks are numbered in document order
+  and reported by their first line in `README.md` and their `### ` heading.
+- A block with a top-level `apiVersion` and `kind` is a **manifest** (the namespace default-deny of the NetworkPolicy
+  recipe): kubeconform validates it as written.
+- A block whose first line is `# values-<name>.yaml` is an **override file**: it renders with `-f` over the values
+  block before it (the production overlay of the volumes recipe).
+- Every other block is **umbrella values**: each top-level key is an alias of chart-base, except `global` and keys that
+  start with `x-` (an umbrella key that only holds YAML anchors, as in the recipes "Settings shared by every
+  component" and "Calling a sibling component"). The script
+  writes an umbrella `vending` with one `file://` dependency per alias (the chart copied next to it, as the
+  [alias contract](#the-alias-contract) does), renders it as the release `vending` in the namespace `vending` with
+  `--kube-version`, and pipes the result to `kubeconform -strict`.
+
+The schema locations are read from `validate-manifests.sh` (its `k8s_schemas` and `crd_schemas` lines), so the two
+checks use one pinned source: a recipe that renders a Gateway API, External Secrets, Prometheus Operator or KEDA object
+needs nothing more, and a recipe with another custom kind needs that kind's schema there first. Every failure names the
+README line, the recipe and the Kubernetes version, with Helm's or kubeconform's own output; the script checks every
+block before it exits 1. Nothing is installed here; the validation campaign before 1.0.0 installs the same umbrellas
+from `<out-dir>`, where the script keeps its work (`<NN>/` the umbrella of block `NN` with its override file, ready for
+`helm install`; `<NN>-manifest.yaml`; `blocks/`, every block and render).
+
+**Run locally.** Needs `helm`, `kubeconform` and `yq` (mikefarah, v4) on `PATH`, and network access for the schemas:
+
+```bash
+.github/scripts/readme-recipes.sh .
+```
+
+Each block prints `ok - README.md:<line> <aliases> (<recipe>)`, and the run ends with `readme recipes: every block
+renders and validates: ...`. After editing a recipe, regenerate the README first (helm-docs), since the script reads
+the generated file.
 
 **In CI.** The `lint` job, on Helm 3.22.0 and 4.3.0.
 
@@ -439,6 +535,24 @@ list the pods and policies of `monitoring` and print the last 50 lines of the `m
 kindnet's; `rbac` for the RBAC checks, which also print the last 200 lines of the `migrate` Job's log, where each
 attempt logs its HTTP status).
 
+**Upgrading from an older release (`E2E_UPGRADE_FROM`).** Unset in CI, where every scenario is a fresh install of the
+candidate. The validation campaign before 1.0.0 sets it to a directory holding an older chart-base with its `ci/`,
+such as a `git archive` of a release tag (the published package has no `ci/`):
+
+```bash
+mkdir -p /tmp/v0.11.0 && git archive v0.11.0 | tar -x -C /tmp/v0.11.0
+E2E_UPGRADE_FROM=/tmp/v0.11.0 .github/scripts/e2e.sh .
+```
+
+Then the first install of each scenario that the older `ci/` holds is that chart with its own values file, followed by
+the upgrade to the candidate; every object of the older release (`helm get manifest`; hooks are not release objects)
+must keep its `uid`, so nothing was recreated, and its selector (`spec.selector` or `spec.podSelector`), and the
+script prints `ok - upgrade from <version>: <scenario>: <n> objects kept their uid and selector (...); Deployment
+revisions after <version>: ..., after the candidate: ...` (the revisions show how often each Deployment rolled). A
+failure is `FAIL: upgrade from <version>: <scenario>: <Kind>/<name> was recreated or changed its selector` (or `is gone
+after the upgrade`). A scenario the older `ci/` lacks is installed from the candidate only, with a line that says so.
+The checks above then run on the upgraded releases, so one that assumes a fresh install shows up there.
+
 **In CI.** The `e2e` job, one leg per Kubernetes version, with `timeout-minutes: 30`: each leg took about 3 minutes
 on 0.9.0's CI run (2:57 and 3:08, from that run's job timings), and KEDA and metrics-server add about 3 in the
 expected case (an estimate, before their first CI run), so a leg near the bound is one whose waits hit their own
@@ -447,6 +561,40 @@ locally, read the failing step in the job log first: the `FAIL:` message names w
 what it found. Reproducing it needs a local kind cluster on the same Kubernetes version and the five environment
 variables above (`GATEWAY_API_VERSION`, `ESO_CHART_VERSION`, `PROMETHEUS_OPERATOR_VERSION`, `KEDA_CHART_VERSION`,
 `METRICS_SERVER_CHART_VERSION`).
+
+## Umbrella lifecycle on kind
+
+**What it proves.** That an umbrella of chart-base aliases goes through the life of a release without recreating an
+object or moving a selector: the e2e installs and upgrades, but never rolls back or uninstalls.
+
+**Where it lives.** `.github/scripts/umbrella-lifecycle.sh <chart-dir> [<from-chart-ref>]`, after `e2e.sh` in the
+`e2e` job, on the same cluster. It builds a throwaway umbrella `lifecycle` with three aliases of the candidate (the
+chart copied next to it, a relative `file://` path): `api` (a Deployment, agnhost `netexec`, `config.APP_MODE: v1`),
+`nightly` (a suspended CronJob) and `migrate` (a `pre-deploy` Job). It installs it as the release `life` in a namespace
+`lifecycle` that enforces Pod Security `restricted` (created or updated, and kept at the end, so the script reruns on one
+cluster), and then:
+
+| Step | Checks |
+|---|---|
+| Install (revision 1) | The release's objects (`helm get manifest`) are in the cluster, among them the Deployment, the CronJob and the ServiceAccount; the Job hook succeeded. Each object's `uid` and selector are recorded. |
+| Upgrade to the candidate (only with `<from-chart-ref>`) | The same objects as revision 1, each with its `uid` and selector; the Job hook ran again (a new Job that succeeded). |
+| A values change (`config.APP_MODE: v2` and an `extraObjects` ConfigMap) | Revision 1's objects plus `ConfigMap/life-api.settings`, which holds `mode: v2`; revision 1's `uid`s and selectors; the Job hook ran again; `api` rolled (its pod template revision grew: the checksum annotation). |
+| `helm rollback life 1` | Revision 1's objects again and `life-api.settings` deleted; the `uid`s and selectors; `api`'s pod template labels are revision 1's (with `<from-chart-ref>`, the older chart's labels are back); no Job hook ran (chart-base's hooks are `pre-install,pre-upgrade`, never a rollback hook). |
+| `helm uninstall` | Polled every 2 seconds for up to 120: nothing labelled `app.kubernetes.io/instance=life` is left but the Job `life-migrate`, a hook, which `helm uninstall` never deletes ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)); the script then deletes it. |
+
+Each step prints `ok - umbrella lifecycle: <step>: ...`; the first failure prints `FAIL: umbrella lifecycle: <step>:
+...` with what was expected and found, then the release history, the namespace's objects and events and the Job's log.
+The flags are the same on Helm 3.22 and 4.3 (no `--wait` on uninstall: the script polls).
+
+`<from-chart-ref>` is for the validation campaign before 1.0.0: revision 1 is then that chart, an OCI reference with
+its version or a chart directory, and the candidate arrives by upgrade, with the same values:
+
+```bash
+.github/scripts/umbrella-lifecycle.sh . oci://ghcr.io/jellalshadows/charts/chart-base:0.11.0
+```
+
+**In CI.** The `e2e` job, both legs, without `<from-chart-ref>`: install, values change, rollback to revision 1,
+uninstall.
 
 ## Documentation checks
 
@@ -518,6 +666,14 @@ export PATH=/path/to/tools:$PATH
 ```
 
 Every case prints `ok - ...`; the first failure prints `FAIL: ...` and stops.
+
+**Another release as the fixture (`REF`).** Unset in CI. To check a newer release the same way (the validation campaign
+checks each one after its publish), pass its digest; the script prints `== fixture: <REF> (REF)` first and reads the
+overwrite guard's headers by that digest instead of the tag `0.2.0`. A value of another shape fails at once:
+
+```bash
+REF=ghcr.io/jellalshadows/charts/chart-base@sha256:<digest> .github/scripts/release-signing.sh .
+```
 
 **In CI.** The `release signing checks (cosign)` job (`release-signing`). It installs the cosign version
 that `release.yaml` declares in `COSIGN_VERSION`, read from that file, so there is one place to bump and a

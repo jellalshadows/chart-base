@@ -51,9 +51,8 @@ tests:
       - equal:
           path: metadata.labels["app.kubernetes.io/part-of"]
           value: vending
-      - equal:
+      - notExists:
           path: metadata.labels["app.kubernetes.io/component"]
-          value: deployment
 
   - it: never puts helm.sh/chart on the pod template (a chart bump must not restart pods)
     template: templates/deployment.yaml

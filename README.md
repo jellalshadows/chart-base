@@ -16,6 +16,7 @@ a business-domain umbrella chart declares `chart-base` once per component, each 
 - [Recipes](#recipes)
 - [Values](#values)
 - [Design decisions](#design-decisions)
+- [How it compares](#how-it-compares)
 - [Versioning and releases](#versioning-and-releases)
 - [Rules for consumers](#rules-for-consumers)
 - [Development](#development)
@@ -208,12 +209,66 @@ orders:
   envFrom:                                  # an existing ConfigMap injected whole
     - configMapRef: {name: platform-endpoints}  # a ConfigMap shared by the platform
       prefix: PLATFORM_
+  podAnnotations:                           # the service name that Kubernetes-aware OpenTelemetry tooling reads
+    resource.opentelemetry.io/service.name: orders
 ```
 
 `reloadOnChange` (default `true`) lists `orders-db-app` and `orders-kafka-user` (Secrets) and
 `platform-endpoints` (a ConfigMap) in the Deployment's Reloader annotations, so a rotated password or an
 edited ConfigMap restarts the pods. External `envFrom` sources are injected
 before the chart's own ConfigMap/Secret, and `env` wins over every `envFrom` source.
+
+**OpenTelemetry service identity.** `OTEL_SERVICE_NAME` names the service in what the application's SDK sends.
+Tooling that follows OpenTelemetry's
+[Kubernetes attributes guide](https://opentelemetry.io/docs/specs/semconv/non-normative/k8s-attributes/) (read on
+2026-11-17) takes `service.name` from the pod annotation `resource.opentelemetry.io/service.name`, then the pod label
+`app.kubernetes.io/instance`, then `app.kubernetes.io/name`. chart-base sets `app.kubernetes.io/instance` to the
+release name for every alias (a selector label), so without the annotation such tooling names every component of the
+umbrella after the release. `service.version` comes from the annotation `resource.opentelemetry.io/service.version`,
+then the label `app.kubernetes.io/version`, which is the image tag (see the next recipe for a digest). The chart
+renders neither annotation: set them in `podAnnotations` (a change rolls the pods). Which tools implement the guide was
+not verified here.
+
+### A Secret on the command line, and an image pinned by digest (Redis)
+
+A program that takes a secret only as a flag (Redis' `--requirepass`) reads it from a variable: the kubelet expands
+`$(NAME)` in `command` and `args` from the container's environment, so the values never hold the secret:
+
+```yaml
+cache:
+  image:
+    repository: docker.io/library/redis
+    tag: 8.10.3-alpine                      # the version label reads the tag: keep it the version the digest pins
+    digest: sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537   # wins over the tag
+  args: ["--requirepass", "$(REDIS_PASSWORD)"]   # expanded by the kubelet, not by the chart or a shell
+  ports: [{name: redis, containerPort: 6379}]
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+  externalSecret:
+    enabled: true
+    secretStoreRef: {kind: ClusterSecretStore, name: gcp-sm}
+    envFrom: false                          # one key at a time, below
+    data:
+      REDIS_PASSWORD: {key: cache-redis-password}
+  env:
+    REDIS_PASSWORD: {valueFrom: {externalSecretKeyRef: {key: REDIS_PASSWORD}}}   # a secretKeyRef on vending-cache-secrets
+  probes:
+    readiness: {tcpSocket: {port: redis}}
+  volumes:
+    data: {type: emptyDir, mountPath: /data}   # the root filesystem is read-only
+```
+
+The variable must be in `env` (a `secretKeyRef` on any Secret works the same way); whether a variable that only
+`envFrom` brings is expanded too was not verified. A `$(NAME)` that no variable defines stays as written, and `$$`
+escapes: `$$(NAME)` gives the literal `$(NAME)` (Kubernetes' documentation of `args`). A `command` script sees the
+same expansion before its shell runs. The expanded value is visible to whoever can list the node's processes: prefer
+a file or a variable when the program accepts one.
+
+**The version label under a digest.** `app.kubernetes.io/version` is the image tag, also when a digest pins what runs
+(the image becomes `repository@digest` and the tag only feeds the label). A floating tag such as `alpine` labels every
+object `"alpine"`, which names no version, and the registry may move that tag to another build while the digest stays:
+next to a digest, write the version-shaped tag of the build the digest pins (`8.10.3-alpine`). Without a tag there is
+no version label. The OpenTelemetry guide above reads `service.version` from this label.
 
 ### Zero-downtime rollouts at any replica count
 
@@ -752,6 +807,77 @@ An extra object is rendered as written below `apiVersion`, `kind` and `metadata`
 `annotations` only); a workload, a `Service`, a `Secret` (use `externalSecret`), a list or a cluster-scoped built-in
 kind fails the render with what to write instead.
 
+### Settings shared by every component (YAML anchors)
+
+chart-base reads nothing outside its alias (`global` is accepted and never read), so a setting every component
+shares is written once with a YAML anchor and merged into each alias with `<<`:
+
+```yaml
+x-vending:                                  # not an alias: an umbrella key that only holds anchors
+  labels: &labels {domain: vending, team: vending-core}
+  component: &component                     # what every component of the domain shares
+    commonLabels: *labels
+    imagePullSecrets: [{name: ghcr-pull}]
+sales:
+  <<: *component
+  image: {repository: ghcr.io/acme/sales, tag: "1.4.2"}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+machines:
+  <<: *component
+  image: {repository: ghcr.io/acme/machines, tag: "2.0.1"}
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+  commonLabels: {<<: *labels, team: machines}   # the merge is shallow: merge the inner map again to change one key
+```
+
+A key the alias writes replaces the merged key whole, so `machines` merges `*labels` again into its own
+`commonLabels`. Anchors live in one file: an override file (`-f values-production.yaml`) cannot use the anchors of
+`values.yaml`. An umbrella root schema with `additionalProperties: false` (the
+[consuming guide](https://github.com/jellalshadows/chart-base/blob/main/docs/guides/consuming.md#recommendations-for-umbrella-authors)
+recommends one) rejects `x-vending`: allow it with `"patternProperties": {"^x-": {}}`, or put the anchors under the
+first alias (`commonLabels: &labels {...}`) and alias them in the others (`commonLabels: *labels`). Both forms render
+the same objects as the settings written out under every alias (measured on Helm 4.3.0 and 3.22.0 by the first real
+umbrella).
+
+### Calling a sibling component
+
+A sibling's Service is `<release>-<alias>` and serves each entry of its `ports` on `servicePort` (default:
+`containerPort`), so its address holds the release name, which values cannot read: `config` and every other value
+is rendered as written, the chart resolves no placeholder in it. Write the address with the release name once and pin
+that name where the umbrella is deployed (helmfile's `name:`), or read the name in the pod:
+
+```yaml
+x-addresses:                                # each sibling address once: <release>-<alias>:<port>
+  orders: &orders-url http://vending-orders:8080
+orders:
+  image: {repository: ghcr.io/acme/orders, tag: "3.1.0"}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+web:
+  image: {repository: ghcr.io/acme/web, tag: "1.0.0"}
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+  config:
+    ORDERS_URL: *orders-url                 # the Service vending-orders, port 8080
+checkout:
+  image: {repository: ghcr.io/acme/checkout, tag: "2.2.0"}
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+  env:
+    RELEASE:                                # the release name, from the pod's own label
+      valueFrom: {fieldRef: {fieldPath: "metadata.labels['app.kubernetes.io/instance']"}}
+  args: ["--orders-url=http://$(RELEASE)-orders:8080"]   # the kubelet expands $(RELEASE): any release name works
+```
+
+`web` renders under one release name only: under another, the Services are renamed and `ORDERS_URL` still names
+`vending-orders` (a render does not catch it; a CI check that each address names a rendered Service and port does).
+`checkout` works under any release name, but only where the program takes the address in `command` or `args` (the
+expansion rules are in the recipe "A Secret on the command line"). An address inside `externalSecret.template.data` holds the release name the
+same way. In the same namespace the short name is enough; from another namespace use
+`<release>-<alias>.<namespace>.svc`. NetworkPolicy names siblings by alias (`fromComponents`, `toComponents`), with no
+release name.
+
 ### CronJob
 
 ```yaml
@@ -800,10 +926,10 @@ sales-migrations:
 | autoscaling.targetMemoryUtilizationPercentage | int | `nil` | Target average memory utilization, in percent of the main container's memory request, measured like the CPU target (see `targetCPUUtilizationPercentage`). `null` = not used. |
 | command | list | `[]` | Container command (overrides the image ENTRYPOINT). |
 | commonAnnotations | object | `{}` | Annotations added to the metadata of every object the chart renders for this component (`extraObjects` included), e.g. `{example.com/owner: team-payments}`. Never to a template's metadata: not the pod templates (that is `podAnnotations`), the CronJob's job template, an `ephemeral` claim template, or the ExternalSecret's `template.metadata` (External Secrets executes those values as templates). A per-object map wins on a shared key: `ingress.annotations`, `serviceAccount.annotations`, `service.annotations`, an extra object's `metadata.annotations`. Values are strings. The keys Helm or the chart writes fail the schema (`invalid propertyName '<key>'`, reported at an unrelated path): `helm.sh/hook*`, `meta.helm.sh/*`, `checksum/config-env`, `checksum/config-files`, `secret.reloader.stakater.com/reload` and `configmap.reloader.stakater.com/reload` (other Reloader keys, such as `reloader.stakater.com/auto`, are allowed). `helm.sh/resource-policy: keep` keeps the regular objects on uninstall, never a `job` component's hooks (Helm deletes a hook without reading it). A change rolls nothing. Per alias (`global` is not read). |
-| commonLabels | object | `{}` | Labels added to every labels map the chart writes for this component: the metadata of every object it renders (`extraObjects` included), the pod templates, the CronJob's job template, an `ephemeral` volume's claim template and the ExternalSecret's `template.metadata.labels` (so the Secret that External Secrets writes carries them too), e.g. `{team: payments, cost-center: cc-42}`. Never a selector: the selectors keep the chart's two selector labels. A per-object map wins on a shared key: `podLabels`, `metrics.labels`, `prometheusRule.labels`, an extra object's `metadata.labels`. Values are strings. The chart's own keys (`app.kubernetes.io/name`, `instance`, `part-of`, `component`, `version`, `managed-by`, `helm.sh/chart`) fail the schema with `invalid propertyName '<key>'`, reported at an unrelated path. A change changes the pod template: it rolls a Deployment's pods, and the next CronJob run and the next Job get it. Per alias (`global` is not read). |
+| commonLabels | object | `{}` | Labels added to every labels map the chart writes for this component: the metadata of every object it renders (`extraObjects` included), the pod templates, the CronJob's job template, an `ephemeral` volume's claim template and the ExternalSecret's `template.metadata.labels` (so the Secret that External Secrets writes carries them too), e.g. `{team: payments, cost-center: cc-42}`. Never a selector: the selectors keep the chart's two selector labels. A per-object map wins on a shared key: `podLabels`, `metrics.labels`, `prometheusRule.labels`, an extra object's `metadata.labels`. Values are strings. The chart's own keys (`app.kubernetes.io/name`, `instance`, `part-of`, `version`, `managed-by`, `helm.sh/chart`) fail the schema with `invalid propertyName '<key>'`, reported at an unrelated path. `app.kubernetes.io/component` is yours: the chart does not write it, so set it here (or in `podLabels`) for its Kubernetes meaning, the component within the architecture (e.g. `database`). A change changes the pod template: it rolls a Deployment's pods, and the next CronJob run and the next Job get it. Per alias (`global` is not read). |
 | config | object | `{}` | Environment variables. Rendered into ConfigMap `<fullname>-env` and injected with `envFrom`. Quote a name that YAML 1.1 reads as a boolean (`ON`, `OFF`, `YES`, `NO`, `Y`, `N`): unquoted it becomes `true` or `false`. |
 | configFiles.files | object | `{}` | Files rendered into ConfigMap `<fullname>-files`. A string value is written verbatim; a map value is rendered with `toYaml` (so it can be merged per environment). A file set to `null` (also a bare `name:`) is no file, `files: null` removes every file, and an empty file is `""`. In a map-form file every key whose value is `null` or empty (`key:`) is removed, in maps reached through maps, from every values layer and on Helm 3 and 4 alike (Helm 4 already drops such keys from an umbrella's own values while nothing is passed for the component): write `key: {}` or `key: ""` to keep one, or the string form of the file for a literal `null`. A list is rendered as written, with everything inside it, and a map left empty stays `{}`. |
-| configFiles.mountPath | string | `"/config"` | Directory where `configFiles.files` are mounted read-only. Rendered as written. Must not be `/tmp` or `/` once normalized (`//tmp` and `/tmp/.` are `/tmp`), nor the ServiceAccount token directory `/var/run/secrets/kubernetes.io/serviceaccount` while `serviceAccount.automountToken` is true. |
+| configFiles.mountPath | string | `"/config"` | Directory where `configFiles.files` are mounted read-only. Rendered as written. Must not be `/tmp` or `/` once normalized (`//tmp` and `/tmp/.` are `/tmp`), nor the ServiceAccount token directory `/var/run/secrets/kubernetes.io/serviceaccount`, whether or not `serviceAccount.automountToken` is true (a volume there replaces the token), as for every mount; a directory above it (`/var/run/secrets`) is allowed. |
 | cronjob.concurrencyPolicy | string | `"Forbid"` | `Allow`, `Forbid` or `Replace`. |
 | cronjob.failedJobsHistoryLimit | int | `1` | Failed Jobs to keep. |
 | cronjob.schedule | string | `""` | Cron schedule. Required for cronjob. |
@@ -833,17 +959,17 @@ sales-migrations:
 | httpRoute.hostnames | list | `[]` | Hostnames matched by the route. |
 | httpRoute.matches | list | `[{"path":{"type":"PathPrefix","value":"/"}}]` | HTTPRoute matches. The backend is always this component's Service (first port). Each entry takes exactly the fields of a Gateway API `HTTPRouteMatch` (`path`, `headers`, `queryParams`, `method`), at every level: an unknown or misspelt key fails the render (the API server would drop it silently and the route would match more). |
 | httpRoute.parentRefs | list | `[]` | Gateways to attach to (required when enabled), e.g. `[{name: platform-gw, namespace: gateway, sectionName: https}]`. Each entry takes exactly the fields of a Gateway API `ParentReference` (`group`, `kind`, `namespace`, `name`, `sectionName`, `port`): an unknown or misspelt key fails the render (the API server would drop it silently). |
-| image.digest | string | `""` | Image digest (`sha256:...`). When set it wins over `image.tag`. |
+| image.digest | string | `""` | Image digest (`sha256:...`). When set it wins over `image.tag`, which then only feeds the version label. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | image.repository | string | `""` | Required. Image repository, e.g. `ghcr.io/acme/sales`. |
-| image.tag | string | `""` | Image tag. Required unless `image.digest` is set. |
+| image.tag | string | `""` | Image tag. Required unless `image.digest` is set. It is also the `app.kubernetes.io/version` label, digest or not: next to a digest, write the version-shaped tag of the build the digest pins (`8.10.3-alpine`, not `alpine`). |
 | imagePullSecrets | list | `[]` | Pull secrets for private registries, e.g. `[{name: ghcr-pull}]`. |
-| ingress.annotations | object | `{}` | Ingress annotations. |
-| ingress.className | string | `""` | IngressClass name, required when enabled. No controller-specific annotations are added. |
+| ingress.annotations | object | `{}` | Ingress annotations (a controller's settings). Values are strings. Helm's and the chart's keys fail the schema (`invalid propertyName '<key>'`, reported at an unrelated path): `helm.sh/hook*` (it would turn the Ingress into a Helm hook), `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files`. |
+| ingress.className | string | `""` | IngressClass name, required while the Ingress is enabled: `""` and `null` fail in every values layer (the cluster's default IngressClass is never chosen for you). No controller-specific annotations are added. |
 | ingress.enabled | bool | `false` | Render a networking.k8s.io/v1 Ingress. Requires `service.enabled`. |
 | ingress.hosts | list | `[]` | Hosts, e.g. `[{host: sales.example.com, paths: [{path: /, pathType: Prefix}]}]`. |
 | ingress.tls | list | `[]` | Ingress TLS entries. |
-| initContainers | object | `{}` | Init containers, a map keyed by the container name. Each entry: `image` (`repository`; `tag` or `digest`, the digest wins; `pullPolicy`, default `IfNotPresent`), `resources` (`requests.cpu` and `requests.memory` required), `command`, `args` (a list: an overlay replaces it whole), `securityContext` and `order`. Init containers and `sidecars` start in ONE order: ascending `order` (an integer from -1000 to 1000; default 0 for an init container, 1000 for a sidecar), then init containers before sidecars, then by name. So the init containers run before every sidecar whose `order` is not set: to start a sidecar before an init container, lower the sidecar's `order`; raising an init container's `order` never moves it behind a sidecar whose `order` is not set. Every container starts from the chart's hardened default security context (`allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true`, `runAsNonRoot: true`, `capabilities.drop: [ALL]`), never from the component's `securityContext`, and its own `securityContext` is merged over it field by field: a list replaces the default's (`drop: []` drops nothing, and Pod Security restricted then rejects the pod). In `initContainers` and `sidecars` a `null` entry or optional field is absent at any depth (in maps; a list is kept as written, and a required field such as a mount's `mountPath` stays a schema error; a `null` in `securityContext` restores the hardened default of that field), and `initContainers: null` is none. A name is a lowercase DNS-1123 label (`db-proxy`, not `dbProxy`), unique across `initContainers`, `sidecars` and the main container (named after the component); quote a key or an `env` name that YAML 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`, `off`, lowercase, capitalized or uppercase): unquoted it becomes `true` or `false`, and two such keys collide silently. The chart writes `restartPolicy` (an entry takes none), a list (`initContainers: [...]`) fails with the map form, and a container that would run as UID 0 with `runAsNonRoot: true` (its `securityContext.runAsUser`, else `podSecurityContext.runAsUser`) fails the render: the kubelet would never start it (kubelet source reading). `env` takes references only, `NAME: {valueFrom: ...}` as for the main container (a literal fails: pass it in `args`), and `inheritEnv` (default `false`) set to `true` gives the container exactly the main container's `envFrom` and `env`, rendered as the main container renders them; an `env` name that the main container already receives then fails the render. Inside one variable's `valueFrom` a `null` stays an error (the definition is shared with the main container): remove or replace the variable whole (`env.NAME: null`); a `null` in an entry's `env` never removes an inherited variable. An inherited `resourceFieldRef` without `containerName` reads this container's own resources (kubelet source reading). `volumeMounts` is a map keyed by the VOLUME name, each mount with `mountPath` (required, absolute), `subPath` and `readOnly`: the chart's `tmp` (shared with the main container: mount it if the container writes to `/tmp`, every container having a read-only root filesystem by default), `config-files` (while a file is rendered) or a non-null entry of `volumes`; nothing is mounted automatically. A `config-files`, `configMap` or `secret` mount, and one of a claim declared `ReadOnlyMany`, is read-only (`readOnly: false` fails: the kubelet forces it, and the chart for the claim). Each container's mount paths are compared normalized among its own mounts (two equal paths, `/`, the ServiceAccount token directory, and a ConfigMap or Secret file beneath a ConfigMap or Secret mount fail), `subPath` is relative without `..`, and with `items` a `subPath` must name one of them, a directory that holds one or `.` (the whole volume); a `subPath` of `config-files` is one of the files rendered or `.`. What the pod grants reaches every container, whatever an entry declares: the ServiceAccount token (with `serviceAccount.automountToken`) and with it the `rbac` grants and the cloud identity, the NetworkPolicy allowances (an init container that calls out needs its destination in `networkPolicy.egress`), `podSecurityContext` (its `runAsUser` and `runAsGroup` unless an entry sets its own, and one `fsGroup` for every volume: a shared volume isolates nothing), `imagePullSecrets` and the network namespace. |
+| initContainers | object | `{}` | Init containers, a map keyed by the container name. Each entry: `image` (`repository`; `tag` or `digest`, the digest wins; `pullPolicy`, default `IfNotPresent`), `resources` (`requests.cpu` and `requests.memory` required), `command`, `args` (a list: an overlay replaces it whole), `securityContext` and `order`. Init containers and `sidecars` start in ONE order: ascending `order` (an integer from -1000 to 1000; default 0 for an init container, 1000 for a sidecar), then init containers before sidecars, then by name. So the init containers run before every sidecar whose `order` is not set: to start a sidecar before an init container, lower the sidecar's `order`; raising an init container's `order` never moves it behind a sidecar whose `order` is not set. Every container starts from the chart's hardened default security context (`allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true`, `runAsNonRoot: true`, `capabilities.drop: [ALL]`), never from the component's `securityContext`, and its own `securityContext` is merged over it field by field: a list replaces the default's (`drop: []` drops nothing, and Pod Security restricted then rejects the pod). In `initContainers` and `sidecars` a `null` entry or optional field is absent at any depth (in maps; a list is kept as written, and a required field such as a mount's `mountPath` stays a schema error; a `null` in `securityContext` restores the hardened default of that field), and `initContainers: null` is none. A name is a lowercase DNS-1123 label (`db-proxy`, not `dbProxy`), unique across `initContainers`, `sidecars` and the main container (named after the component); quote a key or an `env` name that YAML 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`, `off`, lowercase, capitalized or uppercase): unquoted it becomes `true` or `false`, and two such keys collide silently. The chart writes `restartPolicy` (an entry takes none), a list (`initContainers: [...]`) fails with the map form, and a container that would run as UID 0 with `runAsNonRoot: true` (its `securityContext.runAsUser`, else `podSecurityContext.runAsUser`) fails the render, as the main container does: the kubelet would never start it (kubelet source reading). `env` takes references only, `NAME: {valueFrom: ...}` as for the main container (a literal fails: pass it in `args`), and `inheritEnv` (default `false`) set to `true` gives the container exactly the main container's `envFrom` and `env`, rendered as the main container renders them; an `env` name that the main container already receives then fails the render. Inside one variable's `valueFrom` a `null` stays an error (the definition is shared with the main container): remove or replace the variable whole (`env.NAME: null`); a `null` in an entry's `env` never removes an inherited variable. An inherited `resourceFieldRef` without `containerName` reads this container's own resources (kubelet source reading). `volumeMounts` is a map keyed by the VOLUME name, each mount with `mountPath` (required, absolute), `subPath` and `readOnly`: the chart's `tmp` (shared with the main container: mount it if the container writes to `/tmp`, every container having a read-only root filesystem by default), `config-files` (while a file is rendered) or a non-null entry of `volumes`; nothing is mounted automatically. A `config-files`, `configMap` or `secret` mount, and one of a claim declared `ReadOnlyMany`, is read-only (`readOnly: false` fails: the kubelet forces it, and the chart for the claim). Each container's mount paths are compared normalized among its own mounts (two equal paths, `/`, the ServiceAccount token directory, and a ConfigMap or Secret file beneath a ConfigMap or Secret mount fail), `subPath` is relative without `..`, and with `items` a `subPath` must name one of them, a directory that holds one or `.` (the whole volume); a `subPath` of `config-files` is one of the files rendered or `.`. What the pod grants reaches every container, whatever an entry declares: the ServiceAccount token (with `serviceAccount.automountToken`) and with it the `rbac` grants and the cloud identity, the NetworkPolicy allowances (an init container that calls out needs its destination in `networkPolicy.egress`), `podSecurityContext` (its `runAsUser` and `runAsGroup` unless an entry sets its own, and one `fsGroup` for every volume: a shared volume isolates nothing), `imagePullSecrets` and the network namespace. |
 | job.activeDeadlineSeconds | int | `nil` | Max seconds a Job may run. `null` = no limit (also used by cronjob runs). |
 | job.backoffLimit | int | `3` | Retries before the Job is marked failed (also used by cronjob runs). |
 | job.phase | string | `"pre-deploy"` | Helm hook phase for `workload.type: job`: `pre-deploy` (pre-install,pre-upgrade) or `post-deploy` (post-install,post-upgrade). |
@@ -857,10 +983,10 @@ sales-migrations:
 | keda.minReplicaCount | int | `1` | Lowest replica count. `0` scales to zero, written on purpose (KEDA's own default is 0, the chart's 1). Required: a `null` fails the schema (it would hand the component KEDA's 0; on Helm 4.3 a `null` in an umbrella's own values, with nothing passed for the alias, keeps the default: see the consuming guide). Not `autoscaling.minReplicas`: a component that moves from the HPA restates its minimum here. |
 | keda.pollingInterval | int | `nil` | Seconds between two polls of the triggers. `null` = KEDA's default (30). It drives scaling only with `minReplicaCount: 0` or `useCachedMetrics`; it also sets how often KEDA refreshes the ScaledObject's conditions, which Helm 4 `--wait` reads. |
 | keda.triggers | object | `{}` | The triggers: a map keyed by the trigger's name (rendered as its `name`, in key order) of `{type, metadata, metricType, authenticationRef: {name, kind}, useCachedMetrics}`. `type` (the scaler: `rabbitmq`, `cron`, `cpu`...) and `metadata` (its parameters: strings, numbers or booleans, rendered as strings) are required; `metricType` is `AverageValue`, `Value` or `Utilization`; `authenticationRef` names an existing TriggerAuthentication or (`kind: ClusterTriggerAuthentication`) ClusterTriggerAuthentication. In `keda.triggers` a `null` entry, a `null` optional field (`metricType`, `authenticationRef` or its `kind`, `useCachedMetrics`) and a `null` metadata key are absent (a `null` `type` or `metadata` fails the schema): an override file removes a trigger with `<name>: null` and one parameter with `metadata.<key>: null`; `useCachedMetrics: false` (KEDA's default) is not rendered. While `keda.enabled`, the render fails without a trigger, for a `cpu` or `memory` trigger whose `metricType` is not `Utilization` or `AverageValue`, for `Utilization` on another trigger, for `useCachedMetrics: true` on a `cron`, `cpu` or `memory` trigger, and for only `cpu` and `memory` triggers with `minReplicaCount: 0` (they cannot scale from zero). A `cpu` or `memory` trigger measures the whole pod, sidecars included, unless `metadata.containerName` names a container: the main container (the alias) or a non-null sidecar (the render fails otherwise). The chart does not check a scaler's metadata: a `...FromEnv` parameter names a variable of the main container (KEDA reads the first container's `envFrom`, the component's Secret included, and its `env`). Quote a trigger name that YAML 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`, `off`, lowercase, capitalized or uppercase): unquoted it becomes `true` or `false`. |
-| lifecycle | object | `{}` | Container lifecycle hooks `postStart` and `preStop`, each with exactly one of `exec`, `httpGet` or `sleep` (Kubernetes does not support `tcpSocket` here), e.g. `{preStop: {exec: {command: ["/app/drain"]}}}`. On Deployments, `lifecycle.preStop` replaces the built-in preStop sleep and requires `preStopSleepSeconds: 0`. An `httpGet.port` given by name is not checked by the chart (unlike a probe's): the kubelet resolves it among the main container's `ports` only, and a `preStop` hook on a name that `ports` does not declare fails with nothing but a `FailedPreStopHook` event while termination goes on (kubelet source reading); give the port by number or by a `ports` name. |
+| lifecycle | object | `{}` | Container lifecycle hooks `postStart` and `preStop`, each with exactly one of `exec`, `httpGet` or `sleep` (Kubernetes does not support `tcpSocket` here), e.g. `{preStop: {exec: {command: ["/app/drain"]}}}`. On Deployments, `lifecycle.preStop` replaces the built-in preStop sleep and requires `preStopSleepSeconds: 0`. An `httpGet.port` given by name must be the name of an entry in `ports`, as a probe's: the kubelet resolves it among the main container's `ports` only, and on a name that `ports` does not declare a `preStop` hook fails with nothing but a `FailedPreStopHook` event while termination goes on, and a `postStart` hook kills the container (kubelet source reading). |
 | metrics.enabled | bool | `false` | Render a Prometheus Operator monitor (`monitoring.coreos.com/v1`): a ServiceMonitor that scrapes the component's Service or, for a worker without a Service, a PodMonitor that scrapes its pods. Deployments only. The CRDs must be installed: without them the release fails. |
 | metrics.interval | string | `nil` | Scrape interval, a Prometheus duration such as `30s` or `1m30s`. `null` = Prometheus' global scrape interval. |
-| metrics.labels | object | `{}` | Extra labels on the monitor, e.g. `{release: kube-prometheus-stack}`: with its default values, kube-prometheus-stack's Prometheus only selects monitors labelled `release: <its release name>`. The keys the chart sets itself (`app.kubernetes.io/name`, `instance`, `part-of`, `component`, `version`, `managed-by`, `helm.sh/chart`) are rejected. |
+| metrics.labels | object | `{}` | Extra labels on the monitor, e.g. `{release: kube-prometheus-stack}`: with its default values, kube-prometheus-stack's Prometheus only selects monitors labelled `release: <its release name>`. The keys the chart sets itself (`app.kubernetes.io/name`, `instance`, `part-of`, `version`, `managed-by`, `helm.sh/chart`) are rejected. |
 | metrics.path | string | `"/metrics"` | HTTP path of the metrics endpoint. |
 | metrics.port | string | `"http"` | Name of the entry of `ports` that serves the metrics: the Service port of that name (ServiceMonitor) or the container port (PodMonitor). A worker must declare it in `ports` too. |
 | metrics.scrapeTimeout | string | `nil` | Scrape timeout, e.g. `10s`. `null` = Prometheus' default. It must not be greater than the interval: the Prometheus Operator rejects such a monitor, and the chart cannot compare durations. |
@@ -882,18 +1008,18 @@ sales-migrations:
 | networkPolicy.ingress.routeTrafficAllowedElsewhere | bool | `false` | Set to `true` when the route's traffic reaches the pods through a policy this chart cannot express (Cilium's Ingress or Gateway API, a `hostNetwork` ingress controller) and you allow it there: it silences the guard that fails a route (`httpRoute` or `ingress`) without a source in `fromNamespaces` or `extra`. It opens nothing; without a route it fails the render (it would have no effect). |
 | nodeSelector | object | `{}` | Node selector. |
 | pdb.enabled | bool | `true` | Render a PodDisruptionBudget (policy/v1). Deployments only. |
-| pdb.maxUnavailable | int or string | `nil` | Max unavailable pods. When neither this nor `minAvailable` is set, `1` is used. |
-| pdb.minAvailable | int or string | `nil` | Min available pods. Mutually exclusive with `maxUnavailable`. |
+| pdb.maxUnavailable | int or string | `nil` | Max unavailable pods. When neither this nor `minAvailable` is set, `1` is used. `0` and `"0%"` fail the render: the budget would allow no eviction and stall every node drain. |
+| pdb.minAvailable | int or string | `nil` | Min available pods. Mutually exclusive with `maxUnavailable`. It must leave one pod to evict at the replica floor (`max(keda.minReplicaCount, 1)` with KEDA, `autoscaling.minReplicas` with the HPA, otherwise `replicas`; a percentage rounded up), or the render fails. A budget that blocks on purpose: `pdb.enabled: false` and a PodDisruptionBudget in `extraObjects`. |
 | pdb.unhealthyPodEvictionPolicy | string | `"AlwaysAllow"` | `IfHealthyBudget` or `AlwaysAllow` (lets drains evict pods that are not Ready). |
-| podAnnotations | object | `{}` | Extra pod annotations. |
-| podLabels | object | `{}` | Extra pod labels. |
+| podAnnotations | object | `{}` | Extra pod annotations, e.g. `{resource.opentelemetry.io/service.name: sales}`. Values are strings. Helm's and the chart's keys fail the schema (`invalid propertyName '<key>'`, reported at an unrelated path): `helm.sh/hook*`, `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files` (the pod template carries the two checksums). A change rolls a Deployment's pods. |
+| podLabels | object | `{}` | Extra pod labels, winning over `commonLabels` on a shared key. Values are strings. The chart's own keys (`app.kubernetes.io/name`, `instance`, `part-of`, `version`, `managed-by`, `helm.sh/chart`) fail the schema with `invalid propertyName '<key>'`, reported at an unrelated path; `app.kubernetes.io/component` is yours. Never a selector. A change rolls a Deployment's pods. |
 | podSecurityContext | object | `{"fsGroup":65532,"fsGroupChangePolicy":"OnRootMismatch","runAsGroup":65532,"runAsNonRoot":true,"runAsUser":65532,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod security context. Defaults satisfy the Pod Security Standards `restricted` profile; override key by key. |
 | ports | list | `[{"containerPort":8080,"name":"http"}]` | Container ports. Each entry also becomes a Service port when a Service is rendered. `servicePort` is optional and defaults to `containerPort`. A probe port given by name (`httpGet.port`, `tcpSocket.port` in `probes`) must be one of these names: the render fails otherwise. A sidecar's port name is not one (the kubelet resolves a name among the probed container's own ports: source reading), while a port NUMBER reaches whatever listens on it in the pod, a sidecar included (a `grpc` probe takes a number only, so it cannot be checked). |
 | preStopSleepSeconds | int | `5` | Seconds to sleep in preStop so endpoints drain before SIGTERM. `0` disables it (required with `lifecycle.preStop`). Deployments only. |
 | priorityClassName | string | `nil` | PriorityClass of the pods (`priorityClassName`); it must exist. `null` = the default priority (the `globalDefault` PriorityClass, or 0). |
-| probes.liveness | object | `{}` | Liveness probe (Kubernetes probe object). Empty = not rendered. A port given by name must be a `ports` name. |
-| probes.readiness | object | `{}` | Readiness probe (Kubernetes probe object). Empty = not rendered. A port given by name must be a `ports` name. |
-| probes.startup | object | `{}` | Startup probe (Kubernetes probe object). Empty = not rendered. A port given by name must be a `ports` name. |
+| probes.liveness | object | `{}` | Liveness probe: as `startup` (`successThreshold` at most 1). |
+| probes.readiness | object | `{}` | Readiness probe: as `startup`, any `successThreshold`, and no `terminationGracePeriodSeconds` (the API rejects it on a readiness probe). |
+| probes.startup | object | `{}` | Startup probe, the contract of a sidecar's: exactly one of `exec`, `httpGet`, `tcpSocket` or `grpc` (`grpc.port` a number; no `host`: Pod Security rejects it from policy v1.34) and the timing fields, closed (a misspelt field fails instead of being dropped by the API), `successThreshold` at most 1 (the API requires 1). Empty or `null` = not rendered; a `null` field or handler is left out, also inside `httpGet` (`path`, `scheme`, `httpHeaders`) and `grpc` (`service`). A port given by name must be a `ports` name. |
 | progressDeadlineSeconds | int | `240` | Seconds without rollout progress before the Deployment is marked Failed (lower than Helm's default 300s timeout). |
 | prometheusRule.enabled | bool | `false` | Render a Prometheus Operator PrometheusRule (`monitoring.coreos.com/v1`), on every workload type (e.g. alerts on a CronJob's runs from kube-state-metrics). The CRD must be installed: without it the release fails. |
 | prometheusRule.groups | list | `[]` | Rule groups, rendered verbatim as `spec.groups`: `[{name, interval, rules: [{alert or record, expr, for, keep_firing_for, labels, annotations}]}]`; durations must not be empty and a recording rule takes no `for`, `keep_firing_for` or `annotations`. The structure is validated; PromQL is not: where the operator's admission webhook is deployed (kube-prometheus-stack deploys it by default, checked on chart version 91.8.2) a rule that does not parse is rejected when Helm applies it and the install or upgrade of the whole release fails; without the webhook the object is created and the operator skips it with a Warning event. |
@@ -905,20 +1031,20 @@ sales-migrations:
 | resources | object | `{}` | Required: `requests.cpu` and `requests.memory`. Container resources. A `null` entry of `limits` or `requests` (other than `requests.cpu` and `requests.memory`, which stay required), and `limits: null`, mean absent: no such limit or request is rendered (the API server would store a null as `"0"`). |
 | revisionHistoryLimit | int | `nil` | Old ReplicaSets kept for `kubectl rollout undo` (`spec.revisionHistoryLimit`). `null` = Kubernetes default (10). Deployments only. |
 | runtimeClassName | string | `nil` | RuntimeClass of the pods (`runtimeClassName`), e.g. `gvisor`; it must exist. `null` = the default runtime handler. |
-| securityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true,"runAsNonRoot":true}` | Container security context. `readOnlyRootFilesystem` is extra hardening (an emptyDir is always mounted at `/tmp`). |
+| securityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true,"runAsNonRoot":true}` | Container security context. `readOnlyRootFilesystem` is extra hardening (an emptyDir is always mounted at `/tmp`). A container that would run as UID 0 with `runAsNonRoot: true` (each field its own, else `podSecurityContext`'s) fails the render: the kubelet would never start it. |
 | service.annotations | object | `{}` | Annotations of the Service, e.g. a cloud load balancer's settings (`service.beta.kubernetes.io/aws-load-balancer-scheme: internal`). Values are strings: quote a number (`"60"`), an unquoted one fails the schema with `got number, want string`. They win over `commonAnnotations` on a shared key. `helm.sh/hook*`, `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files` fail the schema. Not rendered when no Service is (`service.enabled: false`, a `cronjob` or a `job`). |
 | service.enabled | bool | `true` | Render a Service (deployments only). Set `false` for workers. |
 | service.type | string | `"ClusterIP"` | Service type. |
-| serviceAccount.annotations | object | `{}` | Annotations of the ServiceAccount the chart creates (e.g. GKE Workload Identity's `iam.gke.io/gcp-service-account`, EKS IRSA's `eks.amazonaws.com/role-arn`). With `create: false` they fail the render: the owner of an existing ServiceAccount sets its annotations. An override file clears inherited annotations with `annotations: null`, not `{}` (maps are merged). |
+| serviceAccount.annotations | object | `{}` | Annotations of the ServiceAccount the chart creates (e.g. GKE Workload Identity's `iam.gke.io/gcp-service-account`, EKS IRSA's `eks.amazonaws.com/role-arn`). With `create: false` they fail the render: the owner of an existing ServiceAccount sets its annotations. An override file clears inherited annotations with `annotations: null`, not `{}` (maps are merged). Helm's and the chart's keys fail the schema (`invalid propertyName '<key>'`, reported at an unrelated path): `helm.sh/hook*` (a `job`'s ServiceAccount carries the hook keys of its phase), `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files`; `helm.sh/resource-policy` is allowed. |
 | serviceAccount.automountToken | bool | `false` | Mount the ServiceAccount token into the pods. The pods' own `automountServiceAccountToken` is always rendered, so it wins over the ServiceAccount's, an existing one's too. A cloud identity does not need it: EKS IRSA and Pod Identity and Azure Workload Identity inject a token of their own, and GKE Workload Identity's metadata server requests one itself. Required, `true`, with `rbac.clusterRoles` and with any `rbac.rules` verb other than `use` (the render fails otherwise). |
 | serviceAccount.create | bool | `true` | Create a ServiceAccount named `<fullname>` for the pods. When `false`, the pods run as the existing ServiceAccount `name` or, without a `name`, as the namespace's `default` ServiceAccount. |
 | serviceAccount.name | string | `nil` | The name of an existing ServiceAccount of the release namespace for the pods (e.g. one that a platform team created with a cloud identity), only with `create: false`, never `default` (that is `create: false` without a `name`). It must exist before the pods do: Kubernetes rejects a pod whose ServiceAccount does not exist. Its `imagePullSecrets` are added to pods that set none, and its deprecated `kubernetes.io/enforce-mountable-secrets` annotation can reject pods that reference the `externalSecret` Secret. A `pre-deploy` Job runs before the release's other objects exist: it must not name a ServiceAccount that a sibling component creates. To keep the chart's own ServiceAccount under its name (`<fullname>`, e.g. for a cloud identity's trust policy) on a `deployment` or `cronjob`, hand it over in two deploys: first with `create: true` and `annotations: {helm.sh/resource-policy: keep}`, then with `create: false`, `name: <fullname>` and the annotations removed from the values. In one step Helm deletes it, and the pods, which do not roll (the pod template does not change), lose it. A `job`'s ServiceAccount is a hook, which Helm deletes once the Job's phase succeeds, `keep` or not: after a successful deploy, once it is gone, its owner creates `<fullname>`, then the next deploy sets `create: false` and `name: <fullname>` (a deploy that still renders the hook deletes it: `before-hook-creation`). |
-| sidecars | object | `{}` | Sidecars: containers that keep running next to the main container (native sidecars: init containers with `restartPolicy: Always`, which the chart writes), a map keyed by the container name with the fields of `initContainers` (see there for the start order, the security context and `null`). The next container starts once a sidecar has started (it runs, and its `startupProbe` passed if it has one: kubelet source reading). A `job` or `cronjob` with a sidecar needs `job.activeDeadlineSeconds`: a sidecar that exits before it has started is restarted with back-off and never counts as a failure (kubelet source reading), so without a deadline the run never fails. A sidecar also takes `ports` (`[{name, containerPort}]`, TCP): pod-internal, the targets of its own probes only (not in the Service, the NetworkPolicy or metrics; a port that must be reached from outside the pod is declared in the component's `ports`: see the fronting-proxy recipe of the README); a port name and a port number are declared once in the pod. And `probes` (`startup`, `liveness`, `readiness`): each a closed probe with exactly one of `exec`, `httpGet`, `tcpSocket` or `grpc` (no `host`: Pod Security rejects it from policy v1.34: measured on kube-apiserver 1.37.0) and its timing fields; a port given by name must be one of the sidecar's own `ports` (the kubelet resolves a name among the probed container's ports only: source reading). The kubelet probes the pod IP (source reading), so a health server that listens on `localhost` by default must listen on `0.0.0.0` (cloud-sql-proxy: `--http-address=0.0.0.0`), or its probes never pass. Give a sidecar that another container needs a `startupProbe`: the next container starts once the sidecar has started. Inside a probe's `httpGet` or `exec` a `null` stays an error (shared with `lifecycle`): replace the handler whole (`httpGet: null` next to a `tcpSocket`). |
+| sidecars | object | `{}` | Sidecars: containers that keep running next to the main container (native sidecars: init containers with `restartPolicy: Always`, which the chart writes), a map keyed by the container name with the fields of `initContainers` (see there for the start order, the security context and `null`). The next container starts once a sidecar has started (it runs, and its `startupProbe` passed if it has one: kubelet source reading). A `job` or `cronjob` with a sidecar needs `job.activeDeadlineSeconds`: a sidecar that exits before it has started is restarted with back-off and never counts as a failure (kubelet source reading), so without a deadline the run never fails. A sidecar also takes `ports` (`[{name, containerPort}]`, TCP): pod-internal, the targets of its own probes only (not in the Service, the NetworkPolicy or metrics; a port that must be reached from outside the pod is declared in the component's `ports`: see the fronting-proxy recipe of the README); a port name and a port number are declared once in the pod. And `probes` (`startup`, `liveness`, `readiness`): each a closed probe with exactly one of `exec`, `httpGet`, `tcpSocket` or `grpc` (no `host`: Pod Security rejects it from policy v1.34: measured on kube-apiserver 1.37.0) and its timing fields, under the main container's rules (`successThreshold` at most 1 on `startup` and `liveness`, no `terminationGracePeriodSeconds` on `readiness`); a port given by name must be one of the sidecar's own `ports` (the kubelet resolves a name among the probed container's ports only: source reading). The kubelet probes the pod IP (source reading), so a health server that listens on `localhost` by default must listen on `0.0.0.0` (cloud-sql-proxy: `--http-address=0.0.0.0`), or its probes never pass. Give a sidecar that another container needs a `startupProbe`: the next container starts once the sidecar has started. A `null` probe field or handler is left out, as in the main container's probes, also inside `httpGet` and `grpc`; an overlay switches a handler with `httpGet: null` next to a `tcpSocket`. |
 | strategy | object | `nil` | Deployment update strategy (`spec.strategy`): `{type: RollingUpdate, rollingUpdate: {maxSurge, maxUnavailable}}` or `{type: Recreate}`. `null` = Kubernetes default (`RollingUpdate`, 25% surge, 25% unavailable). Deployments only. `rollingUpdate: null` means absent and is never rendered: an override file over values that set `rollingUpdate` switches to Recreate with `{type: Recreate, rollingUpdate: null}` (a `rollingUpdate` next to `Recreate`, even `{}`, fails the render). A `persistentVolumeClaim` volume declared `ReadWriteOnce` or `ReadWriteOncePod` requires a strategy that adds no pod (see `volumes`). With Helm 4, a Deployment created without `strategy` (in a release that Helm 4 installed) cannot switch to Recreate in one upgrade (the API rejects the `rollingUpdate` the server defaulted): use `maxSurge: 0` with `maxUnavailable: 1`, then Recreate in a later upgrade if needed. |
 | terminationGracePeriodSeconds | int | `30` | Pod termination grace period. Must be greater than `preStopSleepSeconds`; a `lifecycle` sleep must not exceed it. |
 | tolerations | list | `[]` | Tolerations. |
 | topologySpreadConstraints | list | `nil` | `null` = chart defaults (zone + hostname spread, ScheduleAnyway); `[]` = none; a list = used verbatim. |
-| volumes | object | `{}` | Extra volumes of the pod: a map keyed by the volume name, rendered in key order after the chart's own `tmp` and `config-files`. Every entry has a `type` (`emptyDir`; `configMap` and `secret`, mounted read-only; `persistentVolumeClaim`, an EXISTING claim; `ephemeral`, a claim created and deleted with each pod) and, unless only init containers or sidecars mount the volume (`initContainers.<name>.volumeMounts`), an absolute `mountPath`, the main container's mount, with its `subPath` and `readOnly`. Without `mountPath` the main container does not mount it, and `subPath` and `readOnly` fail; a volume that no container mounts fails. The fields of each type: `emptyDir`: `medium` (`Memory`), `sizeLimit`; `configMap`: `name`, `items`, `defaultMode`, `optional`; `secret`: `secretName`, `items`, `defaultMode`, `optional`; `persistentVolumeClaim`: `claimName`, `claimAccessMode` (default `ReadWriteOnce`); `ephemeral`: `size`, `accessMode` (default `ReadWriteOnce`), `storageClassName` (default: the cluster's default class). An `ephemeral` claim lives as long as its pod (source reading): a CronJob keeps those of the finished runs its history limits keep, a Job keeps its own for `job.ttlSecondsAfterFinished`, and each retry gets one of its own. In `volumes`, a `null` entry or field is absent, and `volumes: null` is no volume: an overlay changes the type of a volume that the umbrella defines by setting the previous type's fields to `null` (`cache: {type: ephemeral, size: 10Gi, sizeLimit: null}`), or removes it with `cache: null` and adds one under another name. Write `defaultMode` and `items[].mode` in octal with a leading zero, unquoted (`0440`): `440` is decimal and means `0670`, and `--set` cannot pass an octal literal (use the decimal value, `288`). Omit `items`, or set it to `null`, for every key. Quote a key that YAML 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`, `off`, lowercase, capitalized or uppercase): unquoted it is renamed to `"true"` or `"false"`, and two such keys collide silently. A name is a lowercase DNS-1123 label (`app-data`, not `appData`); `tmp`, `config-files`, `external-secret` and the prefixes `kube-api-access-` and `chart-base-` are reserved. A field of another type fails the render, and so does a `null` in a type's required field (`name`, `secretName`, `claimName`, `size`). A `mountPath` is compared normalized (`//tmp` is `/tmp`) with every other mount of the main container (the chart's `/tmp`, `configFiles.mountPath` while a file is rendered, the other entries) and must not be `/` or the ServiceAccount token directory; a directory may lie beneath another mount (`/tmp/cache`), but a `configMap` or `secret` file (`subPath`) must not lie beneath a ConfigMap or Secret mount. `subPath` and `items[].path` are relative, without `..`, and the `items[].path` of one entry are unique. `readOnly: false` fails on a `configMap` or `secret` mount, and an `emptyDir` or `ephemeral` volume that every container mounts read-only fails (nothing could write it; an init container that fills a volume the main container reads mounts it writable). The main container's `subPath` is not checked against `items` (a `subPath` that names no item mounts an empty directory; the mounts of init containers and sidecars are checked). `sizeLimit` and `size` are strings (`size: 10` would mean 10 bytes) and not zero; `medium: Memory` requires `sizeLimit`: the files count against the container's memory limit. A volume must not name the component's own `<fullname>-env`, `<fullname>-files` or `<fullname>-secrets`, and two `persistentVolumeClaim` entries must not name one claim. A `persistentVolumeClaim` entry DECLARES the claim's access mode in `claimAccessMode`: `ReadWriteOnce` (the default), `ReadWriteOncePod`, `ReadWriteMany` or `ReadOnlyMany`. chart-base cannot read the claim, so a false declaration goes unnoticed. Two rules read it: `ReadOnlyMany` renders the volume and its mount read-only, and on a Deployment a `ReadWriteOnce` or `ReadWriteOncePod` claim requires `replicas` 0 or 1 and `autoscaling.enabled: false` (with `keda.enabled`, `keda.maxReplicaCount: 1`), and a strategy that adds no pod (`{type: Recreate}`, or `{type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}` for a Deployment that already exists; see `strategy`). |
+| volumes | object | `{}` | Extra volumes of the pod: a map keyed by the volume name, rendered in key order after the chart's own `tmp` and `config-files`. Every entry has a `type` (`emptyDir`; `configMap` and `secret`, mounted read-only; `persistentVolumeClaim`, an EXISTING claim; `ephemeral`, a claim created and deleted with each pod) and, unless only init containers or sidecars mount the volume (`initContainers.<name>.volumeMounts`), an absolute `mountPath`, the main container's mount, with its `subPath` and `readOnly`. Without `mountPath` the main container does not mount it, and `subPath` and `readOnly` fail; a volume that no container mounts fails. The fields of each type: `emptyDir`: `medium` (`Memory`), `sizeLimit`; `configMap`: `name`, `items`, `defaultMode`, `optional`; `secret`: `secretName`, `items`, `defaultMode`, `optional`; `persistentVolumeClaim`: `claimName`, `claimAccessMode` (default `ReadWriteOnce`); `ephemeral`: `size`, `accessMode` (default `ReadWriteOnce`), `storageClassName` (default: the cluster's default class). An `ephemeral` claim lives as long as its pod (source reading): a CronJob keeps those of the finished runs its history limits keep, a Job keeps its own for `job.ttlSecondsAfterFinished`, and each retry gets one of its own. In `volumes`, a `null` entry or field is absent, and `volumes: null` is no volume: an overlay changes the type of a volume that the umbrella defines by setting the previous type's fields to `null` (`cache: {type: ephemeral, size: 10Gi, sizeLimit: null}`), or removes it with `cache: null` and adds one under another name. Write `defaultMode` and `items[].mode` in octal with a leading zero, unquoted (`0440`): `440` is decimal and means `0670`, and `--set` cannot pass an octal literal (use the decimal value, `288`). Omit `items`, or set it to `null`, for every key. Quote a key that YAML 1.1 reads as a boolean (`on`, `yes`, `no`, `y`, `n`, `off`, lowercase, capitalized or uppercase): unquoted it is renamed to `"true"` or `"false"`, and two such keys collide silently. A name is a lowercase DNS-1123 label (`app-data`, not `appData`); `tmp`, `config-files`, `external-secret` and the prefixes `kube-api-access-` and `chart-base-` are reserved. A field of another type fails the render, and so does a `null` in a type's required field (`name`, `secretName`, `claimName`, `size`). A `mountPath` is compared normalized (`//tmp` is `/tmp`) with every other mount of the main container (the chart's `/tmp`, `configFiles.mountPath` while a file is rendered, the other entries) and must not be `/` or the ServiceAccount token directory; a directory may lie beneath another mount (`/tmp/cache`), but a `configMap` or `secret` file (`subPath`) must not lie beneath a ConfigMap or Secret mount. `subPath` and `items[].path` are relative, without `..`, and the `items[].path` of one entry are unique. `readOnly: false` fails on a `configMap` or `secret` mount, and an `emptyDir` or `ephemeral` volume that every container mounts read-only fails (nothing could write it; an init container that fills a volume the main container reads mounts it writable). With `items`, the `subPath` of a `configMap` or `secret` entry names one of their paths, a directory that holds one, or `.` (a `subPath` that names none mounts an empty directory), in every container. `sizeLimit` and `size` are strings (`size: 10` would mean 10 bytes) and not zero; `medium: Memory` requires `sizeLimit`: the files count against the container's memory limit. A volume must not name the component's own `<fullname>-env`, `<fullname>-files` or `<fullname>-secrets`, and two `persistentVolumeClaim` entries must not name one claim. A `persistentVolumeClaim` entry DECLARES the claim's access mode in `claimAccessMode`: `ReadWriteOnce` (the default), `ReadWriteOncePod`, `ReadWriteMany` or `ReadOnlyMany`. chart-base cannot read the claim, so a false declaration goes unnoticed. Two rules read it: `ReadOnlyMany` renders the volume and its mount read-only, and on a Deployment a `ReadWriteOnce` or `ReadWriteOncePod` claim requires `replicas` 0 or 1 and `autoscaling.enabled: false` (with `keda.enabled`, `keda.maxReplicaCount: 1`), and a strategy that adds no pod (`{type: Recreate}`, or `{type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}` for a Deployment that already exists; see `strategy`). |
 | workload.type | string | `"deployment"` | Workload kind: `deployment` (API or worker), `cronjob`, or `job` (a Helm hook, see `job.phase`). |
 
 ## Design decisions
@@ -1297,6 +1423,102 @@ code, official docs) and local renders.
     decisions 7, 10, 41, 49 and 53. *Rejected:* common annotations on pods, the reserved keys as guards, a list, a
     consumer-written name, another separator, `tpl`, an allowlist of kinds.
     [ADR-0057](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)
+58. **The 1.0 contract, and how it stays frozen.** From 1.0 the selector labels, the object names (`<release>-<alias>`
+    and its `-env`, `-files`, `-secrets`, `.<key>` and `.<clusterRole>` forms), the main container's and the chart's
+    volume names, the label and annotation keys the chart writes and every values key name are frozen: a key is never
+    removed or renamed, a new key is optional, and a default that changes the manifest of an unchanged values file, or
+    a check that rejects values that render, is a major. Error messages, key order and docs are not frozen.
+    `tests/contract_test.yaml` pins the names and keys, and CI compares every values key path of the schema with
+    `tests/contract/keys.txt`, a list that a pull request can shorten only with a breaking title. *Rejected:* the
+    schema's own paths, a snapshot of `values.yaml`, frozen messages, renaming the odd keys.
+    [ADR-0058](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0058-the-1-0-contract-and-how-it-stays-frozen.md)
+59. **One probe contract for every container.** The main container's `probes` take the closed definition of a
+    sidecar's: one handler, no `host`, `grpc.port` a number, a misspelt field fails; `successThreshold` at most 1 on
+    `startup` and `liveness` and no `terminationGracePeriodSeconds` on `readiness`, for the main container and the
+    sidecars alike, as the API server requires. `{}` and `null` are no probe, and a `null` field or handler is left out
+    in both places, inside `httpGet` and `grpc` too; a `lifecycle` hook's `httpGet` keeps rejecting a `null`. It amends
+    decisions 47 and 51. *Rejected:* keeping the main probes open (two contracts frozen at 1.0, values that fail only at
+    install), kind rules for one kind of container only.
+    [ADR-0059](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0059-one-probe-contract-for-every-container.md)
+60. **The main container takes the entries' checks, and one token-directory rule for every mount.** A `lifecycle`
+    hook's `httpGet.port` given by name must be a `ports` entry, as a probe's; with `items`, the `subPath` of a
+    `configMap` or `secret` volume names one of their paths; UID 0 with `runAsNonRoot: true` fails on the main
+    container as on an entry; `configFiles.mountPath` rejects the token directory whether or not the token is mounted.
+    Each rule is one helper shared with the init containers and sidecars. It amends decisions 46, 49 and 51.
+    *Rejected:* keeping the main container unchecked (a gap frozen at 1.0), rejecting ancestors of the token directory
+    before the campaign measures them.
+    [ADR-0060](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0060-the-main-container-takes-the-entries-checks-and-one-token-directory-rule.md)
+61. **Reserved metadata keys in every map, and a required Ingress class.** `podLabels` rejects the six label keys the
+    chart writes on its objects, as `commonLabels` does: one set for every label map, although the chart writes neither
+    `managed-by` nor `helm.sh/chart` on a pod template, nor `version` without a tag (an image pinned by digest alone
+    takes its version label from a version-shaped `image.tag` next to the digest); `podAnnotations`, `ingress.annotations` and `serviceAccount.annotations`
+    reject Helm's hook and ownership keys and the chart's checksums, as `service.annotations` does. Each is a schema
+    rule, which fails `helm lint` too, with the key named at an unrelated path. `ingress.className` is required while
+    the Ingress is enabled, so a `null` fails in every values layer instead of rendering an Ingress the cluster's
+    default class picks. It amends decisions 16, 28, 47 and 57. *Rejected:* guards (an INFO line under `helm lint`),
+    an Ingress without a class on purpose, a reserved set per map.
+    [ADR-0061](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0061-reserved-metadata-keys-and-a-required-ingress-class.md)
+62. **A PodDisruptionBudget never blocks a drain at the replica floor.** The floor is `max(keda.minReplicaCount, 1)`
+    with KEDA, `autoscaling.minReplicas` with the HPA, otherwise `replicas`; an integer `pdb.minAvailable` at or above
+    it, a percentage that reaches it rounded up, and `pdb.maxUnavailable` `0` or `"0%"` fail the render, naming the
+    floor's source and the remedies. A budget that blocks on purpose is `pdb.enabled: false` and a PodDisruptionBudget
+    in `extraObjects`. It amends decision 15. *Rejected:* a check for KEDA alone, the current replica count as the
+    floor, a warning, an opt-out key.
+    [ADR-0062](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0062-a-pdb-never-blocks-a-drain-at-the-replica-floor.md)
+63. **The chart does not write `app.kubernetes.io/component`.** Kubernetes defines it as the component within the
+    architecture (`database`), which only the consumer knows; up to 0.11.0 the chart wrote the workload type there,
+    which the `kind` already says, and a consumer could not set it. It is now the consumer's key, set with
+    `commonLabels` or `podLabels`, and the maps that reject the chart's label keys reject six. Not a selector label: no
+    object is recreated, but every Deployment rolls once at the upgrade to 0.12.0 (it amends decision 10). *Rejected:*
+    freezing the workload type, a copy of the alias, a consumer value winning over the chart's.
+    [ADR-0063](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0063-the-chart-does-not-write-app-kubernetes-io-component.md)
+
+## How it compares
+
+chart-base aims to be the production-safe generic chart for alias-based umbrellas: production defaults on, every
+integration opt-in, a strict schema, alias-safe, tested end to end in clusters that enforce Pod Security `restricted`.
+The table sets that against three other generic charts, each at its newest release on **2026-11-17**, the day of the
+check. It states what was checked, not which chart is better: the others cover more workload kinds and more of the
+platform around the workload, which chart-base leaves out by design.
+
+**Method.** Each chart pulled at the version in the header. An umbrella `vending` with two aliases of it (`sales`,
+`machines`), with minimal values (an image, and for chart-base its required requests), rendered with Helm 4.3.0 and
+`--kube-version 1.33.0`; a script read the render (object names, selectors, pod labels, security fields, PDBs). The
+same umbrella rendered again with an unknown key at the alias's root and one inside a block. The rest was read in the
+source at the release tag. Paths in the cells start at the repository's root at that tag (app-template's chart is
+`charts/other/app-template` and its library `charts/library/common`; stakater's chart is `application`), and a
+workflow is named by its file alone. nxs-universal-chart 3.2.4 has no tag in its repository that day (the newest is
+`v3.2.2`), so its paths start at the root of the published package, the chart's directory, and its CI cell says which
+version it describes. chart-base was checked at the commit of this release.
+
+| | chart-base 0.12.0 | bjw-s app-template 5.3.0 | stakater application 9.3.2 | nixys nxs-universal-chart 3.2.4 |
+|---|---|---|---|---|
+| Source | This release | Tag `app-template-5.3.0` (`f18861fb`); OCI `sha256:0e13b145…ff63a` | Tag `v9.3.2` (`e1499e8b`); OCI `sha256:0bfba2e2…f275e` | OCI `sha256:25f55b26…9858d` (no tag) |
+| Two aliases in one umbrella, default values | Distinct objects (`vending-sales`, `vending-machines`); each Service selects its own pods | Deployment, Service and ServiceAccount all named `vending`; the Service selects both (fix: `global.nameOverride` per alias; `charts/other/app-template/templates/common.yaml:5-8`) | Deployment and Service both named `vending`; the selector matches both (fix: `applicationName` per alias; the names then lose the release) | Deployment and Service both named `vending-app`; the Service selects both (fix: `nameOverride` per alias) |
+| An unknown key at the alias's root | Fails | Renders (no root `additionalProperties`) | Renders | Renders (`additionalProperties: true`) |
+| An unknown key inside a block | Fails | Fails (`controllers.main.replicaz`) | Renders | Renders |
+| Pod Security `restricted` fields by default (read in the render) | Yes; the e2e installs in namespaces that enforce it | No | Partly (`readOnlyRootFilesystem`, `runAsNonRoot`) | No |
+| Resource requests required | Yes | No | No | No |
+| PodDisruptionBudget by default | Yes: `maxUnavailable: 1`, `unhealthyPodEvictionPolicy: AlwaysAllow` | Opt-in | Opt-in, `minAvailable: 1` (`application/values.yaml:1361-1371`) | Opt-in (`pdbs: {}`, `values.yaml:303`) |
+| Topology spread and `preStop` by default | Yes | No | No | No |
+| Default Deployment strategy | Kubernetes' | `Recreate` (`charts/library/common/templates/lib/deployment/_valuesToObject.tpl:9`) | `RollingUpdate` | Kubernetes' |
+| A chart upgrade alone restarts pods (`helm.sh/chart` on the pod template) | No | No | Yes | No |
+| A config change rolls the pods | Checksums of the rendered `.data`; Reloader annotations for the objects it references | Checksum annotations (`charts/library/common/templates/lib/pod/metadata/_annotations.tpl:31-59`) | Reloader annotations | Checksum annotations (`generic.autoRolloutChecksums: true`, `values.yaml:61`; `templates/_compat.tpl:590-628`) |
+| `enableServiceLinks` | `false` | `false` | `true` | Not set (Kubernetes' default: `true`) |
+| ServiceAccount token mounted by default | No | No | No | Not set (Kubernetes' default: yes) |
+| Native sidecars | A typed `sidecars` map | `restartPolicy` per container (`charts/library/common/templates/lib/container/_spec.tpl:56`) | Raw `initContainers` (`application/templates/deployment.yaml:84-86`) | None found (no container-level `restartPolicy` in the templates) |
+| A CRD missing from the cluster | The install fails (no `.Capabilities` gating, decision 12) | An HTTPRoute falls back to `v1alpha2` (`charts/library/common/templates/classes/_route.tpl:10-16`) | ServiceMonitor and PrometheusRule are skipped without a message (`application/templates/servicemonitor.yaml:1`, `application/templates/prometheusrule.yaml:1`) | A CronJob's PrometheusRule is rendered with no API check (`templates/batch/cronjob.yml:119-122`); other kinds not verified |
+| KEDA ScaledObject | Yes | No | No | Yes (the `nuc-keda` subchart) |
+| Workload kinds | Deployment, CronJob, Job; one per alias | Deployment, StatefulSet, DaemonSet, CronJob, Job; several per release | Deployment, CronJob, Job | Deployment, StatefulSet, DaemonSet, Pod, CronJob, Job and hooks (`values.yaml:233-300`); several per release |
+| Beyond the workload | Left out by design ([roadmap](https://github.com/jellalshadows/chart-base/blob/main/docs/roadmap.md#out-of-scope)) | PVC, Cilium network policy, ReferenceGrant, ListenerSet | VPA, SealedSecrets, Certificate, SecretProviderClass, PVC, ClusterRole, Grafana dashboard, backup | 23 optional subcharts (Argo CD, Flux, Istio, Strimzi, CloudNativePG, …) and a common library |
+| Signed artifact | cosign keyless signature and SLSA provenance (`release.yaml`) | Signature attached (`cosign tree`); keyless signing in `chart-release-steps.yaml:739-767` | Signature attached (OCI referrer); keyless signing (`release.yaml:84,104-123`) | Signature attached (`cosign tree`); a key, published in `artifacthub.io/signKey` (rotated in 3.2.3); not verified against it |
+| CI installs the chart in a cluster | kind, Kubernetes 1.33 and 1.37, Pod Security `restricted` enforced; lint on Helm 3.22 and 4.3 | chart-testing on k3d; no Pod Security enforcement seen (`pr-validate.yaml`, about lines 350-372) | No: helm-unittest only (`ci.yaml`) | Not verified for 3.2.4; at `v3.2.2`, no: render smoke tests, kubeconform and helm-unittest (`tests.yml`) |
+
+Sources: [app-template-5.3.0](https://github.com/bjw-s-labs/helm-charts/tree/app-template-5.3.0) and
+`oci://ghcr.io/bjw-s-labs/helm/app-template:5.3.0`; [v9.3.2](https://github.com/stakater/application/tree/v9.3.2) and
+`oci://ghcr.io/stakater/charts/application:9.3.2`; `oci://registry.nixys.ru/nuc/nxs-universal-chart:3.2.4` and, for its
+CI cell, [v3.2.2](https://github.com/nixys/nxs-universal-chart/tree/v3.2.2). A newer release of any of them can change a
+cell; the date above is the one that holds.
 
 ## Versioning and releases
 
@@ -1367,7 +1589,8 @@ cosign verify ghcr.io/jellalshadows/charts/chart-base:X.Y.Z \
 - **`extraObjects`** are named `<release>-<alias>.<key>` and installed in the release namespace; a custom kind needs
   its CRD in the cluster (or the whole release fails) and a kubeconform schema location; nothing below `apiVersion`,
   `kind` and `metadata` is checked, so an extra autoscaler or PodDisruptionBudget of the component's own pods fights the
-  chart: use `autoscaling`, `keda` and `pdb`. Changing `commonLabels` rolls a Deployment's pods.
+  chart: use `autoscaling`, `keda` and `pdb` (a budget that blocks evictions on purpose: `pdb.enabled: false` and the
+  PodDisruptionBudget in `extraObjects`). Changing `commonLabels` rolls a Deployment's pods.
 - **Quote image tags** (`tag: "1.10"`): the schema only accepts strings, so an unquoted `1.10` fails
   instead of silently becoming `1.1`.
 
@@ -1382,10 +1605,12 @@ helm lint --strict . -f ci/full-values.yaml
 ```
 
 CI (`.github/workflows/ci.yaml`) runs the unit tests, `helm lint`/`helm template` + kubeconform on
-Helm 3.22 and 4.3, the alias contract (`.github/scripts/alias-contract.sh`), a real install on kind
+Helm 3.22 and 4.3, the alias contract (`.github/scripts/alias-contract.sh`), every recipe of this README rendered and
+validated (`.github/scripts/readme-recipes.sh`), a real install on kind
 (Kubernetes 1.33 and 1.37) in a namespace that enforces Pod Security `restricted`, NetworkPolicy enforcement
 checks (with a namespace default-deny, then without it), RBAC checks (`kubectl auth can-i` as the ServiceAccounts,
-and API calls from the pods with their own tokens), this README drift
+and API calls from the pods with their own tokens), an umbrella's install, values change, rollback and uninstall
+(`.github/scripts/umbrella-lifecycle.sh`), this README drift
 check, the documentation link check, the PR title check, workflow linting (actionlint + zizmor) and the release signing checks.
 The [development guide](https://github.com/jellalshadows/chart-base/blob/main/docs/guides/development.md) and the [testing guide](https://github.com/jellalshadows/chart-base/blob/main/docs/guides/testing.md)
 explain the TDD loop, every test layer and the local tool setup.

@@ -11,9 +11,10 @@ workload:
 image:
   # -- Required. Image repository, e.g. `ghcr.io/acme/sales`.
   repository: ""
-  # -- Image tag. Required unless `image.digest` is set.
+  # -- Image tag. Required unless `image.digest` is set. It is also the `app.kubernetes.io/version` label, digest or
+  # not: next to a digest, write the version-shaped tag of the build the digest pins (`8.10.3-alpine`, not `alpine`).
   tag: ""
-  # -- Image digest (`sha256:...`). When set it wins over `image.tag`.
+  # -- Image digest (`sha256:...`). When set it wins over `image.tag`, which then only feeds the version label.
   digest: ""
   # -- Image pull policy.
   pullPolicy: IfNotPresent
@@ -66,7 +67,8 @@ envFrom: []
 configFiles:
   # -- Directory where `configFiles.files` are mounted read-only. Rendered as written. Must not be `/tmp` or `/` once
   # normalized (`//tmp` and `/tmp/.` are `/tmp`), nor the ServiceAccount token directory
-  # `/var/run/secrets/kubernetes.io/serviceaccount` while `serviceAccount.automountToken` is true.
+  # `/var/run/secrets/kubernetes.io/serviceaccount`, whether or not `serviceAccount.automountToken` is true (a volume
+  # there replaces the token), as for every mount; a directory above it (`/var/run/secrets`) is allowed.
   mountPath: /config
   # -- Files rendered into ConfigMap `<fullname>-files`. A string value is written verbatim;
   # a map value is rendered with `toYaml` (so it can be merged per environment). A file set to `null` (also a bare
@@ -103,11 +105,12 @@ configFiles:
 # but a `configMap` or `secret` file (`subPath`) must not lie beneath a ConfigMap or Secret mount. `subPath` and
 # `items[].path` are relative, without `..`, and the `items[].path` of one entry are unique. `readOnly: false` fails on
 # a `configMap` or `secret` mount, and an `emptyDir` or `ephemeral` volume that every container mounts read-only fails
-# (nothing could write it; an init container that fills a volume the main container reads mounts it writable). The main
-# container's `subPath` is not checked against `items` (a `subPath` that names no item mounts an empty directory; the
-# mounts of init containers and sidecars are checked). `sizeLimit` and `size` are strings (`size: 10` would mean 10
-# bytes) and not zero; `medium: Memory` requires `sizeLimit`: the files count against the container's memory limit. A
-# volume must not name the component's own `<fullname>-env`, `<fullname>-files` or `<fullname>-secrets`, and two
+# (nothing could write it; an init container that fills a volume the main container reads mounts it writable). With
+# `items`, the `subPath` of a `configMap` or `secret` entry names one of their paths, a directory that holds one, or `.`
+# (a `subPath` that names none mounts an empty directory), in every container. `sizeLimit` and `size` are strings
+# (`size: 10` would mean 10 bytes) and not zero; `medium: Memory` requires `sizeLimit`: the files count against the
+# container's memory limit. A volume must not name the component's own `<fullname>-env`, `<fullname>-files` or
+# `<fullname>-secrets`, and two
 # `persistentVolumeClaim` entries must not name one claim. A `persistentVolumeClaim` entry DECLARES the claim's access
 # mode in `claimAccessMode`: `ReadWriteOnce` (the default), `ReadWriteOncePod`, `ReadWriteMany` or `ReadOnlyMany`.
 # chart-base cannot read the claim, so a false declaration goes unnoticed. Two rules read it: `ReadOnlyMany` renders the
@@ -135,7 +138,8 @@ volumes: {}
 # `no`, `y`, `n`, `off`, lowercase, capitalized or uppercase): unquoted it becomes `true` or `false`, and two such keys
 # collide silently. The chart writes `restartPolicy` (an entry takes none), a list (`initContainers: [...]`) fails with
 # the map form, and a container that would run as UID 0 with `runAsNonRoot: true` (its `securityContext.runAsUser`, else
-# `podSecurityContext.runAsUser`) fails the render: the kubelet would never start it (kubelet source reading). `env`
+# `podSecurityContext.runAsUser`) fails the render, as the main container does: the kubelet would never start it
+# (kubelet source reading). `env`
 # takes references only, `NAME: {valueFrom: ...}` as for the main container (a literal fails: pass it in `args`), and
 # `inheritEnv` (default `false`) set to `true` gives the container exactly the main container's `envFrom` and `env`,
 # rendered as the main container renders them; an `env` name that the main container already receives then fails the
@@ -169,12 +173,14 @@ initContainers: {}
 # component's `ports`: see the fronting-proxy recipe of the README); a port name and a port number are declared once in
 # the pod. And `probes` (`startup`, `liveness`, `readiness`): each a closed probe with exactly one of `exec`, `httpGet`,
 # `tcpSocket` or `grpc` (no `host`: Pod Security rejects it from policy v1.34: measured on kube-apiserver 1.37.0) and
-# its timing fields; a port given by name must be one of the sidecar's own `ports` (the kubelet resolves a name among
-# the probed container's ports only: source reading). The kubelet probes the pod IP (source reading), so a health server
-# that listens on `localhost` by default must listen on `0.0.0.0` (cloud-sql-proxy: `--http-address=0.0.0.0`), or its
-# probes never pass. Give a sidecar that another container needs a `startupProbe`: the next container starts once the
-# sidecar has started. Inside a probe's `httpGet` or `exec` a `null` stays an error (shared with `lifecycle`): replace
-# the handler whole (`httpGet: null` next to a `tcpSocket`).
+# its timing fields, under the main container's rules (`successThreshold` at most 1 on `startup` and `liveness`, no
+# `terminationGracePeriodSeconds` on `readiness`); a port given by name must be one of the sidecar's own `ports` (the
+# kubelet resolves a name among the probed container's ports only: source reading). The kubelet probes the pod IP
+# (source reading), so a health server that listens on `localhost` by default must listen on `0.0.0.0`
+# (cloud-sql-proxy: `--http-address=0.0.0.0`), or its probes never pass. Give a sidecar that another container needs a
+# `startupProbe`: the next container starts once the sidecar has started. A `null` probe field or handler is left out,
+# as in the main container's probes, also inside `httpGet` and `grpc`; an overlay switches a handler with `httpGet: null`
+# next to a `tcpSocket`.
 sidecars: {}
 
 externalSecret:
@@ -333,11 +339,16 @@ service:
   annotations: {}
 
 probes:
-  # -- Startup probe (Kubernetes probe object). Empty = not rendered. A port given by name must be a `ports` name.
+  # -- Startup probe, the contract of a sidecar's: exactly one of `exec`, `httpGet`, `tcpSocket` or `grpc` (`grpc.port`
+  # a number; no `host`: Pod Security rejects it from policy v1.34) and the timing fields, closed (a misspelt field
+  # fails instead of being dropped by the API), `successThreshold` at most 1 (the API requires 1). Empty or `null` = not
+  # rendered; a `null` field or handler is left out, also inside `httpGet` (`path`, `scheme`, `httpHeaders`) and `grpc`
+  # (`service`). A port given by name must be a `ports` name.
   startup: {}
-  # -- Liveness probe (Kubernetes probe object). Empty = not rendered. A port given by name must be a `ports` name.
+  # -- Liveness probe: as `startup` (`successThreshold` at most 1).
   liveness: {}
-  # -- Readiness probe (Kubernetes probe object). Empty = not rendered. A port given by name must be a `ports` name.
+  # -- Readiness probe: as `startup`, any `successThreshold`, and no `terminationGracePeriodSeconds` (the API rejects
+  # it on a readiness probe).
   readiness: {}
 
 autoscaling:
@@ -441,9 +452,13 @@ keda:
 pdb:
   # -- Render a PodDisruptionBudget (policy/v1). Deployments only.
   enabled: true
-  # -- (int or string) Max unavailable pods. When neither this nor `minAvailable` is set, `1` is used.
+  # -- (int or string) Max unavailable pods. When neither this nor `minAvailable` is set, `1` is used. `0` and `"0%"`
+  # fail the render: the budget would allow no eviction and stall every node drain.
   maxUnavailable: null
-  # -- (int or string) Min available pods. Mutually exclusive with `maxUnavailable`.
+  # -- (int or string) Min available pods. Mutually exclusive with `maxUnavailable`. It must leave one pod to evict at
+  # the replica floor (`max(keda.minReplicaCount, 1)` with KEDA, `autoscaling.minReplicas` with the HPA, otherwise
+  # `replicas`; a percentage rounded up), or the render fails. A budget that blocks on purpose: `pdb.enabled: false`
+  # and a PodDisruptionBudget in `extraObjects`.
   minAvailable: null
   # -- `IfHealthyBudget` or `AlwaysAllow` (lets drains evict pods that are not Ready).
   unhealthyPodEvictionPolicy: AlwaysAllow
@@ -460,10 +475,10 @@ terminationGracePeriodSeconds: 30
 # -- Container lifecycle hooks `postStart` and `preStop`, each with exactly one of `exec`, `httpGet` or `sleep`
 # (Kubernetes does not support `tcpSocket` here), e.g. `{preStop: {exec: {command: ["/app/drain"]}}}`.
 # On Deployments, `lifecycle.preStop` replaces the built-in preStop sleep and requires `preStopSleepSeconds: 0`.
-# An `httpGet.port` given by name is not checked by the chart (unlike a probe's): the kubelet resolves it among the
-# main container's `ports` only, and a `preStop` hook on a name that `ports` does not declare fails with nothing but a
-# `FailedPreStopHook` event while termination goes on (kubelet source reading); give the port by number or by a `ports`
-# name.
+# An `httpGet.port` given by name must be the name of an entry in `ports`, as a probe's: the kubelet resolves it among
+# the main container's `ports` only, and on a name that `ports` does not declare a `preStop` hook fails with nothing
+# but a `FailedPreStopHook` event while termination goes on, and a `postStart` hook kills the container (kubelet
+# source reading).
 lifecycle: {}
 
 httpRoute:
@@ -486,9 +501,12 @@ httpRoute:
 ingress:
   # -- Render a networking.k8s.io/v1 Ingress. Requires `service.enabled`.
   enabled: false
-  # -- IngressClass name, required when enabled. No controller-specific annotations are added.
+  # -- IngressClass name, required while the Ingress is enabled: `""` and `null` fail in every values layer (the
+  # cluster's default IngressClass is never chosen for you). No controller-specific annotations are added.
   className: ""
-  # -- Ingress annotations.
+  # -- Ingress annotations (a controller's settings). Values are strings. Helm's and the chart's keys fail the schema
+  # (`invalid propertyName '<key>'`, reported at an unrelated path): `helm.sh/hook*` (it would turn the Ingress into a
+  # Helm hook), `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files`.
   annotations: {}
   # -- Hosts, e.g. `[{host: sales.example.com, paths: [{path: /, pathType: Prefix}]}]`.
   hosts: []
@@ -512,7 +530,7 @@ metrics:
   scrapeTimeout: null
   # -- Extra labels on the monitor, e.g. `{release: kube-prometheus-stack}`: with its default values, kube-prometheus-stack's
   # Prometheus only selects monitors labelled `release: <its release name>`. The keys the chart sets itself
-  # (`app.kubernetes.io/name`, `instance`, `part-of`, `component`, `version`, `managed-by`, `helm.sh/chart`) are rejected.
+  # (`app.kubernetes.io/name`, `instance`, `part-of`, `version`, `managed-by`, `helm.sh/chart`) are rejected.
   labels: {}
 
 prometheusRule:
@@ -654,7 +672,10 @@ serviceAccount:
   # -- Annotations of the ServiceAccount the chart creates (e.g. GKE Workload Identity's
   # `iam.gke.io/gcp-service-account`, EKS IRSA's `eks.amazonaws.com/role-arn`). With `create: false` they fail the
   # render: the owner of an existing ServiceAccount sets its annotations. An override file clears inherited annotations
-  # with `annotations: null`, not `{}` (maps are merged).
+  # with `annotations: null`, not `{}` (maps are merged). Helm's and the chart's keys fail the schema (`invalid
+  # propertyName '<key>'`, reported at an unrelated path): `helm.sh/hook*` (a `job`'s ServiceAccount carries the hook
+  # keys of its phase), `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files`;
+  # `helm.sh/resource-policy` is allowed.
   annotations: {}
   # -- Mount the ServiceAccount token into the pods. The pods' own `automountServiceAccountToken` is always rendered,
   # so it wins over the ServiceAccount's, an existing one's too. A cloud identity does not need it: EKS IRSA and Pod
@@ -699,9 +720,11 @@ rbac:
 # `{team: payments, cost-center: cc-42}`. Never a selector: the selectors keep the chart's two selector labels. A
 # per-object map wins on a shared key: `podLabels`, `metrics.labels`, `prometheusRule.labels`, an extra object's
 # `metadata.labels`. Values are strings. The chart's own keys (`app.kubernetes.io/name`, `instance`, `part-of`,
-# `component`, `version`, `managed-by`, `helm.sh/chart`) fail the schema with `invalid propertyName '<key>'`, reported
-# at an unrelated path. A change changes the pod template: it rolls a Deployment's pods, and the next CronJob run and
-# the next Job get it. Per alias (`global` is not read).
+# `version`, `managed-by`, `helm.sh/chart`) fail the schema with `invalid propertyName '<key>'`, reported at an
+# unrelated path. `app.kubernetes.io/component` is yours: the chart does not write it, so set it here (or in
+# `podLabels`) for its Kubernetes meaning, the component within the architecture (e.g. `database`). A change changes
+# the pod template: it rolls a Deployment's pods, and the next CronJob run and the next Job get it. Per alias (`global`
+# is not read).
 commonLabels: {}
 
 # -- Annotations added to the metadata of every object the chart renders for this component (`extraObjects` included),
@@ -717,10 +740,16 @@ commonLabels: {}
 # is not read).
 commonAnnotations: {}
 
-# -- Extra pod annotations.
+# -- Extra pod annotations, e.g. `{resource.opentelemetry.io/service.name: sales}`. Values are strings. Helm's and the
+# chart's keys fail the schema (`invalid propertyName '<key>'`, reported at an unrelated path): `helm.sh/hook*`,
+# `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files` (the pod template carries the two checksums). A
+# change rolls a Deployment's pods.
 podAnnotations: {}
 
-# -- Extra pod labels.
+# -- Extra pod labels, winning over `commonLabels` on a shared key. Values are strings. The chart's own keys
+# (`app.kubernetes.io/name`, `instance`, `part-of`, `version`, `managed-by`, `helm.sh/chart`) fail the schema with
+# `invalid propertyName '<key>'`, reported at an unrelated path; `app.kubernetes.io/component` is yours. Never a
+# selector. A change rolls a Deployment's pods.
 podLabels: {}
 
 # -- Pod security context. Defaults satisfy the Pod Security Standards `restricted` profile; override key by key.
@@ -734,6 +763,8 @@ podSecurityContext:
     type: RuntimeDefault
 
 # -- Container security context. `readOnlyRootFilesystem` is extra hardening (an emptyDir is always mounted at `/tmp`).
+# A container that would run as UID 0 with `runAsNonRoot: true` (each field its own, else `podSecurityContext`'s) fails
+# the render: the kubelet would never start it.
 securityContext:
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true
