@@ -1317,7 +1317,9 @@ code, official docs) and local renders.
     before the campaign measures them.
     [ADR-0060](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0060-the-main-container-takes-the-entries-checks-and-one-token-directory-rule.md)
 61. **Reserved metadata keys in every map, and a required Ingress class.** `podLabels` rejects the six label keys the
-    chart writes, as `commonLabels` does; `podAnnotations`, `ingress.annotations` and `serviceAccount.annotations`
+    chart writes on its objects, as `commonLabels` does: one set for every label map, although the chart writes neither
+    `managed-by` nor `helm.sh/chart` on a pod template, nor `version` without a tag (an image pinned by digest alone
+    takes its version label from a version-shaped `image.tag` next to the digest); `podAnnotations`, `ingress.annotations` and `serviceAccount.annotations`
     reject Helm's hook and ownership keys and the chart's checksums, as `service.annotations` does. Each is a schema
     rule, which fails `helm lint` too, with the key named at an unrelated path. `ingress.className` is required while
     the Ingress is enabled, so a `null` fails in every values layer instead of rendering an Ingress the cluster's
@@ -1351,14 +1353,16 @@ platform around the workload, which chart-base leaves out by design.
 `machines`), with minimal values (an image, and for chart-base its required requests), rendered with Helm 4.3.0 and
 `--kube-version 1.33.0`; a script read the render (object names, selectors, pod labels, security fields, PDBs). The
 same umbrella rendered again with an unknown key at the alias's root and one inside a block. The rest was read in the
-source at the release tag; paths in the cells are relative to that tag. nxs-universal-chart 3.2.4 has no tag in its
-repository that day (the newest is `v3.2.2`), so its paths are inside the published package, and its CI cell says
-which version it describes. chart-base was checked at the commit of this release.
+source at the release tag. Paths in the cells start at the repository's root at that tag (app-template's chart is
+`charts/other/app-template` and its library `charts/library/common`; stakater's chart is `application`), and a
+workflow is named by its file alone. nxs-universal-chart 3.2.4 has no tag in its repository that day (the newest is
+`v3.2.2`), so its paths start at the root of the published package, the chart's directory, and its CI cell says which
+version it describes. chart-base was checked at the commit of this release.
 
 | | chart-base 0.12.0 | bjw-s app-template 5.3.0 | stakater application 9.3.2 | nixys nxs-universal-chart 3.2.4 |
 |---|---|---|---|---|
 | Source | This release | Tag `app-template-5.3.0` (`f18861fb`); OCI `sha256:0e13b145…ff63a` | Tag `v9.3.2` (`e1499e8b`); OCI `sha256:0bfba2e2…f275e` | OCI `sha256:25f55b26…9858d` (no tag) |
-| Two aliases in one umbrella, default values | Distinct objects (`vending-sales`, `vending-machines`); each Service selects its own pods | Deployment, Service and ServiceAccount all named `vending`; the Service selects both (fix: `global.nameOverride` per alias; `templates/common.yaml:5-8`) | Deployment and Service both named `vending`; the selector matches both (fix: `applicationName` per alias; the names then lose the release) | Deployment and Service both named `vending-app`; the Service selects both (fix: `nameOverride` per alias) |
+| Two aliases in one umbrella, default values | Distinct objects (`vending-sales`, `vending-machines`); each Service selects its own pods | Deployment, Service and ServiceAccount all named `vending`; the Service selects both (fix: `global.nameOverride` per alias; `charts/other/app-template/templates/common.yaml:5-8`) | Deployment and Service both named `vending`; the selector matches both (fix: `applicationName` per alias; the names then lose the release) | Deployment and Service both named `vending-app`; the Service selects both (fix: `nameOverride` per alias) |
 | An unknown key at the alias's root | Fails | Renders (no root `additionalProperties`) | Renders | Renders (`additionalProperties: true`) |
 | An unknown key inside a block | Fails | Fails (`controllers.main.replicaz`) | Renders | Renders |
 | Pod Security `restricted` fields by default (read in the render) | Yes; the e2e installs in namespaces that enforce it | No | Partly (`readOnlyRootFilesystem`, `runAsNonRoot`) | No |
@@ -1367,11 +1371,11 @@ which version it describes. chart-base was checked at the commit of this release
 | Topology spread and `preStop` by default | Yes | No | No | No |
 | Default Deployment strategy | Kubernetes' | `Recreate` (`charts/library/common/templates/lib/deployment/_valuesToObject.tpl:9`) | `RollingUpdate` | Kubernetes' |
 | A chart upgrade alone restarts pods (`helm.sh/chart` on the pod template) | No | No | Yes | No |
-| A config change rolls the pods | Checksums of the rendered `.data`; Reloader annotations for the objects it references | Checksum annotations (`lib/pod/metadata/_annotations.tpl:31-59`) | Reloader annotations | Checksum annotations (`generic.autoRolloutChecksums: true`, `values.yaml:61`; `templates/_compat.tpl:590-628`) |
+| A config change rolls the pods | Checksums of the rendered `.data`; Reloader annotations for the objects it references | Checksum annotations (`charts/library/common/templates/lib/pod/metadata/_annotations.tpl:31-59`) | Reloader annotations | Checksum annotations (`generic.autoRolloutChecksums: true`, `values.yaml:61`; `templates/_compat.tpl:590-628`) |
 | `enableServiceLinks` | `false` | `false` | `true` | Not set (Kubernetes' default: `true`) |
 | ServiceAccount token mounted by default | No | No | No | Not set (Kubernetes' default: yes) |
-| Native sidecars | A typed `sidecars` map | `restartPolicy` per container (`lib/container/_spec.tpl:56`) | Raw `initContainers` (`templates/deployment.yaml:84-86`) | None found (no container-level `restartPolicy` in the templates) |
-| A CRD missing from the cluster | The install fails (no `.Capabilities` gating, decision 12) | An HTTPRoute falls back to `v1alpha2` (`classes/_route.tpl:10-16`) | ServiceMonitor and PrometheusRule are skipped without a message (`templates/servicemonitor.yaml:1`, `templates/prometheusrule.yaml:1`) | A CronJob's PrometheusRule is rendered with no API check (`templates/batch/cronjob.yml:119-122`); other kinds not verified |
+| Native sidecars | A typed `sidecars` map | `restartPolicy` per container (`charts/library/common/templates/lib/container/_spec.tpl:56`) | Raw `initContainers` (`application/templates/deployment.yaml:84-86`) | None found (no container-level `restartPolicy` in the templates) |
+| A CRD missing from the cluster | The install fails (no `.Capabilities` gating, decision 12) | An HTTPRoute falls back to `v1alpha2` (`charts/library/common/templates/classes/_route.tpl:10-16`) | ServiceMonitor and PrometheusRule are skipped without a message (`application/templates/servicemonitor.yaml:1`, `application/templates/prometheusrule.yaml:1`) | A CronJob's PrometheusRule is rendered with no API check (`templates/batch/cronjob.yml:119-122`); other kinds not verified |
 | KEDA ScaledObject | Yes | No | No | Yes (the `nuc-keda` subchart) |
 | Workload kinds | Deployment, CronJob, Job; one per alias | Deployment, StatefulSet, DaemonSet, CronJob, Job; several per release | Deployment, CronJob, Job | Deployment, StatefulSet, DaemonSet, Pod, CronJob, Job and hooks (`values.yaml:233-300`); several per release |
 | Beyond the workload | Left out by design ([roadmap](https://github.com/jellalshadows/chart-base/blob/main/docs/roadmap.md#out-of-scope)) | PVC, Cilium network policy, ReferenceGrant, ListenerSet | VPA, SealedSecrets, Certificate, SecretProviderClass, PVC, ClusterRole, Grafana dashboard, backup | 23 optional subcharts (Argo CD, Flux, Istio, Strimzi, CloudNativePG, …) and a common library |

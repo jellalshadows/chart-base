@@ -28,9 +28,14 @@ IngressClass, if one exists, then serves it. ADR-0016 says a class is required w
 
 ## Decision
 
-1. **`podLabels` is `definitions.extraLabels`**: the six label keys the chart writes (`app.kubernetes.io/name`,
-   `instance`, `part-of`, `version`, `managed-by`, `helm.sh/chart`) fail the schema, as in `commonLabels`.
-   `app.kubernetes.io/component` is the consumer's (ADR-0063).
+1. **`podLabels` is `definitions.extraLabels`**: the six label keys the chart writes on its objects
+   (`app.kubernetes.io/name`, `instance`, `part-of`, `version`, `managed-by`, `helm.sh/chart`) fail the schema, as in
+   `commonLabels`. `app.kubernetes.io/component` is the consumer's (ADR-0063). On the pod template the chart writes
+   only four of them: `part-of`, and `version` with an `image.tag`, rendered twice there; `managed-by` and
+   `helm.sh/chart` (never on a pod template, ADR-0010) and `version` without a tag rendered once with 0.11.0 and worked.
+   They are reserved anyway, so that every label map rejects one set; relaxing `podLabels` to the four keys of the pod
+   template later is additive. An image pinned by digest alone gets its version label from a version-shaped
+   `image.tag` next to the digest, which the label reads while the digest decides what runs.
 2. **`podAnnotations`, `ingress.annotations` and `serviceAccount.annotations` are `definitions.extraAnnotations`**:
    `helm.sh/hook*`, `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files` fail the schema. The checksum
    keys collide with nothing on an Ingress or a ServiceAccount; one definition is kept anyway, as `service.annotations`
@@ -62,7 +67,9 @@ longer meet a `serviceAccount.annotations` key, which rejects them; point 6: the
 - The upgrade from 0.11.0 can fail for values that rendered: one of the reserved keys in the four maps, or
   `ingress.className: null` with the Ingress on. The upgrade guide lists the shapes and their fix.
 - A key a consumer legitimately sets is rejected if it is one of the reserved keys; each is a key the chart writes or
-  Helm owns. Relaxing a key later is additive; accepting `""` as "no class" later is additive too.
+  Helm owns. In `podLabels` that includes three keys that rendered once and worked with 0.11.0 (`managed-by`,
+  `helm.sh/chart`, `version` without a tag): a digest-only image's version label moves to a version-shaped
+  `image.tag`. Relaxing a key later is additive; accepting `""` as "no class" later is additive too.
 
 ## Alternatives considered
 

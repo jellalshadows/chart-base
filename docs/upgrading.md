@@ -698,9 +698,16 @@ These four maps now reject the keys the chart or Helm owns, as the maps of 0.11.
 `commonAnnotations`, `service.annotations`) did from the start
 ([ADR-0061](adr/0061-reserved-metadata-keys-and-a-required-ingress-class.md)):
 
-- `podLabels`: the six label keys the chart writes, `app.kubernetes.io/name`, `instance`, `part-of`, `version` and
-  `managed-by`, and `helm.sh/chart` (up to 0.11.x only `name` and `instance`; another one rendered twice in the pod
-  template);
+- `podLabels`: the six label keys the chart writes on its objects, `app.kubernetes.io/name`, `instance`, `part-of`,
+  `version` and `managed-by`, and `helm.sh/chart` (up to 0.11.x only `name` and `instance`). Of the four newly reserved
+  keys, `part-of`, and `version` while `image.tag` is set, rendered twice in the pod template, which `kubeconform
+  -strict` rejects. `managed-by` and `helm.sh/chart`, which the chart never writes on a pod template
+  ([ADR-0010](adr/0010-chart-version-never-restarts-pods.md)), and `version` without a tag rendered once and worked
+  (measured with 0.11.0, Helm 4.3.0 and 3.22.0). They are reserved anyway: one set for every label map, and relaxing
+  `podLabels` later is additive. Remove such a key; for the version label of an image pinned by digest alone, set a
+  version-shaped `image.tag` next to the digest (`tag: 7.2.4-alpine`): the digest still decides what runs, and the
+  label reads the tag (the README's [image pinned by digest](../README.md#a-secret-on-the-command-line-and-an-image-pinned-by-digest-redis)
+  recipe, "The version label under a digest");
 - the three annotation maps: Helm's hook keys (`helm.sh/hook*`), Helm's ownership keys (`meta.helm.sh/*`) and the
   chart's checksums (`checksum/config-env`, `checksum/config-files`). A pinned checksum stopped config changes from
   rolling the pods; a hook key turned the Ingress or the ServiceAccount into a Helm hook, which `helm uninstall` leaves
