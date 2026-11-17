@@ -156,6 +156,15 @@ tests:
           path: spec.podSelector.matchLabels
           value: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
         template: templates/networkpolicy.yaml
+      # A sibling component's pods (fromComponents and toComponents): its two selector labels, the alias and the release.
+      - equal:
+          path: "spec.ingress[0].from[0].podSelector.matchLabels"
+          value: {app.kubernetes.io/name: web, app.kubernetes.io/instance: vending}
+        template: templates/networkpolicy.yaml
+      - equal:
+          path: "spec.egress[1].to[0].podSelector.matchLabels"
+          value: {app.kubernetes.io/name: payments, app.kubernetes.io/instance: vending}
+        template: templates/networkpolicy.yaml
       - equal:
           path: spec.selector.matchLabels
           value: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
