@@ -38,8 +38,9 @@ for another spelling it adds its own next to the ConfigMap's (source reading, Ku
   `helm template`, install and upgrade ([ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md)). None of
   these is known to produce a working pod; the runtime was not measured.
 - A path that 0.6.0 silently trimmed is sent as written and moves the mount once (upgrade guide).
-- A parent of the token directory (`/var/run/secrets`) is not checked: the token mount would land inside a read-only
-  ConfigMap mount, and whether such a pod starts is not measured (a known gap, pinned by a unit test).
+- A parent of the token directory (`/var/run/secrets`) is not checked: the token mount lands inside a read-only
+  ConfigMap mount. Whether such a pod starts was a known gap, pinned by a unit test, until the 1.0 campaign measured
+  that it starts ([ADR-0060](0060-the-main-container-takes-the-entries-checks-and-one-token-directory-rule.md)).
 
 ## Alternatives considered
 
