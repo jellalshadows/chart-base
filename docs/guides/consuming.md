@@ -732,6 +732,15 @@ What fails **at rollout**, in the cluster:
   once the manifests are applied and nothing turns a stuck rollout into a failed release. Use `--wait`
   (or `--rollback-on-failure` / `--atomic`, which also roll back on failure) in the pipeline that
   deploys the umbrella.
+- Helm 3's `--wait` is weaker than Helm 4's. Its legacy wait counts a Deployment ready once the new ReplicaSet has
+  `replicas - maxUnavailable` Ready pods, and it counts Ready pods, not available ones:
+  - with `maxUnavailable` at or above `replicas` (the `{maxSurge: 0, maxUnavailable: 1}` remedy above, on one
+    replica), it returns before any new pod is Ready;
+  - with `minReadySeconds`, it returns before the pods count as available.
+
+  Measured in the 1.0 campaign, with one replica and a probe that needs 20 seconds: Helm 3.22.0 returned after 2 to 3
+  seconds with no pod Ready, and Helm 4.3.0 after 22 to 23 seconds with the pod available. On Helm 3, follow such an
+  upgrade with `kubectl rollout status`.
 - A `pre-deploy` Job that fails: Helm waits for hooks of kind Job and fails the release, so a broken
   migration stops the deploy before the other resources of the release are updated
   ([ADR-0007](../adr/0007-jobs-as-helm-hooks.md)).
