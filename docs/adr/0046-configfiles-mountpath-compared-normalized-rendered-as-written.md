@@ -1,6 +1,6 @@
 # ADR-0046: `configFiles.mountPath` is compared normalized and rendered as written
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0060](0060-the-main-container-takes-the-entries-checks-and-one-token-directory-rule.md) (0.12.0)
 - **Date:** 2026-10-06
 - **Since:** 0.7.0
 - **Related:** [ADR-0005](0005-configfiles-string-or-map.md) (amended), [ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md)

@@ -615,9 +615,9 @@ release name and `--namespace`, not on `helm lint`
   to `Recreate`), a custom
   `lifecycle.preStop` next to the built-in preStop sleep, a lifecycle `sleep` longer than
   `terminationGracePeriodSeconds`, a `metrics.port` that is not the name of an entry in `ports`, a probe
-  `httpGet.port` or `tcpSocket.port` given by a name that no `ports` entry declares (or a probe handler that is not a
-  map), a `configFiles.mountPath` that is `/tmp` or `/` once normalized (or the ServiceAccount token directory while
-  `serviceAccount.automountToken` is true), `externalSecret.enabled` without a source (no non-null `data` entry and no `dataFrom` entry), and with
+  `httpGet.port` or `tcpSocket.port` or a `lifecycle` hook `httpGet.port` given by a name that no `ports` entry declares,
+  a main container that would run as UID 0 with `runAsNonRoot: true`, a `configFiles.mountPath` that is `/tmp`, `/` or
+  the ServiceAccount token directory once normalized, `externalSecret.enabled` without a source (no non-null `data` entry and no `dataFrom` entry), and with
   `networkPolicy` on: `metrics` or a route (`httpRoute`, `ingress`) without a source in the policy (or without
   `routeTrafficAllowedElsewhere: true`), `routeTrafficAllowedElsewhere` without a route,
   `metricsFromNamespaces` without `metrics`, `fromComponents` or `fromNamespaces` with no `ports`, an `endPort`
@@ -636,7 +636,8 @@ release name and `--namespace`, not on `helm lint`
 - The guards of `volumes` ([ADR-0049](../adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md), [ADR-0050](../adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md)): a volume
   name that is not a DNS-1123 label or that chart-base reserves; a field of another type, or a `null` in a type's
   required field; a mount path that is another mount's once normalized, `/`, or the token directory; a `subPath` or
-  `items[].path` that is absolute or has a `..` element, and two items with one path; a `configMap` or `secret` file
+  `items[].path` that is absolute or has a `..` element, and two items with one path; with `items`, a `subPath` that is
+  not one of their paths, a directory that holds one, or `.`; a `configMap` or `secret` file
   (`subPath`) beneath a ConfigMap or Secret mount; a `readOnly` that the type contradicts; a size of zero;
   `medium: Memory` without `sizeLimit`; a reference to the component's own ConfigMaps or Secret; two entries of one
   claim; an existing claim declared `ReadWriteOnce` or `ReadWriteOncePod` on a Deployment that can run two pods; a
@@ -733,13 +734,7 @@ What fails **at rollout**, in the cluster:
 - A `subPath` FILE of an `emptyDir`, a claim or an ephemeral volume beneath a ConfigMap or Secret mount of the same
   container fails at container start (the kubelet creates that mount point as a directory: source reading); the chart
   checks this only for files of ConfigMaps and Secrets, because it cannot tell a file from a directory in the other
-  volumes. And a `subPath` of the main container's `configMap` or `secret` mount that names no `items[].path` mounts an
-  empty directory without an error: the chart checks it for init containers and sidecars only (for the main container
-  the check would reject values that rendered before 0.8.0).
-- A `lifecycle` hook whose `httpGet.port` is a name that `ports` does not declare: a `preStop` hook fails with nothing
-  but a `FailedPreStopHook` event while termination goes on, and a `postStart` hook kills the container (kubelet
-  source reading, `pkg/kubelet/lifecycle/handlers.go` and `kuberuntime_container.go` at v1.33.12 and v1.37.0). The
-  chart checks probe port names, not hook port names.
+  volumes.
 - A `ReadWriteOnce` or `ReadWriteOncePod` claim belongs to ONE component (source reading, unverified): a cronjob or a
   job that shares the claim of a running Deployment waits on another node for the attachment; with
   `job.activeDeadlineSeconds: null` and `concurrencyPolicy: Forbid` every later run is skipped without an error, and

@@ -235,6 +235,7 @@ tests:
   - it: rejects a sidecar without a securityContext when podSecurityContext.runAsUser is 0 (runAsNonRoot true from the hardened default)
     set:
       podSecurityContext.runAsUser: 0
+      securityContext.runAsUser: 65532 # the main container's own UID: its rule is pinned in validate_test (ADR-0060)
       sidecars:
         proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}}
     asserts:
@@ -957,6 +958,7 @@ tests:
     set:
       podSecurityContext.runAsUser: 0
       podSecurityContext.runAsNonRoot: true
+      securityContext.runAsUser: 65532 # the main container's own UID (ADR-0060)
       sidecars:
         proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, securityContext: {runAsUser: 1000}}
     asserts:
@@ -967,6 +969,7 @@ tests:
     set:
       podSecurityContext.runAsUser: 0
       podSecurityContext.runAsNonRoot: true
+      securityContext.runAsUser: 65532 # the main container's own UID (ADR-0060)
       sidecars:
         proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, securityContext: {runAsUser: null}}
     asserts:

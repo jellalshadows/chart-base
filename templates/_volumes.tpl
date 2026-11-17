@@ -168,11 +168,31 @@ Usage: include "chart-base.validateItems" (dict "ctx" $ "path" "volumes.certs" "
 {{- end -}}
 
 {{/*
-chart-base.validateMountPath: the two rules of the mount paths of externalSecret.mountPath, volumes.<name>.mountPath
-and each mount of an init container or a sidecar, compared normalized (chart-base.cleanPath): not / (a volume cannot
-be mounted at the container's root) and not the ServiceAccount token directory (a volume there replaces the token,
-whether or not serviceAccount.automountToken is true). configFiles.mountPath keeps its own rules in
-templates/validate.yaml (/tmp and / always, the token directory only while serviceAccount.automountToken is true).
+chart-base.validateSubPathItems: with items, a ConfigMap or Secret volume holds only the items' paths, so a subPath must
+name one of them, a directory that holds one, or the volume's root (. or ./), all compared normalized
+(chart-base.cleanPath): the kubelet would mount an empty directory at a subPath that names none. Renders nothing; fails
+through chart-base.fail. The one rule of the main container's volumes and of every mount of an init container or a
+sidecar (ADR-0060); the caller checks the volume's type and that items is set. `at` names the mount in the message
+(volumes.<name>, <kind>.<name>.volumeMounts.<volume>), `itemsPath` the items (volumes.<name>.items, externalSecret.items).
+Usage: include "chart-base.validateSubPathItems" (dict "ctx" $ "at" "volumes.rules" "subPath" <as written> "items" <the
+items> "itemsPath" "volumes.rules.items")
+*/}}
+{{- define "chart-base.validateSubPathItems" -}}
+{{- $sub := include "chart-base.cleanPath" .subPath -}}
+{{- $named := eq $sub "/" -}}
+{{- $paths := list -}}
+{{- range $item := .items }}{{ $p := include "chart-base.cleanPath" $item.path }}{{ $paths = append $paths $item.path }}{{ if or (eq $p $sub) (hasPrefix (printf "%s/" $sub) $p) }}{{ $named = true }}{{ end }}{{ end -}}
+{{- if not $named -}}
+{{- include "chart-base.fail" (list .ctx (printf "%s.subPath %q names no file of %s (%s): with items, the volume holds only those paths, and the kubelet would mount an empty directory there; name one of them, or a directory that holds one" .at .subPath .itemsPath (join ", " $paths))) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+chart-base.validateMountPath: the two rules of the mount paths of configFiles.mountPath, externalSecret.mountPath,
+volumes.<name>.mountPath and each mount of an init container or a sidecar, compared normalized (chart-base.cleanPath):
+not / (a volume cannot be mounted at the container's root) and not the ServiceAccount token directory (a volume there
+replaces the token, whether or not serviceAccount.automountToken is true, ADR-0060); its ancestors are allowed.
+configFiles.mountPath also has its own rules in templates/validate.yaml (/tmp, and / with its own message, checked first).
 Renders nothing; fails through chart-base.fail. `owner` names the path in the messages; `path` is the value as written.
 Usage: include "chart-base.validateMountPath" (dict "ctx" $ "owner" "volumes.certs.mountPath" "path" <the path>)
 */}}

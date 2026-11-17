@@ -66,7 +66,8 @@ envFrom: []
 configFiles:
   # -- Directory where `configFiles.files` are mounted read-only. Rendered as written. Must not be `/tmp` or `/` once
   # normalized (`//tmp` and `/tmp/.` are `/tmp`), nor the ServiceAccount token directory
-  # `/var/run/secrets/kubernetes.io/serviceaccount` while `serviceAccount.automountToken` is true.
+  # `/var/run/secrets/kubernetes.io/serviceaccount`, whether or not `serviceAccount.automountToken` is true (a volume
+  # there replaces the token), as for every mount; a directory above it (`/var/run/secrets`) is allowed.
   mountPath: /config
   # -- Files rendered into ConfigMap `<fullname>-files`. A string value is written verbatim;
   # a map value is rendered with `toYaml` (so it can be merged per environment). A file set to `null` (also a bare
@@ -103,11 +104,12 @@ configFiles:
 # but a `configMap` or `secret` file (`subPath`) must not lie beneath a ConfigMap or Secret mount. `subPath` and
 # `items[].path` are relative, without `..`, and the `items[].path` of one entry are unique. `readOnly: false` fails on
 # a `configMap` or `secret` mount, and an `emptyDir` or `ephemeral` volume that every container mounts read-only fails
-# (nothing could write it; an init container that fills a volume the main container reads mounts it writable). The main
-# container's `subPath` is not checked against `items` (a `subPath` that names no item mounts an empty directory; the
-# mounts of init containers and sidecars are checked). `sizeLimit` and `size` are strings (`size: 10` would mean 10
-# bytes) and not zero; `medium: Memory` requires `sizeLimit`: the files count against the container's memory limit. A
-# volume must not name the component's own `<fullname>-env`, `<fullname>-files` or `<fullname>-secrets`, and two
+# (nothing could write it; an init container that fills a volume the main container reads mounts it writable). With
+# `items`, the `subPath` of a `configMap` or `secret` entry names one of their paths, a directory that holds one, or `.`
+# (a `subPath` that names none mounts an empty directory), in every container. `sizeLimit` and `size` are strings
+# (`size: 10` would mean 10 bytes) and not zero; `medium: Memory` requires `sizeLimit`: the files count against the
+# container's memory limit. A volume must not name the component's own `<fullname>-env`, `<fullname>-files` or
+# `<fullname>-secrets`, and two
 # `persistentVolumeClaim` entries must not name one claim. A `persistentVolumeClaim` entry DECLARES the claim's access
 # mode in `claimAccessMode`: `ReadWriteOnce` (the default), `ReadWriteOncePod`, `ReadWriteMany` or `ReadOnlyMany`.
 # chart-base cannot read the claim, so a false declaration goes unnoticed. Two rules read it: `ReadOnlyMany` renders the
@@ -135,7 +137,8 @@ volumes: {}
 # `no`, `y`, `n`, `off`, lowercase, capitalized or uppercase): unquoted it becomes `true` or `false`, and two such keys
 # collide silently. The chart writes `restartPolicy` (an entry takes none), a list (`initContainers: [...]`) fails with
 # the map form, and a container that would run as UID 0 with `runAsNonRoot: true` (its `securityContext.runAsUser`, else
-# `podSecurityContext.runAsUser`) fails the render: the kubelet would never start it (kubelet source reading). `env`
+# `podSecurityContext.runAsUser`) fails the render, as the main container does: the kubelet would never start it
+# (kubelet source reading). `env`
 # takes references only, `NAME: {valueFrom: ...}` as for the main container (a literal fails: pass it in `args`), and
 # `inheritEnv` (default `false`) set to `true` gives the container exactly the main container's `envFrom` and `env`,
 # rendered as the main container renders them; an `env` name that the main container already receives then fails the
@@ -465,10 +468,10 @@ terminationGracePeriodSeconds: 30
 # -- Container lifecycle hooks `postStart` and `preStop`, each with exactly one of `exec`, `httpGet` or `sleep`
 # (Kubernetes does not support `tcpSocket` here), e.g. `{preStop: {exec: {command: ["/app/drain"]}}}`.
 # On Deployments, `lifecycle.preStop` replaces the built-in preStop sleep and requires `preStopSleepSeconds: 0`.
-# An `httpGet.port` given by name is not checked by the chart (unlike a probe's): the kubelet resolves it among the
-# main container's `ports` only, and a `preStop` hook on a name that `ports` does not declare fails with nothing but a
-# `FailedPreStopHook` event while termination goes on (kubelet source reading); give the port by number or by a `ports`
-# name.
+# An `httpGet.port` given by name must be the name of an entry in `ports`, as a probe's: the kubelet resolves it among
+# the main container's `ports` only, and on a name that `ports` does not declare a `preStop` hook fails with nothing
+# but a `FailedPreStopHook` event while termination goes on, and a `postStart` hook kills the container (kubelet
+# source reading).
 lifecycle: {}
 
 httpRoute:
@@ -741,6 +744,8 @@ podSecurityContext:
     type: RuntimeDefault
 
 # -- Container security context. `readOnlyRootFilesystem` is extra hardening (an emptyDir is always mounted at `/tmp`).
+# A container that would run as UID 0 with `runAsNonRoot: true` (each field its own, else `podSecurityContext`'s) fails
+# the render: the kubelet would never start it.
 securityContext:
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true

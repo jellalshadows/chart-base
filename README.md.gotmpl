@@ -1181,7 +1181,15 @@ code, official docs) and local renders.
     in both places. It amends decisions 47 and 51. *Rejected:* keeping the main probes open (two contracts frozen at
     1.0, values that fail only at install), kind rules for one kind of container only.
     [ADR-0059](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0059-one-probe-contract-for-every-container.md)
-63.**The chart does not write `app.kubernetes.io/component`.** Kubernetes defines it as the component within the
+60. **The main container takes the entries' checks, and one token-directory rule for every mount.** A `lifecycle`
+    hook's `httpGet.port` given by name must be a `ports` entry, as a probe's; with `items`, the `subPath` of a
+    `configMap` or `secret` volume names one of their paths; UID 0 with `runAsNonRoot: true` fails on the main
+    container as on an entry; `configFiles.mountPath` rejects the token directory whether or not the token is mounted.
+    Each rule is one helper shared with the init containers and sidecars. It amends decisions 46, 49 and 51.
+    *Rejected:* keeping the main container unchecked (a gap frozen at 1.0), rejecting ancestors of the token directory
+    before the campaign measures them.
+    [ADR-0060](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0060-the-main-container-takes-the-entries-checks-and-one-token-directory-rule.md)
+63. **The chart does not write `app.kubernetes.io/component`.** Kubernetes defines it as the component within the
     architecture (`database`), which only the consumer knows; up to 0.11.0 the chart wrote the workload type there,
     which the `kind` already says, and a consumer could not set it. It is now the consumer's key, set with
     `commonLabels` or `podLabels`, and the maps that reject the chart's label keys reject six. Not a selector label: no
