@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.12.0](https://github.com/jellalshadows/chart-base/compare/v0.11.0...v0.12.0) (2026-11-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* values that rendered with 0.11.0 can fail; see docs/upgrading.md#011x--0120
+
+### Features
+
+* the 1.0 contract (closed probes, reserved metadata keys, freeze checks) ([#29](https://github.com/jellalshadows/chart-base/issues/29)) ([014f691](https://github.com/jellalshadows/chart-base/commit/014f691c26e905bd33bbd084278ac3eb838074be))
+
 ## [0.11.0](https://github.com/jellalshadows/chart-base/compare/v0.10.0...v0.11.0) (2026-11-03)
 
 
