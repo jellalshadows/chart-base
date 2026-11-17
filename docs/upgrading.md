@@ -57,6 +57,9 @@ in any order: from 0.4.x, `missing properties 'rbac', 'networkPolicy'` and `'/ex
 0.11.0 adds no required key: from 0.9.x and 0.10.x a `--reuse-values` upgrade works (see `0.10.x → 0.11.0`), and from
 0.4.x to 0.8.x it fails with the lines of 0.9.0 (measured by rendering the 0.11.0 chart with each release's
 `values.yaml` as its defaults, Helm 4.3.0 and 3.22.0).
+0.12.0 adds no required key either: from 0.10.x and 0.11.x a `--reuse-values` upgrade renders (see `0.11.x → 0.12.0`),
+and from 0.8.x it fails with the line of 0.9.0 (measured the same way); values that 0.12.0 rejects fail whatever the
+flag.
 Use `--reset-then-reuse-values` (available in Helm 3.22 and 4.3), which starts from the new chart's
 defaults and applies your previous values on top, or pass your values files again. Umbrellas are not
 affected.
@@ -572,3 +575,155 @@ direct installs and an umbrella: revision 2's manifest is revision 1's but the `
   `volumes` entry, `envFrom`) writes that full name.
 - **An object you render today in the umbrella's own templates** and move into `extraObjects` gets a new name: Helm
   deletes the old object and creates the new one in the same upgrade.
+
+## 0.11.x → 0.12.0
+
+0.12.0 is the 1.0 contract ([ADR-0058](adr/0058-the-1-0-contract-and-how-it-stays-frozen.md)): the checks that the
+roadmap held for the contract freeze, in one breaking release. **Values that rendered with 0.11.0 can fail**, and every
+failure names the key; the sections below give each shape, its message and the remedy. **Nothing is recreated**: the
+selector labels, the object names and every values key are unchanged (no key is removed or renamed; 0.12.0 adds the
+fields of `probes.<kind>`). **Every Deployment rolls once**, for the label below. Measured on the seven `ci/` scenarios
+of 0.11.0, Helm 4.3.0 and 3.22.0: 0.12.0 renders 0.11.0's manifests but for the removed `app.kubernetes.io/component`
+lines and the `helm.sh/chart` label; and every shape below renders with 0.11.0 and fails with 0.12.0, on both versions.
+
+**Check before you upgrade.** Render each environment's values with 0.12.0, with every component enabled, before the
+upgrade: `helm template`, which runs the schema and the guards, and `helm lint --strict`, as the
+[recommendations for umbrella authors](guides/consuming.md#recommendations-for-umbrella-authors) say. `helm lint` alone
+is not enough here: the checks that are guards (the hook port, `subPath`, UID 0, the token directory and the
+PodDisruptionBudget) print an INFO line under `helm lint` and fail only `helm template`, installs and upgrades
+([ADR-0044](adr/0044-guards-fail-the-render-helm-lint-reports-them.md)).
+
+### Every pod rolls once: the chart no longer writes `app.kubernetes.io/component`
+
+Up to 0.11.x the chart wrote the workload type there (`deployment`, `cronjob`, `job`) on every object and pod template.
+Kubernetes defines the key as the component within the architecture (`database`, `frontend`), which only you know, so
+0.12.0 leaves it to you ([ADR-0063](adr/0063-the-chart-does-not-write-app-kubernetes-io-component.md)). It was never a
+selector label, so no object is recreated, but the pod template changes: every Deployment rolls once at the upgrade, and
+the next CronJob run and the next Job get pods without it.
+
+- Search dashboards, alerts, log queries and policies that select on `app.kubernetes.io/component`; the `kind` of the
+  workload says what the label said.
+- To set it with its Kubernetes meaning, use `commonLabels` (every object and pod template) or `podLabels` (the pods).
+  Both take it from 0.12.0: `commonLabels` rejected it up to 0.11.x, and `podLabels` rendered it twice in the pod
+  template, which `kubeconform -strict` rejects (measured: `podLabels: {app.kubernetes.io/component: database}` renders
+  once with 0.12.0, Helm 4.3.0 and 3.22.0).
+
+### Probes are closed, on the main container and on the sidecars
+
+`probes.startup`, `probes.liveness` and `probes.readiness` of the main container follow the definition the sidecars'
+probes already had, plus one rule per kind for both
+([ADR-0059](adr/0059-one-probe-contract-for-every-container.md)). The error's first line is `at '/probes/<kind>':
+'allOf' failed`; the second names the field:
+
+| Values that rendered with 0.11.0 | 0.12.0 fails with | Remedy |
+|---|---|---|
+| A gRPC port given by name: `grpc: {port: grpc}` | `at '/probes/readiness/grpc/port': got string, want integer` | The port number. A gRPC probe takes no name, and the API server rejected the name at install |
+| `httpGet.host` or `tcpSocket.host` | `at '/probes/liveness/httpGet': additional properties 'host' not allowed` | Remove it. Pod Security `baseline` rejects a probe's `host` from policy version 1.34 |
+| A misspelt field: `initialDelaySecond` | `at '/probes/liveness': additional properties 'initialDelaySecond' not allowed` | The right name. 0.11.0 rendered the misspelt field, and the API server dropped it: the probe ran without that setting |
+| Liveness or startup `successThreshold` above 1 | `at '/probes/liveness/successThreshold': maximum: got 2, want 1` | 1, or remove it. The API server rejected it at install |
+| Readiness `terminationGracePeriodSeconds` | `at '/probes/readiness/terminationGracePeriodSeconds': got number, want null` | Remove it. The API server rejected it at install |
+
+The two kind rules hold for a sidecar's probes too, with the sidecar's path
+(`at '/sidecars/proxy/probes/readiness/terminationGracePeriodSeconds': got number, want null`). `{}` and `null` still
+mean no probe. A `null` field of a main-container probe is now left out instead of rendered as `null` (measured:
+0.11.0 rendered `periodSeconds: null`, 0.12.0 renders no key); the API server reads both as unset, so this does not roll
+the pods (source reading; the validation campaign checks it on a real upgrade).
+
+### Four checks the other containers or mounts already had
+
+The main container now gets the checks that init containers and sidecars have had since 0.8.0, and `configFiles` the
+token-directory rule of every other mount
+([ADR-0060](adr/0060-the-main-container-takes-the-entries-checks-and-one-token-directory-rule.md)). Each value below
+rendered with 0.11.0 and never worked:
+
+- **A `lifecycle` hook's port name must be a `ports` entry.** With `preStop` on a port named `admin` that `ports` does
+  not declare, 0.11.0's pods emitted only a `FailedPreStopHook` event and the drain hook never ran. 0.12.0 fails with
+  `lifecycle.preStop.httpGet.port "admin" is not the name of an entry in ports: the kubelet cannot resolve it and never
+  runs the hook. Use the port number, or declare the name in ports (...), or remove the hook`.
+- **A `subPath` of a `configMap` or `secret` volume with `items` must name one of the items' paths.** 0.11.0 mounted an
+  empty directory there. 0.12.0 fails with `volumes.settings.subPath "b.yaml" names no file of volumes.settings.items
+  (a.yaml): with items, the volume holds only those paths, and the kubelet would mount an empty directory there; name
+  one of them, or a directory that holds one`. Without `items` nothing is checked.
+- **UID 0 with `runAsNonRoot: true`**, whether the main container sets `securityContext.runAsUser: 0` or inherits
+  `podSecurityContext.runAsUser: 0`. 0.11.0 rendered a pod that the kubelet never starts (and that Pod Security
+  `restricted` rejects at admission). 0.12.0 fails with `the main container would run as UID 0 with runAsNonRoot: true
+  and the kubelet would never start it: set its securityContext.runAsUser to a non-zero UID, or
+  securityContext.runAsNonRoot: false (Pod Security restricted then rejects the pod)`. A `podSecurityContext.runAsUser:
+  0` meant for a sidecar needs a non-zero `securityContext.runAsUser` on the main container.
+- **`configFiles.mountPath` at the ServiceAccount token directory fails with the token off too**, as every other mount
+  does: `configFiles.mountPath "/var/run/secrets/kubernetes.io/serviceaccount" is the ServiceAccount token directory
+  /var/run/secrets/kubernetes.io/serviceaccount once normalized: a volume there replaces the token, whether or not
+  serviceAccount.automountToken is true now; choose another directory`. Turning the token on later (for `rbac`) no
+  longer turns working values into this failure.
+
+### A PodDisruptionBudget must allow one eviction at the replica floor
+
+On a Deployment with `pdb.enabled` (the default), the render fails when the PDB would allow no eviction while the
+component runs its fewest pods, the replica floor: a PDB like that stalls every node drain and cluster upgrade
+([ADR-0062](adr/0062-a-pdb-never-blocks-a-drain-at-the-replica-floor.md)).
+
+| Mode | Replica floor |
+|---|---|
+| Fixed replicas | `replicas` (0: nothing is checked) |
+| The chart's HPA (`autoscaling.enabled`) | `autoscaling.minReplicas` |
+| KEDA (`keda.enabled`) | `keda.minReplicaCount`, and 1 when it is 0 (a pod runs while a trigger is active) |
+
+It fails on an integer `pdb.minAvailable` at or above the floor, on a percentage that the disruption controller rounds up
+to the floor (`ceil(p × floor / 100)`), and on `pdb.maxUnavailable` `0` or `"0%"`. `minAvailable` wins over
+`maxUnavailable`, as in the rendered PDB; a string that is not a percentage is left to the API server. Each of these
+rendered with 0.11.0:
+
+| Values | 0.12.0's message starts with |
+|---|---|
+| `replicas: 2`, `pdb.minAvailable: 2` | `pdb.minAvailable is 2 and the replica floor is 2 (replicas): the PodDisruptionBudget allows no eviction at the floor, so every node drain and cluster upgrade stalls on this component.` |
+| `autoscaling.minReplicas: 2`, `pdb.minAvailable: 2` | `pdb.minAvailable is 2 and the replica floor is 2 (autoscaling.minReplicas): ...` |
+| `keda.minReplicaCount: 0`, `pdb.minAvailable: 1` | `pdb.minAvailable is 1 and the replica floor is 1 (keda.minReplicaCount 0 counts as 1: a pod runs while a trigger is active): ...` |
+| `replicas: 1`, `pdb.minAvailable: "50%"` | `pdb.minAvailable is "50%", which the disruption controller rounds up to 1 of the replica floor 1 (replicas): ...` |
+| `pdb.maxUnavailable: 0` | `pdb.maxUnavailable is 0: the PodDisruptionBudget allows no eviction, so every node drain and cluster upgrade stalls on this component.` |
+
+The message then names the remedies:
+
+- a lower `pdb.minAvailable`: the message gives the largest that works, as a count and as a percentage;
+- `pdb.minAvailable: null`, to use `pdb.maxUnavailable` (1 by default);
+- for a budget that blocks evictions on purpose, `pdb.enabled: false` and a PodDisruptionBudget of your own in
+  `extraObjects` (measured: with `replicas: 3`, an `extraObjects` PDB of `minAvailable: 3` renders, alone).
+
+### Reserved keys in `podLabels`, `podAnnotations`, `ingress.annotations` and `serviceAccount.annotations`
+
+These four maps now reject the keys the chart or Helm owns, as the maps of 0.11.0 (`commonLabels`,
+`commonAnnotations`, `service.annotations`) did from the start
+([ADR-0061](adr/0061-reserved-metadata-keys-and-a-required-ingress-class.md)):
+
+- `podLabels`: the six label keys the chart writes, `app.kubernetes.io/name`, `instance`, `part-of`, `version` and
+  `managed-by`, and `helm.sh/chart` (up to 0.11.x only `name` and `instance`; another one rendered twice in the pod
+  template);
+- the three annotation maps: Helm's hook keys (`helm.sh/hook*`), Helm's ownership keys (`meta.helm.sh/*`) and the
+  chart's checksums (`checksum/config-env`, `checksum/config-files`). A pinned checksum stopped config changes from
+  rolling the pods; a hook key turned the Ingress or the ServiceAccount into a Helm hook, which `helm uninstall` leaves
+  behind.
+
+Remove the key. The message names it, but **its path names another key**, which is how Helm's schema library reports
+a shared definition (measured, Helm 4.3.0 and 3.22.0):
+
+```text
+- at '/prometheusRule': invalid propertyName 'app.kubernetes.io/part-of'
+- at '': 'not' failed
+```
+
+`podLabels` and `podAnnotations` report `/prometheusRule`, `ingress.annotations` and `serviceAccount.annotations`
+`/prometheusRule/enabled`; nothing is wrong with your `prometheusRule`.
+
+### `ingress.className` is required while the Ingress is enabled, `null` included
+
+A `null` class from any values layer fails with `at '/ingress': missing property 'className'` (after `at '': 'allOf'
+failed`), where 0.11.0 rendered an Ingress without a class that the cluster's default IngressClass took, if one existed.
+Name the class. With the Ingress disabled, a `null` class still renders. The table under
+[0.4.x → 0.4.1](#04x--041) gives every layer, up to 0.11.x and from 0.12.0.
+
+### `--reuse-values`
+
+0.12.0 adds no required key. Measured by rendering 0.12.0 with each release's `values.yaml` as its defaults (the shape
+of a direct install upgraded with `--reuse-values`), over the seven `ci/` scenarios of 0.11.0, Helm 4.3.0 and 3.22.0:
+with 0.10.0's and 0.11.0's defaults the render is 0.12.0's own; with 0.9.0's too, except the scenario that turns KEDA on
+(see `0.9.x → 0.10.0`); with 0.8.0's it fails with the line of 0.9.0 (`Every upgrade`, above). A real upgrade was not
+run here; the validation campaign upgrades from the published 0.11.0.
