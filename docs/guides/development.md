@@ -269,8 +269,8 @@ Each of these has already broken something. The reason is the important part.
 - **Pull requests are squash-merged and the PR title becomes the commit message on `main`.** The
   `pr-title` job fails a title that is not a conventional commit, so write the title as the commit you want
   in the history.
-- **Breaking changes before 1.0 are marked `feat!:` or `fix!:`** and bump the minor version (`fix:` bumps the patch and
-  `feat:` the minor). Changing a default, renaming a key or removing one is breaking
+- **Breaking changes are marked `feat!:` or `fix!:`** and bump the major version from 1.0.0 (`fix:` bumps the patch
+  and `feat:` the minor; before 1.0 a breaking change bumped the minor). Changing a default, renaming a key or removing one is breaking
   ([ADR-0002](../adr/0002-repository-is-the-chart.md) explains which paths release the chart).
 - **Only changes to the chart release it.** Commits that touch only `.github`, `tests`, `ci` or `docs` are
   excluded from releases by `exclude-paths` in `release-please-config.json`, so a documentation or CI

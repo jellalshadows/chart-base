@@ -850,9 +850,10 @@ which release-please writes from the conventional commits, and the [upgrade guid
 for what to change in your values after each breaking release and after a fix release that changes
 rendered objects (0.4.1).
 
-- Before 1.0, a breaking change is marked `feat!:` or `fix!:` and bumps the **minor** version, and a `feat:`
-  also bumps the minor. So a `0.x` minor bump can break your values: read it before you bump.
-  A `fix:` bumps the patch.
+- From 1.0.0, a breaking change is marked `feat!:` or `fix!:` and bumps the **major** version. A `feat:` bumps the
+  minor and a `fix:` the patch, and neither removes nor renames a values key, an object name or a selector label
+  ([ADR-0058](../adr/0058-the-1-0-contract-and-how-it-stays-frozen.md)). Before 1.0 a breaking change bumped the minor,
+  so read the upgrade guide before you bump across a `0.x` minor.
 - Bump the `version:` in **every** dependency entry of the umbrella at the same time (one version per
   umbrella), then run `helm dependency update` and commit the updated `Chart.lock`.
 - Bumping chart-base never restarts pods by itself: `helm.sh/chart` is not a pod label and the config
