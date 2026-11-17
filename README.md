@@ -1429,8 +1429,8 @@ code, official docs) and local renders.
     removed or renamed, a new key is optional, and a default that changes the manifest of an unchanged values file, or
     a check that rejects values that render, is a major. Error messages, key order and docs are not frozen.
     `tests/contract_test.yaml` pins the names and keys, and CI compares every values key path of the schema with
-    `tests/contract/keys.txt`. *Rejected:* the schema's own paths, a snapshot of `values.yaml`, frozen messages,
-    renaming the odd keys.
+    `tests/contract/keys.txt`, a list that a pull request can shorten only with a breaking title. *Rejected:* the
+    schema's own paths, a snapshot of `values.yaml`, frozen messages, renaming the odd keys.
     [ADR-0058](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0058-the-1-0-contract-and-how-it-stays-frozen.md)
 59. **One probe contract for every container.** The main container's `probes` take the closed definition of a
     sidecar's: one handler, no `host`, `grpc.port` a number, a misspelt field fails; `successThreshold` at most 1 on

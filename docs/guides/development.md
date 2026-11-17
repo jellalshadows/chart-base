@@ -185,12 +185,12 @@ or change a key:
    ```
 
    CI runs the same command and fails on any difference in `README.md`.
-7. **Regenerate the list of keys** and commit it with the change: the `lint` job fails while a key of the schema is
-   missing from `tests/contract/keys.txt`, or a key of the list is gone from the schema
-   ([the 1.0 contract](testing.md#the-10-contract)):
+7. **Add the key to the list of keys** and commit it with the change: the `lint` job fails while a key of the schema is
+   missing from `tests/contract/keys.txt`, or a key of the list is gone from the schema, or, on a pull request, the
+   list lost a line against the base without a breaking title ([the 1.0 contract](testing.md#the-10-contract)):
 
    ```bash
-   .github/scripts/contract-keys.sh --list . > tests/contract/keys.txt
+   .github/scripts/contract-keys.sh --add .
    ```
 8. Add the key to a `ci/` scenario when it needs an end-to-end check, and update the documentation in
    the same pull request (see [the definition of done](testing.md#definition-of-done-for-a-feature)).

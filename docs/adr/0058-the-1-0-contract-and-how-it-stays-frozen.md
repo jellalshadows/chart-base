@@ -77,14 +77,20 @@ change in behavior.
   (properties, list items `[]` and map entries `<name>`, through every `$ref`, `allOf`, `anyOf`, `oneOf`, `then` and
   `else`), and compares the list with the committed `tests/contract/keys.txt`. A key that is gone fails ("a removed or
   renamed key is a major change"); a key that is not listed fails until the list that holds it is committed with the
-  change that adds it (`contract-keys.sh --list . > tests/contract/keys.txt`). It runs in the CI `lint` job. A
-  packaged chart carries no `tests/`, so the list can be given as a second argument, to check a published chart
-  against the repository's list.
+  change that adds it (`contract-keys.sh --add .`). It runs in the CI `lint` job. A packaged chart carries no
+  `tests/`, so the list can be given as a second argument, to check a published chart against the repository's list.
+- The list itself can only grow without a deliberate act. `--add` writes the union of the committed list and the
+  schema's keys, so regenerating it after a rename adds the new key and keeps the old one, and the compare still fails.
+  Removing a key means deleting its line by hand, and the CI `lint` job's base check (`contract-keys.sh --base`, on
+  every pull request) fails when `tests/contract/keys.txt` lost a line against the pull request's base commit, unless
+  the pull request title is a breaking Conventional Commit (`type!:` or `type(scope)!:`). A pull request cannot
+  silence the compare by rewriting the list it compares against.
 
 ## Consequences
 
 - A rename, a removed key or a changed name fails in the pull request that makes it, with a message that says why, not
-  in a consumer's upgrade.
+  in a consumer's upgrade. Regenerating the list does not hide it: a removal passes only with its line deleted by hand
+  and a breaking pull request title, both of which a reviewer sees.
 - The list is long (every key under every map entry is spelled out: a sidecar's probe keys appear once per probe kind)
   and every new key adds lines to it. That is the point: the diff of `keys.txt` shows a reviewer the contract change.
 - Renaming an internal definition of the schema changes nothing in the list, and so does moving a key into a shared

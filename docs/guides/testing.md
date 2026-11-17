@@ -266,6 +266,10 @@ annotation keys the chart writes, and every values key name. Two layers share it
   from `values.schema.json` (`ports[].name`, `volumes.<name>.subPath`, through every `$ref`), and compares it with the
   committed `tests/contract/keys.txt`. A key that is gone fails: a removed or renamed key is a major change. A key that
   is not in the list fails too: a new key is committed with the list that holds it.
+- `.github/scripts/contract-keys.sh --base <commit> <chart-dir> [<pr-title>]` fails when `tests/contract/keys.txt`
+  lost a line against the same file at `<commit>`, unless the title is a breaking Conventional Commit (`type!:` or
+  `type(scope)!:`). CI runs it on every pull request against its base commit, so a pull request cannot pass the
+  compare by rewriting the list.
 
 **Run locally.** Needs `jq`:
 
@@ -274,13 +278,26 @@ annotation keys the chart writes, and every values key name. Two layers share it
 ```
 
 It ends with `contract-keys: the <n> keys of values.schema.json match ./tests/contract/keys.txt`. After adding a key,
-regenerate the list and commit it with the change (the diff shows the reviewer the new keys):
+add it to the list and commit the list with the change (the diff shows the reviewer the new keys):
 
 ```bash
-.github/scripts/contract-keys.sh --list . > tests/contract/keys.txt
+.github/scripts/contract-keys.sh --add .
 ```
 
-**In CI.** The unit suite in the `unit tests` job; the script in the `lint` job.
+`--add` writes the union of the list and the schema's keys: it never removes a line, so after a rename the old key
+stays listed and the compare keeps failing. A removal for a major is a line deleted by hand. `--list .` prints the
+schema's keys alone. The base check, against `main` or the pull request's base:
+
+```bash
+.github/scripts/contract-keys.sh --base main . "feat!: remove image.pullPolicy"
+```
+
+It ends with `contract-keys: no line of tests/contract/keys.txt at main is gone (...)`, or lists the lost lines with
+`  - <key>` and fails, or accepts them after `contract-keys: the pull request title marks a breaking change (type!:)`.
+A base without the list passes (`main has no tests/contract/keys.txt: nothing to compare`).
+
+**In CI.** The unit suite in the `unit tests` job; the compare and, on a pull request, the base check (base commit
+`github.event.pull_request.base.sha`, the title through `env:`, a checkout with `fetch-depth: 0`) in the `lint` job.
 
 ## README recipes
 
