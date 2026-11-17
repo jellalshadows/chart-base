@@ -51,9 +51,17 @@ message:
   does: the token directory fails whether or not `serviceAccount.automountToken` is true, with that helper's message.
   The `/tmp` and `/` guards of `configFiles` and their messages stay, and run first. Ancestors (`/var/run/secrets`)
   stay allowed on every mount: a mount beneath a ConfigMap mount works (the e2e mounts a Secret beneath `/config`),
-  and whether the token mount starts inside a read-only ancestor is ADR-0046's known gap. The 1.0 Docker campaign
-  measures it with the outcome decided in advance: if the pod does not start, a `fix:` in 0.12.x rejects ancestors on
-  every mount before 1.0.0; if it starts, the gap note goes.
+  and whether the token mount starts inside a read-only ancestor was ADR-0046's known gap. The 1.0 Docker campaign
+  measured it with the outcome decided in advance: if the pod did not start, a `fix:` in 0.12.x would reject ancestors
+  on every mount before 1.0.0; if it started, the gap note would go.
+
+  Measured on 2026-11-17 (campaign scenario C6, on Kubernetes 1.33.12 and 1.37.0, each with Helm 3.22.0 and 4.3.0;
+  `configFiles.mountPath: /var/run/secrets` with `serviceAccount.automountToken: true`):
+  - the pod starts and is Ready;
+  - the token (1205 bytes) and `ca.crt` sit beneath the ConfigMap's files;
+  - both stay after a kubelet resync and after a config change that rolls the pod.
+
+  Ancestors stay allowed, and the gap note is gone.
 
 This amends ADR-0046 (the token directory unconditionally), ADR-0049 (the `subPath` of a volume with `items`) and
 ADR-0051 (its "Not checked" list loses the hook port name and the main container's `subPath`; the UID rule is the

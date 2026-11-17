@@ -259,6 +259,10 @@ printf '%s\n' 'volumes: {data: {type: persistentVolumeClaim, mountPath: /data, c
   'strategy: {type: Recreate}' > "$work/deployment-recreate.yaml"
 install deployment --set config.APP_MODE=api-v2 -f "$work/deployment-claim.yaml" \
   || fail "adding an existing claim with strategy RollingUpdate (maxSurge 0, maxUnavailable 1) to a Deployment installed without strategy failed"
+# Helm 3.22's --wait counts this Deployment ready at replicas - maxUnavailable = 0 Ready pods and returns at once (Helm
+# 4.3's waits for the pod): wait for the rollout before reading readyReplicas.
+kubectl rollout status -n "$ns" deployment/deployment-chart-base --timeout=180s > /dev/null \
+  || fail "the Deployment with the existing claim e2e-data never became Ready"
 claim="$(kubectl get deployment -n "$ns" deployment-chart-base -o jsonpath='{.spec.template.spec.volumes[?(@.name=="data")].persistentVolumeClaim.claimName} {.status.readyReplicas}' || true)"
 [ "$claim" = "e2e-data 1" ] || fail "the Deployment must mount the claim e2e-data and be Ready, got '$claim'"
 pass "an existing claim is mounted after an in-place switch to RollingUpdate with maxSurge 0 (the pod is Ready)"
