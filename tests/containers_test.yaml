@@ -765,6 +765,24 @@ tests:
       - notExists:
           path: spec.template.spec.initContainers[0].ports
 
+  - it: renders a sidecar probe's httpGet and grpc without their null path, scheme, httpHeaders and service
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        proxy:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          probes:
+            liveness: {httpGet: {path: null, port: 9090, scheme: null, httpHeaders: null}}
+            readiness: {grpc: {port: 9091, service: null}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].livenessProbe
+          value: {httpGet: {port: 9090}}
+      - equal:
+          path: spec.template.spec.initContainers[0].readinessProbe
+          value: {grpc: {port: 9091}}
+
   - it: renders an entry's mounts in key order, read-only where the kubelet forces it
     template: templates/deployment.yaml
     set:

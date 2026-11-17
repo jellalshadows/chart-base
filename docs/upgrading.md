@@ -627,7 +627,11 @@ The two kind rules hold for a sidecar's probes too, with the sidecar's path
 (`at '/sidecars/proxy/probes/readiness/terminationGracePeriodSeconds': got number, want null`). `{}` and `null` still
 mean no probe. A `null` field of a main-container probe is now left out instead of rendered as `null` (measured:
 0.11.0 rendered `periodSeconds: null`, 0.12.0 renders no key); the API server reads both as unset, so this does not roll
-the pods (source reading; the validation campaign checks it on a real upgrade).
+the pods (source reading; the validation campaign checks it on a real upgrade). The same holds inside the handler: a
+`null` `httpGet.path`, `httpGet.scheme`, `httpGet.httpHeaders` or `grpc.service`, for example an override that drops a
+lower layer's `path: /healthz`, renders without the key (the API server then probes `/` over `HTTP`). A sidecar's probe
+takes these `null`s too, where 0.11.0 rejected them. Inside a `lifecycle` hook's `httpGet` a `null` still fails
+(`at '/lifecycle/postStart/httpGet/path': got null, want string`), as in 0.11.0: remove the key instead.
 
 ### Four checks the other containers or mounts already had
 

@@ -85,7 +85,7 @@
       }
     },
     "httpGetHandler": {
-      "description": "An httpGet handler, shared by the lifecycle hooks and the probes of every container; no host (Pod Security baseline rejects it from policy v1.34). Inside it a null stays an error.",
+      "description": "The httpGet handler of a lifecycle hook; no host (Pod Security baseline rejects it from policy v1.34). Inside it a null stays an error. A probe's is definitions.probeHttpGetHandler, the same fields with a null optional field absent.",
       "type": "object",
       "additionalProperties": false,
       "required": ["port"],
@@ -93,18 +93,29 @@
         "path": { "type": "string" },
         "port": { "type": ["integer", "string"] },
         "scheme": { "enum": ["HTTP", "HTTPS"] },
-        "httpHeaders": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["name", "value"],
-            "properties": {
-              "name": { "type": "string" },
-              "value": { "type": "string" }
-            }
-          }
-        }
+        "httpHeaders": { "type": "array", "items": { "$ref": "#/definitions/httpHeader" } }
+      }
+    },
+    "probeHttpGetHandler": {
+      "description": "The httpGet handler of a probe of any container: definitions.httpGetHandler whose optional fields (path, scheme, httpHeaders) also take null, which is absent (the probes render pruned; the API server defaults path to / and scheme to HTTP). A lifecycle hook keeps definitions.httpGetHandler.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["port"],
+      "properties": {
+        "path": { "type": ["string", "null"] },
+        "port": { "type": ["integer", "string"] },
+        "scheme": { "enum": ["HTTP", "HTTPS", null] },
+        "httpHeaders": { "type": ["array", "null"], "items": { "$ref": "#/definitions/httpHeader" } }
+      }
+    },
+    "httpHeader": {
+      "description": "A header of an httpGet handler (lifecycle hooks and probes): a name and a value.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value"],
+      "properties": {
+        "name": { "type": "string" },
+        "value": { "type": "string" }
       }
     },
     "duration": {
@@ -577,7 +588,7 @@
       "additionalProperties": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/volumeMount" } }
     },
     "probe": {
-      "description": "A probe of any container (the main container's probes and a sidecar's, through livenessProbe and readinessProbe): exactly one handler (each oneOf branch types it as an object, so that a handler set to null is no handler), closed at every level; no host (Pod Security baseline rejects one from policy v1.34), no httpGet.protocol or grpc.mode (alpha in Kubernetes 1.37). A null field or handler is absent; inside httpGet and exec, shared with lifecycle, a null stays an error.",
+      "description": "A probe of any container (the main container's probes and a sidecar's, through livenessProbe and readinessProbe): exactly one handler (each oneOf branch types it as an object, so that a handler set to null is no handler), closed at every level; no host (Pod Security baseline rejects one from policy v1.34), no httpGet.protocol or grpc.mode (alpha in Kubernetes 1.37). A null field or handler is absent, inside httpGet (definitions.probeHttpGetHandler) and grpc too; inside exec, shared with lifecycle, a null stays an error.",
       "additionalProperties": false, "type": "object",
       "oneOf": [
         { "required": ["exec"], "properties": { "exec": { "type": "object" } } },
@@ -587,7 +598,7 @@
       ],
       "properties": {
         "exec": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/execHandler" } },
-        "httpGet": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/httpGetHandler" } },
+        "httpGet": { "type": ["object", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/probeHttpGetHandler" } },
         "tcpSocket": { "type": ["object", "null"], "additionalProperties": false, "required": ["port"], "properties": { "port": { "type": ["integer", "string"] } } },
         "grpc": { "type": ["object", "null"], "additionalProperties": false, "required": ["port"], "properties": { "port": { "type": "integer", "minimum": 1, "maximum": 65535 }, "service": { "type": ["string", "null"] } } },
         "initialDelaySeconds": { "type": ["integer", "null"], "minimum": 0 },

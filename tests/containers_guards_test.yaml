@@ -457,13 +457,13 @@ tests:
       - failedTemplate:
           errorPattern: "at '/sidecars/mesh/probes/readiness/grpc': additional properties 'mode' not allowed"
 
-  - it: rejects a null inside a sidecar probe's httpGet (the definition is shared with lifecycle)
+  - it: accepts a null path, scheme and httpHeaders in a sidecar probe's httpGet, and a null grpc.service (a null field is absent)
     set:
       sidecars:
-        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, probes: {liveness: {httpGet: {port: 9090, path: null}}}}
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, probes: {liveness: {httpGet: {port: 9090, path: null, scheme: null, httpHeaders: null}}, readiness: {grpc: {port: 9091, service: null}}}}
     asserts:
-      - failedTemplate:
-          errorPattern: "at '/sidecars/proxy/probes/liveness/httpGet/path': got null, want string"
+      - hasDocuments:
+          count: 0
 
   - it: rejects successThreshold 2 on a sidecar's liveness and startup probes (the kind rule of every container)
     set:

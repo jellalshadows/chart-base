@@ -241,6 +241,22 @@ tests:
             tcpSocket: {port: 8080}
             failureThreshold: 3
 
+  - it: renders a main-container probe's httpGet and grpc without their null path, scheme, httpHeaders and service
+    template: templates/deployment.yaml
+    set:
+      probes.liveness: {httpGet: {path: null, port: 8080, scheme: null, httpHeaders: null}, periodSeconds: 5}
+      probes.readiness: {grpc: {port: 9090, service: null}}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe
+          value:
+            httpGet: {port: 8080}
+            periodSeconds: 5
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe
+          value:
+            grpc: {port: 9090}
+
   - it: renders no probe for an empty or null main-container probe
     set:
       probes.startup: {}

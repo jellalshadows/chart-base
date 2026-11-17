@@ -1934,3 +1934,18 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: accepts a null path, scheme and httpHeaders in a main-container probe's httpGet, and a null grpc.service (absent, as 0.11.0 rendered them)
+    set:
+      probes.startup: {httpGet: {path: null, port: 8080, scheme: null, httpHeaders: null}}
+      probes.readiness: {grpc: {port: 9090, service: null}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a null inside a lifecycle hook's httpGet (a hook keeps definitions.httpGetHandler, as in 0.11.0)
+    set:
+      lifecycle.postStart.httpGet: {path: null, port: 8080}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/lifecycle/postStart/httpGet/path': got null, want string"

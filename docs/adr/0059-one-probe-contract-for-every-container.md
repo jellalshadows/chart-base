@@ -41,6 +41,13 @@ threshold of 1 (the API server defaults 0 to 1 before validating); `validateRead
   `null` field or handler is left out. This is the only part of the chart-wide "a `null` means absent" rule that 0.12.0
   takes, and the closed definition forces it: one definition that admits `null` in every field must mean the same in
   both places. The API server decodes `periodSeconds: null` and no key alike, so no pod rolls for it.
+- Inside a probe's handler the optional fields take `null` too: a probe's `httpGet` is
+  `definitions.probeHttpGetHandler`, whose `path`, `scheme` and `httpHeaders` admit `null`, as `grpc.service` already
+  did; the render prunes them, and the API server defaults a missing `path` to `/` and `scheme` to `HTTP`. 0.11.0
+  rendered such a `null` on the main container, and the chart documents `null` as the way to drop a lower values
+  layer's key, so rejecting it would break values that work. A `lifecycle` hook keeps `definitions.httpGetHandler`,
+  where a `null` stays an error, as in 0.11.0 (its hooks are not pruned). Both share `definitions.httpHeader`. An
+  `exec` handler has one field, the required `command`.
 - `chart-base.validateProbePorts` stays: a named `httpGet` or `tcpSocket` port must be an entry of the container's own
   ports. Its branch that failed on a handler that is not a map is gone: the schema now types every container's handlers
   as a map or `null`, so the branch could not be reached.
@@ -55,7 +62,8 @@ A consequence on the messages: a handler that is a string, a list, a number or a
 
 - Values that lint clean and fail at install, or never fail and silently lose a field, now fail at render with the
   key's path: G2's gRPC names, `host`, a misspelt field, the two kind rules.
-- A probe moves between the main container and a sidecar unchanged.
+- A probe moves between the main container and a sidecar unchanged, except `{}`, which is no probe on the main
+  container and fails on a sidecar (below).
 - A probe field that Kubernetes accepts and the definition lacks fails at render. The definition has every `Probe`
   field of Kubernetes 1.37 except the alpha ones; adding one later is additive.
 - The upgrade from 0.11.0 can fail for values that rendered: the upgrade guide lists each shape and its fix.
@@ -83,6 +91,7 @@ A `null` would render in one place and be absent in the other, under one definit
 
 - Kubernetes v1.37.0 `pkg/apis/core/validation/validation.go` (`validateProbe`, `validateLivenessProbe`,
   `validateStartupProbe`, `validateReadinessProbe`).
-- `values.schema.json` (`definitions.probe`, `livenessProbe`, `readinessProbe`, `sidecarProbes`, `probes`),
+- `values.schema.json` (`definitions.probe`, `probeHttpGetHandler`, `livenessProbe`, `readinessProbe`, `sidecarProbes`,
+  `probes`),
   `templates/_pod.tpl` (the main container's probes), `templates/_values.tpl` (`chart-base.validateProbePorts`).
 - `tests/schema_test.yaml`, `tests/containers_guards_test.yaml`, `tests/pod_test.yaml`, `tests/validate_test.yaml`.
