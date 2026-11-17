@@ -142,8 +142,9 @@ for b in $(seq 1 "$n"); do
   if [ "${kind%$'\r'}" = true ]; then
     manifests=$((manifests + 1))
     cp "$f" "$work/$slug-manifest.yaml"
-    for v in "${kube_versions[@]}"; do validate "$b" "$f" "$v" "the manifest" || true; done
-    echo "ok - README.md:${block_line[b]} a manifest (${block_heading[b]})"
+    valid=true
+    for v in "${kube_versions[@]}"; do validate "$b" "$f" "$v" "the manifest" || valid=false; done
+    $valid && echo "ok - README.md:${block_line[b]} a manifest (${block_heading[b]})"
     continue
   fi
   values=$((values + 1))

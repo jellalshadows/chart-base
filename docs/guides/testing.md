@@ -571,7 +571,8 @@ object or moving a selector: the e2e installs and upgrades, but never rolls back
 `e2e` job, on the same cluster. It builds a throwaway umbrella `lifecycle` with three aliases of the candidate (the
 chart copied next to it, a relative `file://` path): `api` (a Deployment, agnhost `netexec`, `config.APP_MODE: v1`),
 `nightly` (a suspended CronJob) and `migrate` (a `pre-deploy` Job). It installs it as the release `life` in a namespace
-`lifecycle` that enforces Pod Security `restricted`, and then:
+`lifecycle` that enforces Pod Security `restricted` (created or updated, and kept at the end, so the script reruns on one
+cluster), and then:
 
 | Step | Checks |
 |---|---|

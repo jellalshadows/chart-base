@@ -116,9 +116,12 @@ $got"
   done <<< "$first_objects"
 }
 
-kubectl create namespace "$ns"
-kubectl label namespace "$ns" \
-  pod-security.kubernetes.io/enforce=restricted pod-security.kubernetes.io/enforce-version=latest
+# Idempotent, so that the script reruns on one cluster (the namespace is kept at the end).
+kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - > /dev/null \
+  || fail "could not create or update the namespace $ns"
+kubectl label namespace "$ns" --overwrite \
+  pod-security.kubernetes.io/enforce=restricted pod-security.kubernetes.io/enforce-version=latest > /dev/null \
+  || fail "could not label the namespace $ns for Pod Security restricted"
 
 echo "== umbrella lifecycle: install ($first_name)"
 helm install "$release" "$first" -n "$ns" -f "$work/values.yaml" --wait --timeout 5m || fail "the install of $first_name failed"
