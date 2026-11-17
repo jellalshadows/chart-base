@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.0](https://github.com/jellalshadows/chart-base/compare/v0.12.0...v1.0.0) (2026-11-17)
+
+
+### Features
+
+* declare 1.0.0, from which a breaking change is a major ([#32](https://github.com/jellalshadows/chart-base/issues/32)) ([2177291](https://github.com/jellalshadows/chart-base/commit/2177291df1ce778b2dd804eaab92b44b0082f72d))
+
 ## [0.12.0](https://github.com/jellalshadows/chart-base/compare/v0.11.0...v0.12.0) (2026-11-17)
 
 
