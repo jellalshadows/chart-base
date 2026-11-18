@@ -11,6 +11,7 @@ templates:
   - templates/extraobjects.yaml
   - templates/hpa.yaml
   - templates/httproute.yaml
+  - templates/grpcroute.yaml
   - templates/ingress.yaml
   - templates/job.yaml
   - templates/networkpolicy.yaml
@@ -52,6 +53,8 @@ tests:
         template: templates/pdb.yaml
       - equal: {path: metadata.name, value: vending-chart-base}
         template: templates/httproute.yaml
+      - equal: {path: metadata.name, value: vending-chart-base}
+        template: templates/grpcroute.yaml
       - equal: {path: metadata.name, value: vending-chart-base}
         template: templates/ingress.yaml
       - equal: {path: metadata.name, value: vending-chart-base}
@@ -190,6 +193,7 @@ tests:
       - templates/extraobjects.yaml
       - templates/hpa.yaml
       - templates/httproute.yaml
+      - templates/grpcroute.yaml
       - templates/ingress.yaml
       - templates/networkpolicy.yaml
       - templates/pdb.yaml
@@ -219,6 +223,7 @@ tests:
       - templates/extraobjects.yaml
       - templates/hpa.yaml
       - templates/httproute.yaml
+      - templates/grpcroute.yaml
       - templates/ingress.yaml
       - templates/networkpolicy.yaml
       - templates/pdb.yaml

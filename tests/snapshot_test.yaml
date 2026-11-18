@@ -8,6 +8,7 @@ templates:
   - templates/extraobjects.yaml
   - templates/hpa.yaml
   - templates/httproute.yaml
+  - templates/grpcroute.yaml
   - templates/ingress.yaml
   - templates/job.yaml
   - templates/networkpolicy.yaml

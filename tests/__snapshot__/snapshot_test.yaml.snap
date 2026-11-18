@@ -703,6 +703,35 @@ full scenario:
         team: e2e
       name: vending-chart-base.settings
   6: |
+    apiVersion: gateway.networking.k8s.io/v1
+    kind: GRPCRoute
+    metadata:
+      annotations:
+        e2e.example.com/owner: platform
+      labels:
+        app.kubernetes.io/instance: vending
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: chart-base
+        app.kubernetes.io/part-of: vending
+        app.kubernetes.io/version: 2.66.1
+        helm.sh/chart: chart-base-0.0.0-test
+        team: e2e
+      name: vending-chart-base
+    spec:
+      hostnames:
+        - grpc.sales.example.com
+      parentRefs:
+        - name: platform-gw
+          namespace: gateway
+          sectionName: grpc
+      rules:
+        - backendRefs:
+            - name: vending-chart-base
+              port: 80
+          matches:
+            - method:
+                service: sales.v1.Orders
+  7: |
     apiVersion: autoscaling/v2
     kind: HorizontalPodAutoscaler
     metadata:
@@ -752,7 +781,7 @@ full scenario:
         apiVersion: apps/v1
         kind: Deployment
         name: vending-chart-base
-  7: |
+  8: |
     apiVersion: gateway.networking.k8s.io/v1
     kind: HTTPRoute
     metadata:
@@ -782,7 +811,17 @@ full scenario:
             - path:
                 type: PathPrefix
                 value: /
-  8: |
+        - backendRefs:
+            - name: vending-chart-base
+              port: 80
+          matches:
+            - headers:
+                - name: x-api-version
+                  value: "2"
+              path:
+                type: PathPrefix
+                value: /api
+  9: |
     apiVersion: networking.k8s.io/v1
     kind: Ingress
     metadata:
@@ -810,7 +849,7 @@ full scenario:
                       name: http
                 path: /
                 pathType: Prefix
-  9: |
+  10: |
     apiVersion: networking.k8s.io/v1
     kind: NetworkPolicy
     metadata:
@@ -917,7 +956,7 @@ full scenario:
       policyTypes:
         - Ingress
         - Egress
-  10: |
+  11: |
     apiVersion: policy/v1
     kind: PodDisruptionBudget
     metadata:
@@ -939,7 +978,7 @@ full scenario:
           app.kubernetes.io/instance: vending
           app.kubernetes.io/name: chart-base
       unhealthyPodEvictionPolicy: AlwaysAllow
-  11: |
+  12: |
     apiVersion: monitoring.coreos.com/v1
     kind: PrometheusRule
     metadata:
@@ -966,7 +1005,7 @@ full scenario:
               for: 5m
               labels:
                 severity: critical
-  12: |
+  13: |
     apiVersion: rbac.authorization.k8s.io/v1
     kind: Role
     metadata:
@@ -1008,7 +1047,7 @@ full scenario:
           - pods/log
         verbs:
           - get
-  13: |
+  14: |
     apiVersion: rbac.authorization.k8s.io/v1
     kind: RoleBinding
     metadata:
@@ -1031,7 +1070,7 @@ full scenario:
       - kind: ServiceAccount
         name: vending-chart-base
         namespace: vending
-  14: |
+  15: |
     apiVersion: rbac.authorization.k8s.io/v1
     kind: RoleBinding
     metadata:
@@ -1054,7 +1093,7 @@ full scenario:
       - kind: ServiceAccount
         name: vending-chart-base
         namespace: vending
-  15: |
+  16: |
     apiVersion: v1
     kind: Service
     metadata:
@@ -1072,7 +1111,8 @@ full scenario:
       name: vending-chart-base
     spec:
       ports:
-        - name: http
+        - appProtocol: http
+          name: http
           port: 80
           protocol: TCP
           targetPort: http
@@ -1080,7 +1120,7 @@ full scenario:
         app.kubernetes.io/instance: vending
         app.kubernetes.io/name: chart-base
       type: ClusterIP
-  16: |
+  17: |
     apiVersion: v1
     automountServiceAccountToken: true
     kind: ServiceAccount
@@ -1097,7 +1137,7 @@ full scenario:
         helm.sh/chart: chart-base-0.0.0-test
         team: e2e
       name: vending-chart-base
-  17: |
+  18: |
     apiVersion: monitoring.coreos.com/v1
     kind: ServiceMonitor
     metadata:

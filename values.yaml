@@ -516,6 +516,24 @@ httpRoute:
   # is always this component's Service; a rule without matches or a `port` that names no `ports` entry fails the render.
   rules: []
 
+grpcRoute:
+  # -- Render a Gateway API GRPCRoute (gateway.networking.k8s.io/v1, since 1.4.0) to this component's Service, alone
+  # or next to `httpRoute`. Requires `service.enabled` and a Deployment. With `networkPolicy` on, its traffic needs a
+  # source, as an HTTPRoute's (`networkPolicy.ingress.fromNamespaces`).
+  enabled: false
+  # -- Gateways to attach to (required when enabled), with the fields of `httpRoute.parentRefs`, e.g.
+  # `[{name: platform-gw, namespace: gateway, sectionName: grpc}]`.
+  parentRefs: []
+  # -- Hostnames matched by the route.
+  hostnames: []
+  # -- GRPCRoute matches; empty: every request. Each entry takes exactly the fields of a Gateway API `GRPCRouteMatch`:
+  # `method` (`type` `Exact` or `RegularExpression`, `service`, `method`) and `headers` (`type`, `name`, `value`), at
+  # every level: an unknown or misspelt key fails the render (the API server would drop it silently).
+  matches: []
+  # -- The name of the `ports` entry the route sends to; `null`: the first entry. A cleartext gRPC backend usually needs
+  # `appProtocol: kubernetes.io/h2c` on that entry, so that the Gateway speaks HTTP/2 to it.
+  port: null
+
 ingress:
   # -- Render a networking.k8s.io/v1 Ingress. Requires `service.enabled`.
   enabled: false
@@ -578,7 +596,7 @@ networkPolicy:
     fromComponents: []
     # -- Namespaces, by name (e.g. `[envoy-gateway-system]`), whose pods may reach every entry of `ports`: where the
     # Gateway's proxy pods run (with Envoy Gateway's default mode, the namespace Envoy Gateway runs in, not the Gateway's)
-    # or the ingress controller's pods. Required, or `extra`, when `httpRoute` or `ingress` is enabled (or
+    # or the ingress controller's pods. Required, or `extra`, when `httpRoute`, `grpcRoute` or `ingress` is enabled (or
     # `routeTrafficAllowedElsewhere`). Traffic from Cilium's Ingress or Gateway API does not match a namespace and `extra`
     # cannot allow it: a standard NetworkPolicy cannot select Cilium's `reserved:ingress` identity (a Cilium maintainer,
     # 2024-12-11, Cilium 1.16: it takes a CiliumNetworkPolicy; current releases unverified). Allow it there and set
@@ -587,7 +605,7 @@ networkPolicy:
     fromNamespaces: []
     # -- Set to `true` when the route's traffic reaches the pods through a policy this chart cannot express (Cilium's
     # Ingress or Gateway API, a `hostNetwork` ingress controller) and you allow it there: it silences the guard that fails
-    # a route (`httpRoute` or `ingress`) without a source in `fromNamespaces` or `extra`. It opens nothing; without a
+    # a route (`httpRoute`, `grpcRoute` or `ingress`) without a source in `fromNamespaces` or `extra`. It opens nothing; without a
     # route it fails the render (it would have no effect).
     routeTrafficAllowedElsewhere: false
     # -- Namespaces, by name (e.g. `[monitoring]`), whose pods may reach only `metrics.port`: Prometheus. Required when

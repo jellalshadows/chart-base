@@ -618,7 +618,7 @@ release name and `--namespace`, not on `helm lint`
 - A value that breaks the schema: an unknown key, a wrong type, a missing required key, a
   `maxUnavailable` given as a percentage above 100% (an integer above 100 is valid). The error names the
   alias. Keys that apply to one workload type only (`strategy`, `minReadySeconds`, ...) are ignored on the
-  others, not rejected; the exceptions are the Deployment-only integrations (`httpRoute`, `ingress`,
+  others, not rejected; the exceptions are the Deployment-only integrations (`httpRoute`, `grpcRoute`, `ingress`,
   `autoscaling`, `metrics`), which fail when they are enabled on a CronJob or a Job. `helm lint` fails on these
   too when it lints the chart itself; through an umbrella it passed a `null` that deletes a required key
   (`api.rbac: null`, measured on Helm 4.3.0 and 3.22.0 with a `-f` file), which `helm template` rejects.
@@ -635,7 +635,7 @@ release name and `--namespace`, not on `helm lint`
   `httpGet.port` or `tcpSocket.port` or a `lifecycle` hook `httpGet.port` given by a name that no `ports` entry declares,
   a main container that would run as UID 0 with `runAsNonRoot: true`, a `configFiles.mountPath` that is `/tmp`, `/` or
   the ServiceAccount token directory once normalized, `externalSecret.enabled` without a source (no non-null `data` entry and no `dataFrom` entry), and with
-  `networkPolicy` on: `metrics` or a route (`httpRoute`, `ingress`) without a source in the policy (or without
+  `networkPolicy` on: `metrics` or a route (`httpRoute`, `grpcRoute`, `ingress`) without a source in the policy (or without
   `routeTrafficAllowedElsewhere: true`), `routeTrafficAllowedElsewhere` without a route,
   `metricsFromNamespaces` without `metrics`, `fromComponents` or `fromNamespaces` with no `ports`, an `endPort`
   lower than its port, egress destinations (`toComponents`, `toCIDRs`, `extra`, `dns.cidrs`) listed while

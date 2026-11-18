@@ -476,6 +476,77 @@ tests:
     asserts:
       - notFailedTemplate: {}
 
+  - it: rejects a GRPCRoute without parentRefs
+    set:
+      grpcRoute.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: grpcRoute.enabled needs parentRefs: list the Gateways the route attaches to, e.g. \[\{name: platform-gw, namespace: gateway, sectionName: grpc\}\]'
+
+  - it: rejects a GRPCRoute whose parentRefs is null, with the same message
+    set:
+      grpcRoute.enabled: true
+      grpcRoute.parentRefs: null
+    asserts:
+      - failedTemplate:
+          errorPattern: 'grpcRoute.enabled needs parentRefs'
+
+  - it: rejects a GRPCRoute without the component Service
+    set:
+      grpcRoute.enabled: true
+      grpcRoute.parentRefs:
+        - name: platform-gw
+      service.enabled: false
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: grpcRoute.enabled needs service.enabled: true: the route sends to this component''s Service'
+
+  - it: rejects a grpcRoute.port that is not the name of an entry in ports
+    set:
+      grpcRoute.enabled: true
+      grpcRoute.parentRefs:
+        - name: platform-gw
+      grpcRoute.port: admin
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: grpcRoute.port "admin" is not the name of an entry in ports: the route sends to this component''s Service, which exposes the entries of ports by name'
+
+  - it: accepts grpcRoute keys while the GRPCRoute is disabled (they render nothing)
+    set:
+      grpcRoute.port: admin
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: rejects a GRPCRoute without a source for its traffic when networkPolicy is on (the route would black-hole)
+    set:
+      grpcRoute.enabled: true
+      grpcRoute.parentRefs:
+        - name: platform-gw
+      networkPolicy.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "networkPolicy with grpcRoute.enabled needs a source for the route's traffic: list the namespace of the Gateway's proxy pods"
+
+  - it: accepts a GRPCRoute whose traffic is allowed elsewhere (routeTrafficAllowedElsewhere)
+    set:
+      grpcRoute.enabled: true
+      grpcRoute.parentRefs:
+        - name: platform-gw
+      networkPolicy.enabled: true
+      networkPolicy.ingress.routeTrafficAllowedElsewhere: true
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: accepts a GRPCRoute whose Gateway namespace is listed in fromNamespaces
+    set:
+      grpcRoute.enabled: true
+      grpcRoute.parentRefs:
+        - name: platform-gw
+      networkPolicy.enabled: true
+      networkPolicy.ingress.fromNamespaces: [gateway]
+    asserts:
+      - notFailedTemplate: {}
+
   - it: rejects an HTTPRoute without a source for its traffic when networkPolicy is on (the route would black-hole)
     set:
       httpRoute.enabled: true
@@ -585,7 +656,7 @@ tests:
       networkPolicy.ingress.routeTrafficAllowedElsewhere: true
     asserts:
       - failedTemplate:
-          errorPattern: "networkPolicy.ingress.routeTrafficAllowedElsewhere has no effect without a route: enable httpRoute or ingress, or remove it"
+          errorPattern: "networkPolicy.ingress.routeTrafficAllowedElsewhere has no effect without a route: enable httpRoute, grpcRoute or ingress, or remove it"
 
   - it: rejects fromComponents when ports is empty (there is no port to open by name)
     set:
