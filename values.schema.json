@@ -431,6 +431,32 @@
         "method": { "enum": ["GET", "HEAD", "POST", "PUT", "DELETE", "CONNECT", "OPTIONS", "TRACE", "PATCH"] }
       }
     },
+    "grpcRouteMatch": {
+      "description": "A Gateway API v1.6.2 Standard GRPCRouteMatch (since 1.4.0): method and headers, closed at every level.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": { "enum": ["Exact", "RegularExpression"] },
+            "service": { "type": "string" },
+            "method": { "type": "string" }
+          }
+        },
+        "headers": { "type": "array", "items": { "$ref": "#/definitions/httpRouteValueMatch" } }
+      }
+    },
+    "httpRouteRule": {
+      "description": "An extra HTTPRoute rule (since 1.4.0): its matches (at least one, a guard checks it) and port, the name of the ports entry it sends to (null or absent: the first entry).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "matches": { "type": ["array", "null"], "items": { "$ref": "#/definitions/httpRouteMatch" } },
+        "port": { "type": ["string", "null"], "minLength": 1 }
+      }
+    },
     "httpRouteValueMatch": {
       "description": "A header or query parameter match of an HTTPRoute (HTTPHeaderMatch and HTTPQueryParamMatch of the Gateway API v1.6.2 Standard CRD): name and value required, type Exact or RegularExpression.",
       "type": "object",
@@ -783,7 +809,8 @@
         "properties": {
           "name": { "type": "string", "pattern": "^[a-z]([-a-z0-9]*[a-z0-9])?$", "maxLength": 15 },
           "containerPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
-          "servicePort": { "type": "integer", "minimum": 1, "maximum": 65535 }
+          "servicePort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+          "appProtocol": { "description": "The application protocol of the Service port (since 1.4.0), written on the Service port only: an IANA service name, kubernetes.io/h2c, kubernetes.io/ws, kubernetes.io/wss or a domain-prefixed name, which the API server checks. null or absent writes none.", "type": ["string", "null"], "minLength": 1 }
         }
       }
     },
@@ -1026,7 +1053,20 @@
         "enabled": { "type": "boolean" },
         "parentRefs": { "type": "array", "items": { "$ref": "#/definitions/httpRouteParentRef" } },
         "hostnames": { "type": "array", "items": { "type": "string" } },
-        "matches": { "type": "array", "items": { "$ref": "#/definitions/httpRouteMatch" } }
+        "matches": { "type": "array", "items": { "$ref": "#/definitions/httpRouteMatch" } },
+        "rules": { "description": "Extra HTTPRoute rules (since 1.4.0), after the one matches makes.", "type": "array", "items": { "$ref": "#/definitions/httpRouteRule" } }
+      }
+    },
+    "grpcRoute": {
+      "description": "A Gateway API GRPCRoute to this component's Service (since 1.4.0).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "parentRefs": { "type": "array", "items": { "$ref": "#/definitions/httpRouteParentRef" } },
+        "hostnames": { "type": "array", "items": { "type": "string" } },
+        "matches": { "type": ["array", "null"], "items": { "$ref": "#/definitions/grpcRouteMatch" } },
+        "port": { "description": "The name of the ports entry the route sends to; null: the first entry.", "type": ["string", "null"], "minLength": 1 }
       }
     },
     "ingress": {
@@ -1302,6 +1342,7 @@
       "then": {
         "properties": {
           "httpRoute": { "properties": { "enabled": { "const": false } } },
+          "grpcRoute": { "properties": { "enabled": { "const": false } } },
           "ingress": { "properties": { "enabled": { "const": false } } },
           "autoscaling": { "properties": { "enabled": { "const": false } } },
           "keda": { "properties": { "enabled": { "const": false } } },

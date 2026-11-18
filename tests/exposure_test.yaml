@@ -56,6 +56,85 @@ tests:
               - name: vending-chart-base
                 port: 80
 
+  - it: renders httpRoute.rules after the first rule, each to its ports entry by name or to the first entry without one
+    template: templates/httproute.yaml
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - name: platform-gw
+      ports:
+        - {name: http, containerPort: 8080, servicePort: 80}
+        - {name: grpc, containerPort: 9090}
+      httpRoute.rules:
+        - matches: [{path: {type: PathPrefix, value: /api}}, {headers: [{name: x-grpc, value: 'yes'}]}]
+          port: grpc
+        - matches: [{path: {type: Exact, value: /health}, method: GET}]
+    asserts:
+      - equal:
+          path: spec.rules
+          value:
+            - matches:
+                - path: {type: PathPrefix, value: /}
+              backendRefs:
+                - {name: vending-chart-base, port: 80}
+            - matches:
+                - path: {type: PathPrefix, value: /api}
+                - headers: [{name: x-grpc, value: 'yes'}]
+              backendRefs:
+                - {name: vending-chart-base, port: 9090}
+            - matches:
+                - {path: {type: Exact, value: /health}, method: GET}
+              backendRefs:
+                - {name: vending-chart-base, port: 80}
+
+  - it: renders a rule's port set to null as the first ports entry
+    template: templates/httproute.yaml
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - name: platform-gw
+      ports:
+        - {name: http, containerPort: 8080, servicePort: 80}
+        - {name: grpc, containerPort: 9090}
+      httpRoute.rules:
+        - {matches: [{path: {type: PathPrefix, value: /v2}}], port: null}
+    asserts:
+      - equal:
+          path: spec.rules[1].backendRefs
+          value:
+            - {name: vending-chart-base, port: 80}
+
+  - it: renders httpRoute.rules set to null as no extra rule (the default)
+    template: templates/httproute.yaml
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - name: platform-gw
+      ports:
+        - {name: http, containerPort: 8080, servicePort: 80}
+        - {name: grpc, containerPort: 9090}
+      httpRoute.rules: null
+    asserts:
+      - equal:
+          path: spec.rules
+          value:
+            - matches:
+                - path: {type: PathPrefix, value: /}
+              backendRefs:
+                - {name: vending-chart-base, port: 80}
+
+  - it: rejects an unknown key in an httpRoute rule, at the rule's path
+    template: templates/httproute.yaml
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - name: platform-gw
+      httpRoute.rules:
+        - {matches: [{path: {type: PathPrefix, value: /api}}], backendRefs: [{name: other, port: 80}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/httpRoute/rules/0': additional properties 'backendRefs' not allowed"
+
   - it: renders an Ingress with the required className and no controller annotations
     template: templates/ingress.yaml
     set:

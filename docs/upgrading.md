@@ -813,3 +813,20 @@ message change.
   name of an entry in ports ("admin" is declared in sidecars.proxy.ports): Prometheus scrapes a port that ports
   declares, and a port name is declared once in the pod, so move that entry from sidecars.proxy.ports to ports`.
   Before, a first message asked to declare the port in `ports`, and a second one rejected the name declared twice.
+
+## 1.3.x → 1.4.0
+
+Nothing to change: 1.4.0 adds `grpcRoute`, `httpRoute.rules` and `ports[].appProtocol`, and no required key. No
+manifest changes unless values set them.
+
+### New and optional: a GRPCRoute, extra HTTPRoute rules and `appProtocol`
+
+- `grpcRoute.enabled: true` with `parentRefs` renders a GRPCRoute (`gateway.networking.k8s.io/v1`) to the component's
+  Service, at the `ports` entry that `grpcRoute.port` names (the first by default)
+  ([ADR-0069](adr/0069-grpcroute-httproute-rules-and-appprotocol.md)). The cluster needs Gateway API's GRPCRoute CRD (Standard
+  channel). With `networkPolicy` on, its traffic needs a source, as an HTTPRoute's.
+- `httpRoute.rules` adds rules after the one `httpRoute.matches` makes, each with its `matches` and the `ports` entry
+  it sends to.
+- `ports[].appProtocol` goes on the Service port, for example `kubernetes.io/h2c` for a cleartext gRPC backend.
+- One message changed: `routeTrafficAllowedElsewhere` without a route now lists `grpcRoute` among the routes to
+  enable.

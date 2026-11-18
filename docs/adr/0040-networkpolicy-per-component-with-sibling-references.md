@@ -1,6 +1,6 @@
 # ADR-0040: One opt-in NetworkPolicy per component, with sibling components referenced by alias
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0069](0069-grpcroute-httproute-rules-and-appprotocol.md) (1.4.0)
 - **Date:** 2026-10-02
 - **Since:** 0.5.0
 - **Related:** [ADR-0001](0001-application-chart-consumed-through-aliases.md), [ADR-0011](0011-strict-draft-07-schema.md), [ADR-0027](0027-required-keys-in-the-schema.md), [ADR-0036](0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md), [ADR-0038](0038-one-metrics-endpoint-servicemonitor-or-podmonitor.md), [ADR-0041](0041-job-component-networkpolicy-is-a-hook.md)

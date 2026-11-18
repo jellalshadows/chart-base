@@ -214,6 +214,37 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{- /* An extra HTTPRoute rule needs a match (without one it takes every request, as the first rule does) and sends to a ports entry, by name. */ -}}
+{{- if .Values.httpRoute.enabled -}}
+{{- $routePortNames := list -}}
+{{- range (.Values.ports | default list) }}{{ $routePortNames = append $routePortNames .name }}{{ end -}}
+{{- range $i, $r := (.Values.httpRoute.rules | default list) -}}
+{{- if not $r.matches -}}
+{{- include "chart-base.fail" (list $ (printf "httpRoute.rules[%d] has no matches: a rule without matches takes every request, as the first rule (httpRoute.matches) does; give it at least one match" $i)) -}}
+{{- end -}}
+{{- if and $r.port (not (has (toString $r.port) $routePortNames)) -}}
+{{- include "chart-base.fail" (list $ (printf "httpRoute.rules[%d].port %q is not the name of an entry in ports: the route sends to this component's Service, which exposes the entries of ports by name" $i (toString $r.port))) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- /* A GRPCRoute needs Gateways and the component Service, and sends to a ports entry, by name. grpcRoute may be absent (a --reuse-values upgrade from 1.3 or older). */ -}}
+{{- $grpcRoute := .Values.grpcRoute | default dict -}}
+{{- $grpcRouteOn := eq $grpcRoute.enabled true -}}
+{{- if $grpcRouteOn -}}
+{{- if not $grpcRoute.parentRefs -}}
+{{- include "chart-base.fail" (list . "grpcRoute.enabled needs parentRefs: list the Gateways the route attaches to, e.g. [{name: platform-gw, namespace: gateway, sectionName: grpc}]") -}}
+{{- end -}}
+{{- if ne .Values.service.enabled true -}}
+{{- include "chart-base.fail" (list . "grpcRoute.enabled needs service.enabled: true: the route sends to this component's Service") -}}
+{{- end -}}
+{{- if $grpcRoute.port -}}
+{{- $grpcPortNames := list -}}
+{{- range (.Values.ports | default list) }}{{ $grpcPortNames = append $grpcPortNames .name }}{{ end -}}
+{{- if not (has (toString $grpcRoute.port) $grpcPortNames) -}}
+{{- include "chart-base.fail" (list . (printf "grpcRoute.port %q is not the name of an entry in ports: the route sends to this component's Service, which exposes the entries of ports by name" (toString $grpcRoute.port))) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- /* A main-container probe port given by NAME must be the name of an entry of ports, on every workload type: the kubelet resolves a name among the probed container's own ports only, so a sidecar's port name is not one, and the message says where such a name is declared. */ -}}
 {{- $mainPortNames := list -}}
 {{- range (.Values.ports | default list) }}{{ $mainPortNames = append $mainPortNames .name }}{{ end -}}
@@ -231,11 +262,12 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if and $in.metricsFromNamespaces (not .Values.metrics.enabled) -}}
 {{- include "chart-base.fail" (list . "networkPolicy.ingress.metricsFromNamespaces opens metrics.port, but metrics.enabled is false (metrics is for Deployments only): remove it, or enable metrics") -}}
 {{- end -}}
-{{- if and (or .Values.httpRoute.enabled .Values.ingress.enabled) (not $in.fromNamespaces) (not $in.extra) (not $in.routeTrafficAllowedElsewhere) -}}
-{{- include "chart-base.fail" (list . "networkPolicy with httpRoute.enabled or ingress.enabled needs a source for the route's traffic: list the namespace of the Gateway's proxy pods (with Envoy Gateway's default mode, the namespace Envoy Gateway runs in, not the Gateway's) or of the ingress controller's pods in networkPolicy.ingress.fromNamespaces (or allow them in networkPolicy.ingress.extra), or set networkPolicy.ingress.routeTrafficAllowedElsewhere: true if a policy the chart cannot express allows the route's traffic (Cilium's Ingress or Gateway, a hostNetwork ingress controller); otherwise the component is unreachable") -}}
+{{- if and (or .Values.httpRoute.enabled .Values.ingress.enabled $grpcRouteOn) (not $in.fromNamespaces) (not $in.extra) (not $in.routeTrafficAllowedElsewhere) -}}
+{{- $routeKeys := ternary "httpRoute.enabled or ingress.enabled" "grpcRoute.enabled" (or .Values.httpRoute.enabled .Values.ingress.enabled) -}}
+{{- include "chart-base.fail" (list . (printf "networkPolicy with %s needs a source for the route's traffic: list the namespace of the Gateway's proxy pods (with Envoy Gateway's default mode, the namespace Envoy Gateway runs in, not the Gateway's) or of the ingress controller's pods in networkPolicy.ingress.fromNamespaces (or allow them in networkPolicy.ingress.extra), or set networkPolicy.ingress.routeTrafficAllowedElsewhere: true if a policy the chart cannot express allows the route's traffic (Cilium's Ingress or Gateway, a hostNetwork ingress controller); otherwise the component is unreachable" $routeKeys)) -}}
 {{- end -}}
-{{- if and $in.routeTrafficAllowedElsewhere (not .Values.httpRoute.enabled) (not .Values.ingress.enabled) -}}
-{{- include "chart-base.fail" (list . "networkPolicy.ingress.routeTrafficAllowedElsewhere has no effect without a route: enable httpRoute or ingress, or remove it") -}}
+{{- if and $in.routeTrafficAllowedElsewhere (not .Values.httpRoute.enabled) (not .Values.ingress.enabled) (not $grpcRouteOn) -}}
+{{- include "chart-base.fail" (list . "networkPolicy.ingress.routeTrafficAllowedElsewhere has no effect without a route: enable httpRoute, grpcRoute or ingress, or remove it") -}}
 {{- end -}}
 {{- if and (or $in.fromComponents $in.fromNamespaces) (not .Values.ports) -}}
 {{- include "chart-base.fail" (list . "networkPolicy.ingress.fromComponents and fromNamespaces open the entries of ports by name, but ports is empty: declare the ports, or allow the traffic in networkPolicy.ingress.extra") -}}

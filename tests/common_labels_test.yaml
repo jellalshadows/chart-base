@@ -7,6 +7,7 @@ templates:
   - templates/externalsecret.yaml
   - templates/hpa.yaml
   - templates/httproute.yaml
+  - templates/grpcroute.yaml
   - templates/ingress.yaml
   - templates/job.yaml
   - templates/networkpolicy.yaml
@@ -38,6 +39,7 @@ tests:
       - templates/externalsecret.yaml
       - templates/hpa.yaml
       - templates/httproute.yaml
+      - templates/grpcroute.yaml
       - templates/ingress.yaml
       - templates/networkpolicy.yaml
       - templates/pdb.yaml

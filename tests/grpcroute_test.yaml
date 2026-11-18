@@ -1,0 +1,159 @@
+suite: grpcroute
+templates:
+  - templates/grpcroute.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+values:
+  - values/base.yaml
+tests:
+  - it: renders no GRPCRoute by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders a Gateway API v1 GRPCRoute to the component Service, at the ports entry it names
+    set:
+      grpcRoute.enabled: true
+      grpcRoute.parentRefs:
+        - {name: platform-gw, namespace: gateway, sectionName: grpc}
+      grpcRoute.hostnames: [grpc.example.com]
+      grpcRoute.matches:
+        - method: {service: sales.v1.Orders}
+        - method: {type: Exact, service: sales.v1.Orders, method: Get}
+          headers: [{name: x-tenant, value: acme}]
+      grpcRoute.port: grpc
+      ports:
+        - {name: http, containerPort: 8080, servicePort: 80}
+        - {name: grpc, containerPort: 9090, appProtocol: kubernetes.io/h2c}
+    asserts:
+      - isKind:
+          of: GRPCRoute
+      - isAPIVersion:
+          of: gateway.networking.k8s.io/v1
+      - equal:
+          path: metadata.name
+          value: vending-chart-base
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: chart-base
+      - equal:
+          path: spec
+          value:
+            parentRefs:
+              - {name: platform-gw, namespace: gateway, sectionName: grpc}
+            hostnames: [grpc.example.com]
+            rules:
+              - matches:
+                  - method: {service: sales.v1.Orders}
+                  - method: {type: Exact, service: sales.v1.Orders, method: Get}
+                    headers: [{name: x-tenant, value: acme}]
+                backendRefs:
+                  - {name: vending-chart-base, port: 9090}
+
+  - it: matches every request at the first ports entry when matches and port are absent
+    set:
+      grpcRoute.enabled: true
+      grpcRoute.parentRefs:
+        - name: platform-gw
+      ports:
+        - {name: http, containerPort: 8080, servicePort: 80}
+        - {name: grpc, containerPort: 9090, appProtocol: kubernetes.io/h2c}
+    asserts:
+      - equal:
+          path: spec.rules
+          value:
+            - backendRefs:
+                - {name: vending-chart-base, port: 80}
+      - notExists:
+          path: spec.hostnames
+
+  - it: renders grpcRoute.port set to null as the first ports entry (the default)
+    set:
+      grpcRoute.enabled: true
+      grpcRoute.parentRefs:
+        - name: platform-gw
+      ports:
+        - {name: http, containerPort: 8080, servicePort: 80}
+        - {name: grpc, containerPort: 9090, appProtocol: kubernetes.io/h2c}
+      grpcRoute.port: null
+    asserts:
+      - equal:
+          path: spec.rules
+          value:
+            - backendRefs:
+                - {name: vending-chart-base, port: 80}
+
+  - it: renders grpcRoute.matches set to null as every request (the default)
+    set:
+      grpcRoute.enabled: true
+      grpcRoute.parentRefs:
+        - name: platform-gw
+      ports:
+        - {name: http, containerPort: 8080, servicePort: 80}
+        - {name: grpc, containerPort: 9090, appProtocol: kubernetes.io/h2c}
+      grpcRoute.matches: null
+    asserts:
+      - equal:
+          path: spec.rules
+          value:
+            - backendRefs:
+                - {name: vending-chart-base, port: 80}
+
+  - it: renders grpcRoute set to null as no GRPCRoute (the default)
+    set:
+      grpcRoute: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders grpcRoute.enabled set to null as no GRPCRoute (the default)
+    set:
+      grpcRoute.enabled: null
+      grpcRoute.parentRefs: [{name: platform-gw}]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects an unknown key in a GRPCRoute method match, at its path
+    set:
+      grpcRoute.enabled: true
+      grpcRoute.parentRefs:
+        - name: platform-gw
+      grpcRoute.matches:
+        - method: {servce: sales.v1.Orders}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/grpcRoute/matches/0/method': additional properties 'servce' not allowed"
+
+  - it: rejects a method match type outside the Standard ones
+    set:
+      grpcRoute.enabled: true
+      grpcRoute.parentRefs:
+        - name: platform-gw
+      grpcRoute.matches:
+        - method: {type: Prefix, service: sales.v1.Orders}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/grpcRoute/matches/0/method/type': value must be one of 'Exact', 'RegularExpression'"
+
+  - it: rejects a misspelt grpcRoute key, at the route's path
+    set:
+      grpcRoute.parentRef: [{name: platform-gw}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/grpcRoute': additional properties 'parentRef' not allowed"
+
+  - it: rejects a GRPCRoute on a job (a route sends to a Service, which a job has not)
+    set:
+      workload.type: job
+      grpcRoute.enabled: true
+      grpcRoute.parentRefs[0].name: gw
+    asserts:
+      - failedTemplate:
+          errorPattern: "/grpcRoute/enabled': value must be false"

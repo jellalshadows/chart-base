@@ -39,6 +39,7 @@ On 2026-11-02 the roadmap was cut to one more release before 1.0 (see [Cut befor
 | 1.2.0 | Literal variables for init containers and sidecars | `initContainers.<name>.config` and `sidecars.<name>.config`: `NAME: value` (a string, a number or a boolean), rendered in the entry's `env` after its references and by name, so a literal can use `$(NAME)` of a reference; a name in both `env` and `config`, or with `inheritEnv` a name the main container receives, fails; a literal in an entry's `env` names `config` in its remedy ([ADR-0066](adr/0066-an-entry-level-config-for-literal-variables.md)); the domain umbrella's finding G4 | The full scenario: the sidecar `shipper` receives a literal and a literal built with `$(POD_NAME)` of a reference, as the kubelet set them | Released (2026-11-18) |
 | 1.3.0 | A per-volume Reloader opt-out | `volumes.<name>.reloadOnChange` (`configMap` and `secret` entries, optional): `false` leaves the volume's ConfigMap or Secret out of the Reloader annotations; a name another source lists stays listed; the top-level `reloadOnChange: false` still wins; a `subPath` mount of the volume in the main container or a sidecar fails ([ADR-0067](adr/0067-a-per-volume-reloader-opt-out.md)) | Unit tests (the annotations, the dedup with `env`, the guard); the e2e reads the full scenario's annotations as before | Released (2026-11-18) |
 | 1.3.1 | Schema errors at the right path | A reserved key fails at its own path (`false schema`) and a name outside its pattern at its map's path (`additional properties '<key>' not allowed`), never at another key's: the schema has no `propertyNames`, whose errors Helm's schema library reports at another key's path ([ADR-0068](adr/0068-schema-checks-on-map-keys-report-the-right-path.md)); `metrics.port` naming a sidecar's port fails with one message, the end state | Released (2026-11-18) |
+| 1.4.0 | A GRPCRoute, HTTPRoute rules and `appProtocol` | `grpcRoute` (a GRPCRoute to the component's Service, at a `ports` entry by name), `httpRoute.rules` (extra rules after the first, each to a `ports` entry by name) and `ports[].appProtocol` (the Service port), all optional; guards on a rule's matches, the port names, and a GRPCRoute's `parentRefs` and Service; the NetworkPolicy route guards count a GRPCRoute ([ADR-0069](adr/0069-grpcroute-httproute-rules-and-appprotocol.md)) | Unit tests; kubeconform and the e2e's API server check the full scenario's GRPCRoute, extra rule and `appProtocol` | In progress |
 
 ## Open decisions
 
@@ -140,8 +141,9 @@ On 2026-11-02 the owner cut the roadmap to what any company needs from a generic
 for a real umbrella to ask for it, after 1.0. `extraObjects` (0.11.0) lets a consumer render what the chart does not
 offer in the meantime.
 
-- **GRPCRoute, HTTPRoute rules and `ports[].appProtocol`** (the former 0.11.0), and the stricter checks of the existing
-  `httpRoute` fields that made it breaking: the API server already rejects those values at install.
+- **The stricter checks of the existing `httpRoute` fields** (the breaking part of the former 0.11.0): the API server
+  already rejects those values at install. The rest of the former 0.11.0, GRPCRoute, HTTPRoute rules and
+  `ports[].appProtocol`, shipped additively in 1.4.0 ([ADR-0069](adr/0069-grpcroute-httproute-rules-and-appprotocol.md)).
 - **A chart-wide "a `null` entry means absent" rule** (part of the 0.12.0 planned before the cut; the 0.12.0 that
   shipped converts only the main container's probes; see [Open decisions](#open-decisions)).
 - **The StatefulSet workload type** (the former 0.13.0): stateful systems usually run under their own operators.
