@@ -197,17 +197,24 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{- /* The port names of the sidecars, name -> "sidecars.<name>.ports": the messages of metrics.port and of the main container's probes and hooks say where a name that ports lacks is declared. */ -}}
+{{- $sidecarPortPaths := dict -}}
+{{- range $c := $containers.ordered }}{{ range $p := $c.entry.ports | default list }}{{ $_ := set $sidecarPortPaths $p.name (printf "sidecars.%s.ports" $c.name) }}{{ end }}{{ end -}}
 {{- if .Values.metrics.enabled -}}
 {{- /* Prometheus scrapes a port by NAME: a Service port (ServiceMonitor) or a container port (PodMonitor), both from ports. */ -}}
 {{- $portNames := list -}}
 {{- range .Values.ports }}{{ $portNames = append $portNames .name }}{{ end -}}
 {{- if not (has .Values.metrics.port $portNames) -}}
+{{- /* A sidecar's port name: one message with the end state, not the generic one followed by the guard on a port name declared twice. */ -}}
+{{- $declared := get $sidecarPortPaths (toString .Values.metrics.port) -}}
+{{- if $declared -}}
+{{- include "chart-base.fail" (list . (printf "metrics.port %q is not the name of an entry in ports (%q is declared in %s): Prometheus scrapes a port that ports declares, and a port name is declared once in the pod, so move that entry from %s to ports" .Values.metrics.port .Values.metrics.port $declared $declared)) -}}
+{{- else -}}
 {{- include "chart-base.fail" (list . (printf "metrics.port %q is not the name of an entry in ports: Prometheus scrapes a named port, so declare it in ports (a worker without a Service too), e.g. ports: [{name: metrics, containerPort: 9090}]" .Values.metrics.port)) -}}
 {{- end -}}
 {{- end -}}
+{{- end -}}
 {{- /* A main-container probe port given by NAME must be the name of an entry of ports, on every workload type: the kubelet resolves a name among the probed container's own ports only, so a sidecar's port name is not one, and the message says where such a name is declared. */ -}}
-{{- $sidecarPortPaths := dict -}}
-{{- range $c := $containers.ordered }}{{ range $p := $c.entry.ports | default list }}{{ $_ := set $sidecarPortPaths $p.name (printf "sidecars.%s.ports" $c.name) }}{{ end }}{{ end -}}
 {{- $mainPortNames := list -}}
 {{- range (.Values.ports | default list) }}{{ $mainPortNames = append $mainPortNames .name }}{{ end -}}
 {{- include "chart-base.validateProbePorts" (dict "ctx" . "path" "probes" "probes" .Values.probes "portNames" $mainPortNames "portsPath" "ports" "declared" $sidecarPortPaths) -}}

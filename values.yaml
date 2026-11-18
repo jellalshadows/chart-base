@@ -516,7 +516,7 @@ ingress:
   # cluster's default IngressClass is never chosen for you). No controller-specific annotations are added.
   className: ""
   # -- Ingress annotations (a controller's settings). Values are strings. Helm's and the chart's keys fail the schema
-  # (`invalid propertyName '<key>'`, reported at an unrelated path): `helm.sh/hook*` (it would turn the Ingress into a
+  # (`false schema`, at the key's own path): `helm.sh/hook*` (it would turn the Ingress into a
   # Helm hook), `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files`.
   annotations: {}
   # -- Hosts, e.g. `[{host: sales.example.com, paths: [{path: /, pathType: Prefix}]}]`.
@@ -683,8 +683,8 @@ serviceAccount:
   # -- Annotations of the ServiceAccount the chart creates (e.g. GKE Workload Identity's
   # `iam.gke.io/gcp-service-account`, EKS IRSA's `eks.amazonaws.com/role-arn`). With `create: false` they fail the
   # render: the owner of an existing ServiceAccount sets its annotations. An override file clears inherited annotations
-  # with `annotations: null`, not `{}` (maps are merged). Helm's and the chart's keys fail the schema (`invalid
-  # propertyName '<key>'`, reported at an unrelated path): `helm.sh/hook*` (a `job`'s ServiceAccount carries the hook
+  # with `annotations: null`, not `{}` (maps are merged). Helm's and the chart's keys fail the schema (`false
+  # schema`, at the key's own path): `helm.sh/hook*` (a `job`'s ServiceAccount carries the hook
   # keys of its phase), `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files`;
   # `helm.sh/resource-policy` is allowed.
   annotations: {}
@@ -731,8 +731,8 @@ rbac:
 # `{team: payments, cost-center: cc-42}`. Never a selector: the selectors keep the chart's two selector labels. A
 # per-object map wins on a shared key: `podLabels`, `metrics.labels`, `prometheusRule.labels`, an extra object's
 # `metadata.labels`. Values are strings. The chart's own keys (`app.kubernetes.io/name`, `instance`, `part-of`,
-# `version`, `managed-by`, `helm.sh/chart`) fail the schema with `invalid propertyName '<key>'`, reported at an
-# unrelated path. `app.kubernetes.io/component` is yours: the chart does not write it, so set it here (or in
+# `version`, `managed-by`, `helm.sh/chart`) fail the schema with
+# `false schema` at the key's own path. `app.kubernetes.io/component` is yours: the chart does not write it, so set it here (or in
 # `podLabels`) for its Kubernetes meaning, the component within the architecture (e.g. `database`). A change changes
 # the pod template: it rolls a Deployment's pods, and the next CronJob run and the next Job get it. Per alias (`global`
 # is not read).
@@ -743,8 +743,8 @@ commonLabels: {}
 # `podAnnotations`), the CronJob's job template, an `ephemeral` claim template, or the ExternalSecret's
 # `template.metadata` (External Secrets executes those values as templates). A per-object map wins on a shared key:
 # `ingress.annotations`, `serviceAccount.annotations`, `service.annotations`, an extra object's `metadata.annotations`.
-# Values are strings. The keys Helm or the chart writes fail the schema (`invalid propertyName '<key>'`, reported at an
-# unrelated path): `helm.sh/hook*`, `meta.helm.sh/*`, `checksum/config-env`, `checksum/config-files`,
+# Values are strings. The keys Helm or the chart writes fail the schema (`false schema`, at the
+# key's own path): `helm.sh/hook*`, `meta.helm.sh/*`, `checksum/config-env`, `checksum/config-files`,
 # `secret.reloader.stakater.com/reload` and `configmap.reloader.stakater.com/reload` (other Reloader keys, such as
 # `reloader.stakater.com/auto`, are allowed). `helm.sh/resource-policy: keep` keeps the regular objects on uninstall,
 # never a `job` component's hooks (Helm deletes a hook without reading it). A change rolls nothing. Per alias (`global`
@@ -752,14 +752,14 @@ commonLabels: {}
 commonAnnotations: {}
 
 # -- Extra pod annotations, e.g. `{resource.opentelemetry.io/service.name: sales}`. Values are strings. Helm's and the
-# chart's keys fail the schema (`invalid propertyName '<key>'`, reported at an unrelated path): `helm.sh/hook*`,
+# chart's keys fail the schema (`false schema`, at the key's own path): `helm.sh/hook*`,
 # `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files` (the pod template carries the two checksums). A
 # change rolls a Deployment's pods.
 podAnnotations: {}
 
 # -- Extra pod labels, winning over `commonLabels` on a shared key. Values are strings. The chart's own keys
 # (`app.kubernetes.io/name`, `instance`, `part-of`, `version`, `managed-by`, `helm.sh/chart`) fail the schema with
-# `invalid propertyName '<key>'`, reported at an unrelated path; `app.kubernetes.io/component` is yours. Never a
+# `false schema` at the key's own path; `app.kubernetes.io/component` is yours. Never a
 # selector. A change rolls a Deployment's pods.
 podLabels: {}
 

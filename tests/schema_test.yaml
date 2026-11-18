@@ -170,14 +170,14 @@ tests:
       config.bad-key: x
     asserts:
       - failedTemplate:
-          errorPattern: "'bad-key' does not match pattern"
+          errorPattern: "at '/config': additional properties 'bad-key' not allowed"
 
   - it: rejects configFiles names that are not valid ConfigMap keys
     set:
       configFiles.files.bad/name: x
     asserts:
       - failedTemplate:
-          errorPattern: "'bad/name' does not match pattern"
+          errorPattern: "at '/configFiles/files': additional properties 'bad/name' not allowed"
 
   - it: rejects an unknown job.phase
     set:
@@ -286,35 +286,35 @@ tests:
         app.kubernetes.io/name: x
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'app.kubernetes.io/name'"
+          errorPattern: "at '/podLabels/app\\.kubernetes\\.io~1name': false schema"
 
   - it: rejects app.kubernetes.io/part-of in podLabels (a key the chart writes would render twice; ADR-0061)
     set:
       podLabels: {app.kubernetes.io/part-of: other}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'app.kubernetes.io/part-of'"
+          errorPattern: "at '/podLabels/app\\.kubernetes\\.io~1part-of': false schema"
 
   - it: rejects app.kubernetes.io/version in podLabels (ADR-0061)
     set:
       podLabels: {app.kubernetes.io/version: "2"}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'app.kubernetes.io/version'"
+          errorPattern: "at '/podLabels/app\\.kubernetes\\.io~1version': false schema"
 
   - it: rejects app.kubernetes.io/managed-by in podLabels (ADR-0061)
     set:
       podLabels: {app.kubernetes.io/managed-by: other}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'app.kubernetes.io/managed-by'"
+          errorPattern: "at '/podLabels/app\\.kubernetes\\.io~1managed-by': false schema"
 
   - it: rejects helm.sh/chart in podLabels (ADR-0061)
     set:
       podLabels: {helm.sh/chart: other}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'helm.sh/chart'"
+          errorPattern: "at '/podLabels/helm\\.sh~1chart': false schema"
 
   - it: accepts app.kubernetes.io/component in podLabels (the consumer's key since ADR-0063)
     set:
@@ -328,21 +328,21 @@ tests:
       podAnnotations: {helm.sh/hook: pre-install}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'helm.sh/hook'"
+          errorPattern: "at '/podAnnotations/helm\\.sh~1hook': false schema"
 
   - it: rejects a Helm ownership key in podAnnotations (ADR-0061)
     set:
       podAnnotations: {meta.helm.sh/release-name: other}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'meta.helm.sh/release-name'"
+          errorPattern: "at '/podAnnotations/meta\\.helm\\.sh~1release-name': false schema"
 
   - it: rejects the chart's checksum in podAnnotations (it would render twice on the pod template; ADR-0061)
     set:
       podAnnotations: {checksum/config-env: pinned}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'checksum/config-env'"
+          errorPattern: "at '/podAnnotations/checksum~1config-env': false schema"
 
   - it: accepts an OpenTelemetry service name and a Reloader key in podAnnotations
     set:
@@ -356,21 +356,21 @@ tests:
       ingress.annotations: {helm.sh/hook: pre-install}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'helm.sh/hook'"
+          errorPattern: "at '/ingress/annotations/helm\\.sh~1hook': false schema"
 
   - it: rejects a Helm ownership key in ingress.annotations (ADR-0061)
     set:
       ingress.annotations: {meta.helm.sh/release-name: other}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'meta.helm.sh/release-name'"
+          errorPattern: "at '/ingress/annotations/meta\\.helm\\.sh~1release-name': false schema"
 
   - it: rejects the chart's checksum in ingress.annotations (one reserved set for every annotations map; ADR-0061)
     set:
       ingress.annotations: {checksum/config-files: x}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'checksum/config-files'"
+          errorPattern: "at '/ingress/annotations/checksum~1config-files': false schema"
 
   - it: accepts a controller's annotation in ingress.annotations
     set:
@@ -384,14 +384,14 @@ tests:
       serviceAccount.annotations: {meta.helm.sh/release-namespace: other}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'meta.helm.sh/release-namespace'"
+          errorPattern: "at '/serviceAccount/annotations/meta\\.helm\\.sh~1release-namespace': false schema"
 
   - it: rejects the chart's checksum in serviceAccount.annotations (ADR-0061)
     set:
       serviceAccount.annotations: {checksum/config-env: x}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'checksum/config-env'"
+          errorPattern: "at '/serviceAccount/annotations/checksum~1config-env': false schema"
 
   - it: accepts a cloud identity and helm.sh/resource-policy in serviceAccount.annotations (the hand-over of the chart's ServiceAccount)
     set:
@@ -428,7 +428,7 @@ tests:
       env.bad-name.valueFrom.fieldRef.fieldPath: metadata.name
     asserts:
       - failedTemplate:
-          errorPattern: "'bad-name' does not match pattern"
+          errorPattern: "at '/env': additional properties 'bad-name' not allowed"
 
   - it: requires exactly one of configMapRef or secretRef in each envFrom entry
     set:
@@ -787,7 +787,7 @@ tests:
         app.kubernetes.io/name: other
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'app.kubernetes.io/name'"
+          errorPattern: "at '/metrics/labels/app\\.kubernetes\\.io~1name': false schema"
 
   - it: requires at least one rule group when prometheusRule is enabled
     set:
@@ -923,7 +923,7 @@ tests:
         app.kubernetes.io/part-of: other
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'app.kubernetes.io/part-of'"
+          errorPattern: "at '/prometheusRule/labels/app\\.kubernetes\\.io~1part-of': false schema"
 
   - it: rejects for on a recording rule (Prometheus' rule parser rejects it)
     set:

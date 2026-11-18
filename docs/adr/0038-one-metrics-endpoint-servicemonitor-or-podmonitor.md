@@ -1,6 +1,6 @@
 # ADR-0038: One metrics endpoint, scraped through a ServiceMonitor or a PodMonitor
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0068](0068-schema-checks-on-map-keys-report-the-right-path.md) (1.3.1)
 - **Date:** 2026-09-30
 - **Since:** 0.4.0
 - **Related:** [ADR-0012](0012-no-capabilities-gating.md), [ADR-0027](0027-required-keys-in-the-schema.md), [ADR-0039](0039-prometheus-rules-travel-with-the-component.md)

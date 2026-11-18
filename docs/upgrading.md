@@ -735,7 +735,8 @@ a shared definition (measured, Helm 4.3.0 and 3.22.0):
 ```
 
 `podLabels` and `podAnnotations` report `/prometheusRule`, `ingress.annotations` and `serviceAccount.annotations`
-`/prometheusRule/enabled`; nothing is wrong with your `prometheusRule`.
+`/prometheusRule/enabled`; nothing is wrong with your `prometheusRule`. From 1.3.1 the error is at the key's own path
+([1.3.x → 1.3.1](#13x--131)).
 
 ### `ingress.className` is required while the Ingress is enabled, `null` included
 
@@ -791,3 +792,24 @@ file the application re-reads in place, such as a rotating certificate
 ([ADR-0067](adr/0067-a-per-volume-reloader-opt-out.md)). The name stays listed when an `env` reference, `envFrom` or
 another volume names it. A `subPath` mount of the volume in the main container or a sidecar fails: the kubelet never
 updates it. Removing a name from the annotation rolls no pod.
+
+## 1.3.x → 1.3.1
+
+No values change: a value that 1.3.0 accepts renders the same, and one it rejects is still rejected. Two kinds of
+message change.
+
+- **A schema error on a map's key is reported at the right path**
+  ([ADR-0068](adr/0068-schema-checks-on-map-keys-report-the-right-path.md)). Up to 1.3.0 Helm's schema library reported it at
+  another key's path, such as `'/prometheusRule'`.
+  - A reserved key (the chart's label keys, Helm's and the chart's annotation keys) fails at its own path, where JSON
+    Pointer writes a `/` in the key as `~1`: `at '/podLabels/app.kubernetes.io~1name': false schema`. 1.3.0 printed
+    `invalid propertyName 'app.kubernetes.io/name'`.
+  - A name outside its pattern fails at its map's path and names the key: `at '/config': additional properties
+    'bad-key' not allowed`. This covers an environment variable name (`env`, `config`, an entry's `env` and
+    `config`), a ConfigMap key (`configFiles.files`) and a Secret key (`externalSecret.data`,
+    `externalSecret.template.data`). The message no longer quotes the pattern, nor a Secret key's 253-character
+    limit; the schema's descriptions state them.
+- **`metrics.port` naming a sidecar's port fails with one message, the end state:** `metrics.port "admin" is not the
+  name of an entry in ports ("admin" is declared in sidecars.proxy.ports): Prometheus scrapes a port that ports
+  declares, and a port name is declared once in the pod, so move that entry from sidecars.proxy.ports to ports`.
+  Before, a first message asked to declare the port in `ports`, and a second one rejected the name declared twice.

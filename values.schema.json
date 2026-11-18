@@ -124,15 +124,16 @@
       "pattern": "^(0|(([0-9]+)y)?(([0-9]+)w)?(([0-9]+)d)?(([0-9]+)h)?(([0-9]+)m)?(([0-9]+)s)?(([0-9]+)ms)?)$"
     },
     "extraLabels": {
-      "description": "Extra labels of an object that also carries the chart's labels: the keys the chart sets itself are rejected (they would render twice).",
+      "description": "Extra labels of an object that also carries the chart's labels: the keys the chart sets itself are rejected (they would render twice). Each is a false schema, so its error names the key's own path (ADR-0068); extraObject.metadata.labels repeats them.",
       "type": "object",
-      "propertyNames": { "not": { "enum": ["app.kubernetes.io/name", "app.kubernetes.io/instance", "app.kubernetes.io/part-of", "app.kubernetes.io/version", "app.kubernetes.io/managed-by", "helm.sh/chart"] } },
+      "properties": { "app.kubernetes.io/name": false, "app.kubernetes.io/instance": false, "app.kubernetes.io/part-of": false, "app.kubernetes.io/version": false, "app.kubernetes.io/managed-by": false, "helm.sh/chart": false },
       "additionalProperties": { "type": "string" }
     },
     "extraAnnotations": {
-      "description": "Annotations of an object that also carries the chart's: Helm's hook keys (helm.sh/hook*), Helm's ownership keys (meta.helm.sh/*) and the chart's checksums (checksum/config-env, checksum/config-files) are rejected (a hook key would turn the object into a Helm hook). Values are strings.",
+      "description": "Annotations of an object that also carries the chart's: Helm's hook keys (helm.sh/hook*), Helm's ownership keys (meta.helm.sh/*) and the chart's checksums (checksum/config-env, checksum/config-files) are rejected (a hook key would turn the object into a Helm hook). Values are strings. Each is a false schema, so its error names the key's own path (ADR-0068); extraObject.metadata.annotations and commonAnnotations repeat them.",
       "type": "object", "additionalProperties": { "type": "string" },
-      "propertyNames": { "not": { "anyOf": [{ "pattern": "^helm\\.sh/hook" }, { "pattern": "^meta\\.helm\\.sh/" }, { "enum": ["checksum/config-env", "checksum/config-files"] }] } }
+      "patternProperties": { "^helm\\.sh/hook": false, "^meta\\.helm\\.sh/": false },
+      "properties": { "checksum/config-env": false, "checksum/config-files": false }
     },
     "extraObject": {
       "description": "An entry of extraObjects: apiVersion and kind required; metadata takes labels and annotations only (the chart writes the name, <fullname>.<key>, and no namespace), with the reserved keys of extraLabels and extraAnnotations; every other top-level field is open and rendered as written. A null entry or field is absent (templates/_extraobjects.tpl).",
@@ -143,8 +144,8 @@
         "metadata": {
           "description": "labels and annotations only: the chart writes the name, and no namespace.",
           "type": ["object", "null"], "additionalProperties": false, "properties": {
-            "labels": { "type": ["object", "null"], "propertyNames": { "$ref": "#/definitions/extraLabels/propertyNames" }, "additionalProperties": { "type": ["string", "null"] } },
-            "annotations": { "type": ["object", "null"], "propertyNames": { "$ref": "#/definitions/extraAnnotations/propertyNames" }, "additionalProperties": { "type": ["string", "null"] } }
+            "labels": { "description": "The reserved keys of definitions.extraLabels, repeated.", "type": ["object", "null"], "properties": { "app.kubernetes.io/name": false, "app.kubernetes.io/instance": false, "app.kubernetes.io/part-of": false, "app.kubernetes.io/version": false, "app.kubernetes.io/managed-by": false, "helm.sh/chart": false }, "additionalProperties": { "type": ["string", "null"] } },
+            "annotations": { "description": "The reserved keys of definitions.extraAnnotations, repeated.", "type": ["object", "null"], "patternProperties": { "^helm\\.sh/hook": false, "^meta\\.helm\\.sh/": false }, "properties": { "checksum/config-env": false, "checksum/config-files": false }, "additionalProperties": { "type": ["string", "null"] } }
           }
         }
       }
@@ -509,10 +510,6 @@
         "limits": { "type": ["object", "null"] }
       }
     },
-    "envName": {
-      "description": "The name of an environment variable, in the env of every container.",
-      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
-    },
     "envVar": {
       "description": "One variable of env, NAME: {valueFrom: {<one source>}}: the one definition of the env of every container (the main container's, an init container's, a sidecar's). The sources: fieldRef, resourceFieldRef, secretKeyRef, configMapKeyRef (Kubernetes', copied as written) and externalSecretKeyRef (the chart's: a key of the component's own ExternalSecret Secret, rendered as a secretKeyRef on <fullname>-secrets). A literal (a string, number or boolean) passes the schema and fails in templates/validate.yaml with a remedy. Inside it a null stays an error: it is shared with the main container, whose env does not take null.",
       "type": ["object", "string", "number", "boolean"],
@@ -561,10 +558,10 @@
       }
     },
     "containerEnv": {
-      "description": "The env of an init container or a sidecar: NAME: {valueFrom: ...} (definitions.envVar, shared with the main container). null = none, and NAME: null is absent. A list or a literal passes the schema and fails in templates/validate.yaml with a remedy.",
+      "description": "The env of an init container or a sidecar: NAME: {valueFrom: ...} (definitions.envVar, shared with the main container). null = none, and NAME: null is absent. A list or a literal passes the schema and fails in templates/validate.yaml with a remedy. A NAME matches ^[A-Za-z_][A-Za-z0-9_]*$ (an environment variable name); another name fails at the map's path.",
       "type": ["object", "array", "null"],
-      "propertyNames": { "$ref": "#/definitions/envName" },
-      "additionalProperties": { "type": ["object", "string", "number", "boolean", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/envVar" } }
+      "patternProperties": { "^[A-Za-z_][A-Za-z0-9_]*$": { "type": ["object", "string", "number", "boolean", "null"], "if": { "type": "object" }, "then": { "$ref": "#/definitions/envVar" } } },
+      "additionalProperties": false
     },
     "mountPath": {
       "description": "An absolute mount path (the kubelet would resolve a relative path against /), never null.",
@@ -676,7 +673,7 @@
         "securityContext": { "type": ["object", "null"], "description": "Merged over the chart's hardened default, field by field; null restores the default of a field." },
         "restartPolicy": { "description": "Written by the chart, never a value: templates/validate.yaml rejects the key with a remedy (null is absent)." },
         "env": { "$ref": "#/definitions/containerEnv" },
-        "config": { "description": "Literal variables of this container: NAME: a string, a number or a boolean, rendered as env values after the references of env, by name (templates/_containers.tpl). null = none, and NAME: null is absent.", "type": ["object", "null"], "propertyNames": { "$ref": "#/definitions/envName" }, "additionalProperties": { "type": ["string", "number", "boolean", "null"] } },
+        "config": { "description": "Literal variables of this container: NAME: a string, a number or a boolean, rendered as env values after the references of env, by name (templates/_containers.tpl). null = none, and NAME: null is absent. A NAME matches ^[A-Za-z_][A-Za-z0-9_]*$ (an environment variable name); another name fails at the map's path.", "type": ["object", "null"], "patternProperties": { "^[A-Za-z_][A-Za-z0-9_]*$": { "type": ["string", "number", "boolean", "null"] } }, "additionalProperties": false },
         "inheritEnv": { "type": ["boolean", "null"], "description": "true: exactly the main container's envFrom and env (default false)." },
         "volumeMounts": { "$ref": "#/definitions/containerMounts" },
         "order": { "description": "An init container's default is 0.", "$ref": "#/definitions/containerOrder" }
@@ -685,11 +682,6 @@
     "externalSecretDecoding": {
       "description": "How External Secrets decodes a remote value: None, Base64 or Base64URL (Auto is not offered: External Secrets itself warns about it). The one definition of the enum: externalSecret.data (where null is absent) and externalSecret.dataFrom[].extract (where null is an error) reference it.",
       "enum": ["None", "Base64", "Base64URL"]
-    },
-    "secretKey": {
-      "description": "A key of a Secret: [-._a-zA-Z0-9]+, at most 253 characters. The one definition for the keys of externalSecret.data and externalSecret.template.data; env.<NAME>.valueFrom.externalSecretKeyRef.key states the same rule inline (draft-07 ignores the keywords next to a $ref, and an allOf would add a line to its messages).",
-      "maxLength": 253,
-      "pattern": "^[-._a-zA-Z0-9]+$"
     },
     "externalSecretDataFrom": {
       "description": "An entry of externalSecret.dataFrom, External Secrets' own shape limited to extract and rewrite: closed at every level, and a null field is an error (a list is replaced whole by an overlay, so nothing inside it is an overlay's deletion).",
@@ -736,7 +728,7 @@
         "securityContext": { "type": ["object", "null"], "description": "Merged over the chart's hardened default, field by field; null restores the default of a field." },
         "restartPolicy": { "description": "Written by the chart, never a value: templates/validate.yaml rejects the key with a remedy (null is absent)." },
         "env": { "$ref": "#/definitions/containerEnv" },
-        "config": { "description": "Literal variables of this container: NAME: a string, a number or a boolean, rendered as env values after the references of env, by name (templates/_containers.tpl). null = none, and NAME: null is absent.", "type": ["object", "null"], "propertyNames": { "$ref": "#/definitions/envName" }, "additionalProperties": { "type": ["string", "number", "boolean", "null"] } },
+        "config": { "description": "Literal variables of this container: NAME: a string, a number or a boolean, rendered as env values after the references of env, by name (templates/_containers.tpl). null = none, and NAME: null is absent. A NAME matches ^[A-Za-z_][A-Za-z0-9_]*$ (an environment variable name); another name fails at the map's path.", "type": ["object", "null"], "patternProperties": { "^[A-Za-z_][A-Za-z0-9_]*$": { "type": ["string", "number", "boolean", "null"] } }, "additionalProperties": false },
         "inheritEnv": { "type": ["boolean", "null"], "description": "true: exactly the main container's envFrom and env (default false)." },
         "ports": { "type": ["array", "null"], "items": { "$ref": "#/definitions/sidecarPort" } },
         "probes": { "$ref": "#/definitions/sidecarProbes" },
@@ -797,9 +789,10 @@
     },
     "resources": { "$ref": "#/definitions/resources" },
     "config": {
+      "description": "Literal variables of the main container, in its ConfigMap. A NAME matches ^[A-Za-z_][A-Za-z0-9_]*$ (an environment variable name); another name fails at the map's path.",
       "type": "object",
-      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
-      "additionalProperties": { "type": ["string", "number", "boolean"] }
+      "patternProperties": { "^[A-Za-z_][A-Za-z0-9_]*$": { "type": ["string", "number", "boolean"] } },
+      "additionalProperties": false
     },
     "configFiles": {
       "type": "object",
@@ -808,9 +801,10 @@
       "properties": {
         "mountPath": { "type": "string", "pattern": "^/" },
         "files": {
+          "description": "A file name matches ^[-._a-zA-Z0-9]+$ (a ConfigMap key); another name fails at the map's path.",
           "type": "object",
-          "propertyNames": { "pattern": "^[-._a-zA-Z0-9]+$" },
-          "additionalProperties": { "type": ["string", "object", "null"] }
+          "patternProperties": { "^[-._a-zA-Z0-9]+$": { "type": ["string", "object", "null"] } },
+          "additionalProperties": false
         }
       }
     },
@@ -846,18 +840,20 @@
         },
         "refreshInterval": { "type": "string" },
         "data": {
-          "description": "The keys of the Secret, each from one remote value. A null entry or field is absent (chart-base.externalSecret). A Secret key; templates/validate.yaml requires an environment variable name while the Secret is injected.",
+          "description": "The keys of the Secret, each from one remote value. A null entry or field is absent (chart-base.externalSecret). A key is a Secret key, [-._a-zA-Z0-9], at most 253 characters (another key fails at the map's path); templates/validate.yaml requires an environment variable name while the Secret is injected.",
           "type": "object",
-          "propertyNames": { "$ref": "#/definitions/secretKey" },
-          "additionalProperties": {
-            "type": ["object", "null"], "description": "One key of the Secret; null = no such key.",
-            "additionalProperties": false,
-            "required": ["key"],
-            "properties": {
-              "key": { "type": "string", "minLength": 1 },
-              "property": { "type": ["string", "null"] },
-              "version": { "type": ["string", "null"], "minLength": 1, "description": "A string: quote a numeric version (External Secrets' field is a string)." },
-              "decodingStrategy": { "description": "null = absent.", "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/externalSecretDecoding" } }
+          "additionalProperties": false,
+          "patternProperties": {
+            "^[-._a-zA-Z0-9]{1,253}$": {
+              "type": ["object", "null"], "description": "One key of the Secret; null = no such key.",
+              "additionalProperties": false,
+              "required": ["key"],
+              "properties": {
+                "key": { "type": "string", "minLength": 1 },
+                "property": { "type": ["string", "null"] },
+                "version": { "type": ["string", "null"], "minLength": 1, "description": "A string: quote a numeric version (External Secrets' field is a string)." },
+                "decodingStrategy": { "description": "null = absent.", "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/externalSecretDecoding" } }
+              }
             }
           }
         },
@@ -871,10 +867,10 @@
           "type": "object", "additionalProperties": false, "required": ["mergePolicy"],
           "properties": {
             "data": {
-              "description": "Secret key -> External Secrets template string; a null entry is absent.",
+              "description": "Secret key -> External Secrets template string; a null entry is absent. A key is a Secret key, [-._a-zA-Z0-9], at most 253 characters; another key fails at the map's path.",
               "type": ["object", "null"],
-              "propertyNames": { "$ref": "#/definitions/secretKey" },
-              "additionalProperties": { "type": ["string", "null"] }
+              "patternProperties": { "^[-._a-zA-Z0-9]{1,253}$": { "type": ["string", "null"] } },
+              "additionalProperties": false
             },
             "mergePolicy": { "enum": ["Merge", "Replace"] }
           }
@@ -887,9 +883,9 @@
     "reloadOnChange": { "type": "boolean" },
     "env": {
       "type": ["object", "array"],
-      "description": "References only: literal values belong in `config`.",
-      "propertyNames": { "$ref": "#/definitions/envName" },
-      "additionalProperties": { "$ref": "#/definitions/envVar" }
+      "description": "References only: literal values belong in `config`. A NAME matches ^[A-Za-z_][A-Za-z0-9_]*$ (an environment variable name); another name fails at the map's path.",
+      "patternProperties": { "^[A-Za-z_][A-Za-z0-9_]*$": { "$ref": "#/definitions/envVar" } },
+      "additionalProperties": false
     },
     "envFrom": {
       "type": "array",
@@ -1250,8 +1246,10 @@
     "commonLabels": { "$ref": "#/definitions/extraLabels" },
     "extraObjects": { "type": ["object", "null"], "additionalProperties": { "$ref": "#/definitions/extraObject" } },
     "commonAnnotations": {
-      "description": "extraAnnotations, and the two Reloader keys the chart computes on the Deployment (a common one would render the key twice).",
-      "allOf": [{ "$ref": "#/definitions/extraAnnotations" }, { "propertyNames": { "not": { "enum": ["secret.reloader.stakater.com/reload", "configmap.reloader.stakater.com/reload"] } } }]
+      "description": "The reserved keys of definitions.extraAnnotations, repeated (one schema: an allOf would add a line to its errors), and the two Reloader keys the chart computes on the Deployment (a common one would render the key twice).",
+      "type": "object", "additionalProperties": { "type": "string" },
+      "patternProperties": { "^helm\\.sh/hook": false, "^meta\\.helm\\.sh/": false },
+      "properties": { "checksum/config-env": false, "checksum/config-files": false, "secret.reloader.stakater.com/reload": false, "configmap.reloader.stakater.com/reload": false }
     },
     "podSecurityContext": { "type": "object" },
     "securityContext": { "type": "object" },

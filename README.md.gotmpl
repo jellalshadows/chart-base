@@ -1322,7 +1322,7 @@ code, official docs) and local renders.
     `managed-by` nor `helm.sh/chart` on a pod template, nor `version` without a tag (an image pinned by digest alone
     takes its version label from a version-shaped `image.tag` next to the digest); `podAnnotations`, `ingress.annotations` and `serviceAccount.annotations`
     reject Helm's hook and ownership keys and the chart's checksums, as `service.annotations` does. Each is a schema
-    rule, which fails `helm lint` too, with the key named at an unrelated path. `ingress.className` is required while
+    rule, which fails `helm lint` too, with the key named at its own path from 1.3.1 (decision 68). `ingress.className` is required while
     the Ingress is enabled, so a `null` fails in every values layer instead of rendering an Ingress the cluster's
     default class picks. It amends decisions 16, 28, 47 and 57. *Rejected:* guards (an INFO line under `helm lint`),
     an Ingress without a class on purpose, a reserved set per map.
@@ -1363,6 +1363,13 @@ code, official docs) and local renders.
     another source lists stays listed, and a `subPath` mount of the volume in the main container or a sidecar fails
     (never updated). It amends decisions 33 and 49. *Rejected:* a flag on every source, Reloader's discovery mode.
     [ADR-0067](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0067-a-per-volume-reloader-opt-out.md)
+68. **Schema checks on map keys report the right path.** A reserved key is a false schema under `properties` or
+    `patternProperties`, and a name with a pattern is a `patternProperties` entry next to `additionalProperties:
+    false`, so the error is at the key's own path or its map's: Helm's schema library reports a `propertyNames`
+    error at another key's path. No accepted value changes. It amends decisions 11, 28, 38, 57 and 61.
+    *Rejected:* template guards (an editor that validates against the schema would miss the keys), an `allOf` over
+    one shared definition (one more line in every error).
+    [ADR-0068](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0068-schema-checks-on-map-keys-report-the-right-path.md)
 
 ## How it compares
 

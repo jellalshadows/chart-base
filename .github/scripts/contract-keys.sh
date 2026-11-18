@@ -57,7 +57,8 @@ if [ "$mode" = base ]; then
 fi
 keys_file="${2:-$chart_dir/tests/contract/keys.txt}"
 
-# Walks the schema from its root: properties, items and additionalProperties name the keys; $ref (to a definition),
+# Walks the schema from its root: properties, items, additionalProperties and patternProperties name the keys (a map
+# entry is <name> under either of the last two; a false schema under properties is a rejected key, ADR-0068); $ref (to a definition),
 # allOf, anyOf, oneOf, then and else add the keys of the same node (if and not only constrain them). A definition
 # already on the path is not entered again. jq's unique sorts by code point, so the order does not depend on the locale.
 # tr: a native jq.exe on Windows writes CRLF.
@@ -71,10 +72,12 @@ list_keys() {
               ($node["$ref"] | ltrimstr("#/definitions/")) as $d
               | if ($seen | any(. == $d)) then empty else keys_of($defs[$d]; $prefix; $seen + [$d]) end
             else empty end ),
-          ( ($node.properties // {}) | to_entries[] | ($prefix + [.key]) as $p | $p, keys_of(.value; $p; $seen) ),
+          ( ($node.properties // {}) | to_entries[] | select(.value != false) | ($prefix + [.key]) as $p | $p, keys_of(.value; $p; $seen) ),
           ( if ($node.items | type) == "object" then keys_of($node.items; $prefix + ["[]"]; $seen) else empty end ),
           ( if ($node.additionalProperties | type) == "object"
             then keys_of($node.additionalProperties; $prefix + ["<name>"]; $seen) else empty end ),
+          ( ($node.patternProperties // {}) | to_entries[] | select((.value | type) == "object")
+            | keys_of(.value; $prefix + ["<name>"]; $seen) ),
           ( (($node.allOf // []), ($node.anyOf // []), ($node.oneOf // [])) | .[] | keys_of(.; $prefix; $seen) ),
           ( ($node.then, $node.else) | select(. != null) | keys_of(.; $prefix; $seen) )
         end;

@@ -1,6 +1,6 @@
 # ADR-0061: Reserved metadata keys in every map, and a required Ingress class
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0068](0068-schema-checks-on-map-keys-report-the-right-path.md) (1.3.1)
 - **Date:** 2026-11-17
 - **Since:** 0.12.0
 - **Related:** [ADR-0016](0016-httproute-first-ingress-optional.md) (amended), [ADR-0028](0028-podlabels-cannot-override-selector-labels.md) (amended), [ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md), [ADR-0047](0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md) (amended), [ADR-0057](0057-common-labels-and-annotations-service-annotations-and-extraobjects.md) (amended), [ADR-0058](0058-the-1-0-contract-and-how-it-stays-frozen.md), [ADR-0063](0063-the-chart-does-not-write-app-kubernetes-io-component.md)

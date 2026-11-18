@@ -1,6 +1,6 @@
 # ADR-0028: `podLabels` cannot override the selector labels
 
-- **Status:** Accepted — amended by [ADR-0061](0061-reserved-metadata-keys-and-a-required-ingress-class.md) (0.12.0)
+- **Status:** Accepted — amended by [ADR-0061](0061-reserved-metadata-keys-and-a-required-ingress-class.md) (0.12.0), [ADR-0068](0068-schema-checks-on-map-keys-report-the-right-path.md) (1.3.1)
 - **Date:** 2026-09-28
 - **Since:** 0.1.0
 

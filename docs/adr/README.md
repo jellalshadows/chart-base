@@ -21,7 +21,7 @@ not published; each record restates every fact it uses.
 | [0008](0008-names-are-release-alias-and-never-truncated.md) | Names are `<release>-<alias>` and never truncated | Accepted | 0.1.0 |
 | [0009](0009-no-name-overrides.md) | No `nameOverride`/`fullnameOverride` | Accepted | 0.1.0 |
 | [0010](0010-chart-version-never-restarts-pods.md) | Bumping chart-base never restarts pods by itself | Amended by 0035, 0057, 0063 | 0.1.0 |
-| [0011](0011-strict-draft-07-schema.md) | Strict draft-07 schema with reserved `global` and `enabled` | Amended by 0044 | 0.1.0 |
+| [0011](0011-strict-draft-07-schema.md) | Strict draft-07 schema with reserved `global` and `enabled` | Amended by 0044, 0068 | 0.1.0 |
 | [0012](0012-no-capabilities-gating.md) | No `.Capabilities` gating for CRD kinds | Accepted | 0.1.0 |
 | [0013](0013-secure-by-default.md) | Secure by default (Pod Security `restricted`) | Accepted | 0.1.0 |
 | [0014](0014-resource-requests-required.md) | `resources.requests` are required | Amended by 0045 | 0.1.0 |
@@ -38,7 +38,7 @@ not published; each record restates every fact it uses.
 | [0025](0025-generated-english-readme.md) | Generated README, in English | Accepted | 0.1.0 |
 | [0026](0026-cronjob-runs-kept-by-history-limits.md) | CronJob runs are kept by the history limits | Accepted | 0.1.0 |
 | [0027](0027-required-keys-in-the-schema.md) | Keys the templates rely on are `required` | Amended by 0044, 0047, 0064 | 0.1.0 |
-| [0028](0028-podlabels-cannot-override-selector-labels.md) | `podLabels` cannot override the selector labels | Amended by 0061 | 0.1.0 |
+| [0028](0028-podlabels-cannot-override-selector-labels.md) | `podLabels` cannot override the selector labels | Amended by 0061, 0068 | 0.1.0 |
 | [0029](0029-publishing-built-for-recovery.md) | Publishing is built for recovery | Amended by 0034 | 0.1.0 |
 | [0030](0030-env-takes-references-only.md) | `env` takes references only | Amended by 0054 | 0.2.0 |
 | [0031](0031-existing-secrets-referenced-by-name.md) | Existing Secrets are referenced by name | Accepted | 0.2.0 |
@@ -48,7 +48,7 @@ not published; each record restates every fact it uses.
 | [0035](0035-service-links-off-by-default.md) | Service links are off by default | Accepted | 0.3.0 |
 | [0036](0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md) | Rollout and pod runtime knobs are validated pass-throughs | Amended by 0044, 0050 | 0.3.0 |
 | [0037](0037-one-prestop-hook.md) | One preStop hook: `lifecycle.preStop` requires `preStopSleepSeconds: 0` | Accepted | 0.3.0 |
-| [0038](0038-one-metrics-endpoint-servicemonitor-or-podmonitor.md) | One metrics endpoint, through a ServiceMonitor or a PodMonitor | Accepted | 0.4.0 |
+| [0038](0038-one-metrics-endpoint-servicemonitor-or-podmonitor.md) | One metrics endpoint, through a ServiceMonitor or a PodMonitor | Amended by 0068 | 0.4.0 |
 | [0039](0039-prometheus-rules-travel-with-the-component.md) | Prometheus rules travel with the component | Accepted | 0.4.0 |
 | [0040](0040-networkpolicy-per-component-with-sibling-references.md) | One opt-in NetworkPolicy per component, with sibling components referenced by alias | Accepted | 0.5.0 |
 | [0041](0041-job-component-networkpolicy-is-a-hook.md) | A job component's NetworkPolicy is a hook of its phase | Amended by 0043, 0057 | 0.5.0 |
@@ -67,17 +67,18 @@ not published; each record restates every fact it uses.
 | [0054](0054-env-externalsecretkeyref-references-the-components-own-secret.md) | `env` can reference the component's own ExternalSecret Secret (`externalSecretKeyRef`) | Accepted | 0.9.0 |
 | [0055](0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md) | The HPA's `behavior` and `metrics` are validated pass-throughs, and a non-empty `metrics` list replaces the built-in targets | Accepted | 0.10.0 |
 | [0056](0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md) | KEDA: a curated ScaledObject block with a triggers map, in place of the HPA | Amended by 0065 | 0.10.0 |
-| [0057](0057-common-labels-and-annotations-service-annotations-and-extraobjects.md) | Common labels and annotations, Service annotations and `extraObjects` | Amended by 0061 | 0.11.0 |
+| [0057](0057-common-labels-and-annotations-service-annotations-and-extraobjects.md) | Common labels and annotations, Service annotations and `extraObjects` | Amended by 0061, 0068 | 0.11.0 |
 | [0058](0058-the-1-0-contract-and-how-it-stays-frozen.md) | The 1.0 contract, and how it stays frozen | Accepted | 0.12.0 |
 | [0059](0059-one-probe-contract-for-every-container.md) | One probe contract for every container | Accepted | 0.12.0 |
 | [0060](0060-the-main-container-takes-the-entries-checks-and-one-token-directory-rule.md) | The main container takes the entries' checks, and one token-directory rule for every mount | Accepted | 0.12.0 |
-| [0061](0061-reserved-metadata-keys-and-a-required-ingress-class.md) | Reserved metadata keys in every map, and a required Ingress class | Accepted | 0.12.0 |
+| [0061](0061-reserved-metadata-keys-and-a-required-ingress-class.md) | Reserved metadata keys in every map, and a required Ingress class | Amended by 0068 | 0.12.0 |
 | [0062](0062-a-pdb-never-blocks-a-drain-at-the-replica-floor.md) | A PodDisruptionBudget never blocks a drain at the replica floor | Accepted | 0.12.0 |
 | [0063](0063-the-chart-does-not-write-app-kubernetes-io-component.md) | The chart does not write `app.kubernetes.io/component` | Accepted | 0.12.0 |
 | [0064](0064-from-1-0-0-a-new-key-is-optional.md) | From 1.0.0, a new values key is optional | Accepted | 1.1.0 |
 | [0065](0065-an-opt-in-handover-from-the-chart-s-hpa-to-keda.md) | An opt-in handover from the chart's HPA to KEDA | Accepted | 1.1.0 |
 | [0066](0066-an-entry-level-config-for-literal-variables.md) | An entry-level `config` for literal variables | Accepted | 1.2.0 |
 | [0067](0067-a-per-volume-reloader-opt-out.md) | A per-volume Reloader opt-out | Accepted | 1.3.0 |
+| [0068](0068-schema-checks-on-map-keys-report-the-right-path.md) | Schema checks on map keys report the right path | Accepted | 1.3.1 |
 
 ## Adding a record
 
