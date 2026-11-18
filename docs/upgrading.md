@@ -60,6 +60,9 @@ in any order: from 0.4.x, `missing properties 'rbac', 'networkPolicy'` and `'/ex
 0.12.0 adds no required key either: from 0.10.x and 0.11.x a `--reuse-values` upgrade renders (see `0.11.x → 0.12.0`),
 and from 0.8.x it fails with the line of 0.9.0 (measured the same way); values that 0.12.0 rejects fail whatever the
 flag.
+From 1.0.0 on, a new key is optional (never required), so a `--reuse-values` upgrade from 1.0.x renders: 1.1.0 adds
+`autoscaling.kedaHandover`, and a values set without it means `false` (measured by rendering the 1.1.0 chart with
+1.0.0's `values.yaml` as its defaults, the seven `ci/` scenarios, Helm 4.3.0 and 3.22.0).
 Use `--reset-then-reuse-values` (available in Helm 3.22 and 4.3), which starts from the new chart's
 defaults and applies your previous values on top, or pass your values files again. Umbrellas are not
 affected.
@@ -506,12 +509,21 @@ Error: UPGRADE FAILED: failed to create resource: admission webhook "vscaledobje
 ```
 
 The release is then `failed`, and a retry fails the same way (measured on kube-apiserver 1.33.0 and 1.37.0 with KEDA
-2.21.0's webhook, Helm 4.3.0 and 3.22.0). Two paths work, in this order of preference:
+2.21.0's webhook, Helm 4.3.0 and 3.22.0). Three paths work, in this order of preference:
 
-1. **Delete the HPA, then upgrade:** `kubectl delete hpa <fullname>`, then the upgrade with `keda.enabled: true` and
+1. **Mark the HPA, then switch in one upgrade (from 1.1.0):** first an upgrade with `autoscaling.kedaHandover: true`,
+   which puts `validations.keda.sh/hpa-ownership: "false"` on the chart's HPA and changes nothing else; then the
+   upgrade with `keda.enabled: true` and `autoscaling.enabled: false` in the same values layer. KEDA's webhook skips an
+   HPA with that annotation (source reading of KEDA v2.21.0, `apis/keda/v1alpha1/scaledobject_webhook.go`), so it admits
+   the ScaledObject, and Helm then deletes the HPA. The chart renders no `replicas` while the HPA or KEDA is on, so
+   neither upgrade sets the count, and an HPA scales the workload throughout. The kind e2e asserts the second upgrade
+   succeeds, the ScaledObject becomes Ready and the chart's HPA is gone (KEDA 2.21.0, Helm 4.3.0). Leave the key once
+   switched: it is read only while `autoscaling.enabled` is `true`.
+2. **Delete the HPA, then upgrade:** `kubectl delete hpa <fullname>`, then the upgrade with `keda.enabled: true` and
    `autoscaling.enabled: false` in the same values layer. The replica count is kept (measured, both Helm versions).
    Between the two commands nothing scales the workload.
-2. **Two upgrades**, for a pipeline that cannot run `kubectl`: first `autoscaling.enabled: false`, which renders
+3. **Two upgrades without the mark**, for a pipeline that cannot run `kubectl` on a chart before 1.1.0: first
+   `autoscaling.enabled: false`, which renders
    `replicas` again (the chart's default is 1: set `replicas` to the current count in that upgrade, or the count drops
    to it), then `keda.enabled: true`, which removes `replicas` from the manifest: the API server then sets the count to
    1 (measured on both API servers with both Helm versions: 5 replicas, then 5 with `replicas: 5` restated, then 1),
@@ -738,3 +750,16 @@ of a direct install upgraded with `--reuse-values`), over the seven `ci/` scenar
 with 0.10.0's and 0.11.0's defaults the render is 0.12.0's own; with 0.9.0's too, except the scenario that turns KEDA on
 (see `0.9.x → 0.10.0`); with 0.8.0's it fails with the line of 0.9.0 (`Every upgrade`, above). A real upgrade was not
 run here; the validation campaign upgrades from the published 0.11.0.
+
+## 1.0.x → 1.1.0
+
+Nothing to change: 1.1.0 adds `autoscaling.kedaHandover` and no required key, and a values set without it renders as
+before ([ADR-0064](adr/0064-from-1-0-0-a-new-key-is-optional.md); a `--reuse-values` upgrade from 1.0.x renders, see
+`Every upgrade`). No manifest changes unless the key is `true`.
+
+### New and optional: `autoscaling.kedaHandover`
+
+`true` puts `validations.keda.sh/hpa-ownership: "false"` on the chart's HPA, so that the switch from the HPA to KEDA
+takes one upgrade once the HPA carries it (path 1 of [Switching to KEDA](#switching-to-keda);
+[ADR-0065](adr/0065-an-opt-in-handover-from-the-chart-s-hpa-to-keda.md)). While it is `true`, KEDA's webhook does not
+count that HPA, so set it for the switch, not as a default for every component.

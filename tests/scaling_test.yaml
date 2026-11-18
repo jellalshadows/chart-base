@@ -63,6 +63,61 @@ tests:
           path: spec.metrics[1].resource.target.averageUtilization
           value: 75
 
+  - it: puts no KEDA annotation on the HPA by default (kedaHandover false)
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  - it: with kedaHandover, marks the HPA as not owning the Deployment for KEDA's webhook
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.kedaHandover: true
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            validations.keda.sh/hpa-ownership: "false"
+      - equal:
+          path: spec.scaleTargetRef.name
+          value: vending-chart-base
+
+  - it: with kedaHandover, the handover annotation wins over the same key in commonAnnotations and keeps the others
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.kedaHandover: true
+      commonAnnotations: {validations.keda.sh/hpa-ownership: "true", example.com/owner: platform}
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            validations.keda.sh/hpa-ownership: "false"
+            example.com/owner: platform
+
+  - it: with kedaHandover absent (null deletes the key), puts no KEDA annotation on the HPA
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.kedaHandover: null
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  - it: with kedaHandover and no HPA (KEDA scales the Deployment), renders no HPA
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: false
+      autoscaling.kedaHandover: true
+      keda.enabled: true
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
   - it: renders a PDB with maxUnavailable 1 and AlwaysAllow by default
     template: templates/pdb.yaml
     asserts:

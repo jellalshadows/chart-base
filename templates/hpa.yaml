@@ -5,7 +5,9 @@ metadata:
   name: {{ include "chart-base.fullname" . }}
   labels:
     {{- include "chart-base.labels" . | nindent 4 }}
-  {{- with include "chart-base.annotations" (dict "ctx" .) }}
+  {{- /* kedaHandover: the per-object map, so the annotation wins over the same key in commonAnnotations and renders once. KEDA's webhook skips an HPA that carries it (KEDA v2.21.0 apis/keda/v1alpha1/scaledobject_webhook.go). */}}
+  {{- $handover := ternary (dict "validations.keda.sh/hpa-ownership" "false") nil (eq .Values.autoscaling.kedaHandover true) }}
+  {{- with include "chart-base.annotations" (dict "ctx" . "object" $handover) }}
   annotations:
     {{- . | nindent 4 }}
   {{- end }}

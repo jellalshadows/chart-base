@@ -37,7 +37,7 @@ not published; each record restates every fact it uses.
 | [0024](0024-renovate.md) | Renovate for actions and tool versions | Accepted | 0.1.0 |
 | [0025](0025-generated-english-readme.md) | Generated README, in English | Accepted | 0.1.0 |
 | [0026](0026-cronjob-runs-kept-by-history-limits.md) | CronJob runs are kept by the history limits | Accepted | 0.1.0 |
-| [0027](0027-required-keys-in-the-schema.md) | Keys the templates rely on are `required` | Amended by 0044, 0047 | 0.1.0 |
+| [0027](0027-required-keys-in-the-schema.md) | Keys the templates rely on are `required` | Amended by 0044, 0047, 0064 | 0.1.0 |
 | [0028](0028-podlabels-cannot-override-selector-labels.md) | `podLabels` cannot override the selector labels | Amended by 0061 | 0.1.0 |
 | [0029](0029-publishing-built-for-recovery.md) | Publishing is built for recovery | Amended by 0034 | 0.1.0 |
 | [0030](0030-env-takes-references-only.md) | `env` takes references only | Amended by 0054 | 0.2.0 |
@@ -66,7 +66,7 @@ not published; each record restates every fact it uses.
 | [0053](0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md) | The ExternalSecret takes `dataFrom`, a curated template and a file mount, and its injection is a switch | Amended by 0057 | 0.9.0 |
 | [0054](0054-env-externalsecretkeyref-references-the-components-own-secret.md) | `env` can reference the component's own ExternalSecret Secret (`externalSecretKeyRef`) | Accepted | 0.9.0 |
 | [0055](0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md) | The HPA's `behavior` and `metrics` are validated pass-throughs, and a non-empty `metrics` list replaces the built-in targets | Accepted | 0.10.0 |
-| [0056](0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md) | KEDA: a curated ScaledObject block with a triggers map, in place of the HPA | Accepted | 0.10.0 |
+| [0056](0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md) | KEDA: a curated ScaledObject block with a triggers map, in place of the HPA | Amended by 0065 | 0.10.0 |
 | [0057](0057-common-labels-and-annotations-service-annotations-and-extraobjects.md) | Common labels and annotations, Service annotations and `extraObjects` | Amended by 0061 | 0.11.0 |
 | [0058](0058-the-1-0-contract-and-how-it-stays-frozen.md) | The 1.0 contract, and how it stays frozen | Accepted | 0.12.0 |
 | [0059](0059-one-probe-contract-for-every-container.md) | One probe contract for every container | Accepted | 0.12.0 |
@@ -74,6 +74,8 @@ not published; each record restates every fact it uses.
 | [0061](0061-reserved-metadata-keys-and-a-required-ingress-class.md) | Reserved metadata keys in every map, and a required Ingress class | Accepted | 0.12.0 |
 | [0062](0062-a-pdb-never-blocks-a-drain-at-the-replica-floor.md) | A PodDisruptionBudget never blocks a drain at the replica floor | Accepted | 0.12.0 |
 | [0063](0063-the-chart-does-not-write-app-kubernetes-io-component.md) | The chart does not write `app.kubernetes.io/component` | Accepted | 0.12.0 |
+| [0064](0064-from-1-0-0-a-new-key-is-optional.md) | From 1.0.0, a new values key is optional | Accepted | 1.1.0 |
+| [0065](0065-an-opt-in-handover-from-the-chart-s-hpa-to-keda.md) | An opt-in handover from the chart's HPA to KEDA | Accepted | 1.1.0 |
 
 ## Adding a record
 

@@ -17,6 +17,7 @@ autoscaling.behavior.scaleUp.policies[].value
 autoscaling.behavior.scaleUp.selectPolicy
 autoscaling.behavior.scaleUp.stabilizationWindowSeconds
 autoscaling.enabled
+autoscaling.kedaHandover
 autoscaling.maxReplicas
 autoscaling.metrics
 autoscaling.metrics[].containerResource

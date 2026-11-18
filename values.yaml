@@ -354,6 +354,13 @@ probes:
 autoscaling:
   # -- Render a HorizontalPodAutoscaler (autoscaling/v2). Deployments only.
   enabled: false
+  # -- Prepare the switch from this HPA to KEDA (`keda`) in one upgrade: `true` puts
+  # `validations.keda.sh/hpa-ownership: "false"` on the HPA, so KEDA's admission webhook no longer counts it as the
+  # Deployment's autoscaler. Deploy `true` first; the next upgrade can then set `enabled: false` and `keda.enabled:
+  # true` together (without it, KEDA's webhook denies that upgrade: see the upgrade guide). Off by default: the annotation
+  # turns KEDA's ownership check off for this HPA. Read only while `enabled` is `true`; it wins over the same key in
+  # `commonAnnotations`.
+  kedaHandover: false
   # -- Minimum replicas.
   minReplicas: 2
   # -- Maximum replicas.
