@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/jellalshadows/chart-base/compare/v1.0.0...v1.1.0) (2026-11-18)
+
+
+### Features
+
+* autoscaling.kedaHandover, an opt-in handover from the chart's HPA to KEDA ([#34](https://github.com/jellalshadows/chart-base/issues/34)) ([7ea5ecb](https://github.com/jellalshadows/chart-base/commit/7ea5ecb986640de9c233c2b7028f311f39fd179a))
+
 ## [1.0.0](https://github.com/jellalshadows/chart-base/compare/v0.12.0...v1.0.0) (2026-11-17)
 
 
