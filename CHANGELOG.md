@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/jellalshadows/chart-base/compare/v1.1.0...v1.2.0) (2026-11-18)
+
+
+### Features
+
+* an entry-level config for literal variables of init containers and sidecars ([#36](https://github.com/jellalshadows/chart-base/issues/36)) ([f9f9d19](https://github.com/jellalshadows/chart-base/commit/f9f9d19ee1ee71589fe9549f3796b2951bb6be81))
+
 ## [1.1.0](https://github.com/jellalshadows/chart-base/compare/v1.0.0...v1.1.0) (2026-11-18)
 
 
