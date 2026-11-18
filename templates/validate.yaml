@@ -205,12 +205,13 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- $portNames := list -}}
 {{- range .Values.ports }}{{ $portNames = append $portNames .name }}{{ end -}}
 {{- if not (has .Values.metrics.port $portNames) -}}
-{{- /* A sidecar's port name: one message with the end state (S5b), not the generic one followed by the duplicate-name guard. */ -}}
+{{- /* A sidecar's port name: one message with the end state, not the generic one followed by the guard on a port name declared twice. */ -}}
 {{- $declared := get $sidecarPortPaths (toString .Values.metrics.port) -}}
 {{- if $declared -}}
 {{- include "chart-base.fail" (list . (printf "metrics.port %q is not the name of an entry in ports (%q is declared in %s): Prometheus scrapes a port that ports declares, and a port name is declared once in the pod, so move that entry from %s to ports" .Values.metrics.port .Values.metrics.port $declared $declared)) -}}
-{{- end -}}
+{{- else -}}
 {{- include "chart-base.fail" (list . (printf "metrics.port %q is not the name of an entry in ports: Prometheus scrapes a named port, so declare it in ports (a worker without a Service too), e.g. ports: [{name: metrics, containerPort: 9090}]" .Values.metrics.port)) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- /* A main-container probe port given by NAME must be the name of an entry of ports, on every workload type: the kubelet resolves a name among the probed container's own ports only, so a sidecar's port name is not one, and the message says where such a name is declared. */ -}}
