@@ -542,7 +542,7 @@ while IFS= read -r obj; do
   meta="$(kubectl get -n "$ns" "$obj" -o jsonpath='{.metadata.labels.team} {.metadata.annotations.e2e\.example\.com/owner}' || true)"
   [ "$meta" = "e2e platform" ] || fail "$obj must carry the label team=e2e and the annotation e2e.example.com/owner=platform in the cluster (commonLabels, commonAnnotations), got '$meta'"
 done < "$work/full.objects"
-[ "$objects" = 17 ] || fail "the release full must have 17 objects (the 16 of 0.10.0 and the extra ConfigMap), got $objects: $(tr '\n' ' ' < "$work/full.objects")"
+[ "$objects" = 18 ] || fail "the release full must have 18 objects (the 16 of 0.10.0, the extra ConfigMap and the GRPCRoute of 1.4.0), got $objects: $(tr '\n' ' ' < "$work/full.objects")"
 lb="$(kubectl get service -n "$ns" full-chart-base -o jsonpath='{.metadata.annotations.e2e\.example\.com/lb}' || true)"
 [ "$lb" = internal ] || fail "the Service must carry its own annotation e2e.example.com/lb=internal (service.annotations), got '$lb'"
 # The pod template carries the common labels, never the common annotations (podAnnotations is the pod's).
