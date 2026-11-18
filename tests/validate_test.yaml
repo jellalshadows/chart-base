@@ -435,6 +435,47 @@ tests:
       - failedTemplate:
           errorPattern: 'networkPolicy.ingress.metricsFromNamespaces opens metrics.port, but metrics.enabled is false'
 
+  - it: rejects an httpRoute rule without matches (it would take every request, as the first rule does)
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - name: platform-gw
+      httpRoute.rules:
+        - {matches: [{path: {type: PathPrefix, value: /api}}]}
+        - {port: http}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: httpRoute.rules\[1\] has no matches: a rule without matches takes every request, as the first rule \(httpRoute.matches\) does; give it at least one match'
+
+  - it: rejects an httpRoute rule whose matches is null, with the same message
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - name: platform-gw
+      httpRoute.rules:
+        - {matches: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'httpRoute.rules\[0\] has no matches'
+
+  - it: rejects an httpRoute rule whose port is not the name of an entry in ports
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs:
+        - name: platform-gw
+      httpRoute.rules:
+        - {matches: [{path: {type: PathPrefix, value: /admin}}], port: admin}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: httpRoute.rules\[0\].port "admin" is not the name of an entry in ports: the route sends to this component''s Service, which exposes the entries of ports by name'
+
+  - it: accepts httpRoute.rules while the HTTPRoute is disabled (they render nothing)
+    set:
+      httpRoute.rules:
+        - {port: admin}
+    asserts:
+      - notFailedTemplate: {}
+
   - it: rejects an HTTPRoute without a source for its traffic when networkPolicy is on (the route would black-hole)
     set:
       httpRoute.enabled: true

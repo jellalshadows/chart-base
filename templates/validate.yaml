@@ -214,6 +214,19 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{- /* An extra HTTPRoute rule needs a match (without one it takes every request, as the first rule does) and sends to a ports entry, by name. */ -}}
+{{- if .Values.httpRoute.enabled -}}
+{{- $routePortNames := list -}}
+{{- range (.Values.ports | default list) }}{{ $routePortNames = append $routePortNames .name }}{{ end -}}
+{{- range $i, $r := (.Values.httpRoute.rules | default list) -}}
+{{- if not $r.matches -}}
+{{- include "chart-base.fail" (list $ (printf "httpRoute.rules[%d] has no matches: a rule without matches takes every request, as the first rule (httpRoute.matches) does; give it at least one match" $i)) -}}
+{{- end -}}
+{{- if and $r.port (not (has (toString $r.port) $routePortNames)) -}}
+{{- include "chart-base.fail" (list $ (printf "httpRoute.rules[%d].port %q is not the name of an entry in ports: the route sends to this component's Service, which exposes the entries of ports by name" $i (toString $r.port))) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- /* A main-container probe port given by NAME must be the name of an entry of ports, on every workload type: the kubelet resolves a name among the probed container's own ports only, so a sidecar's port name is not one, and the message says where such a name is declared. */ -}}
 {{- $mainPortNames := list -}}
 {{- range (.Values.ports | default list) }}{{ $mainPortNames = append $mainPortNames .name }}{{ end -}}

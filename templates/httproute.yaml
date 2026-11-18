@@ -23,4 +23,11 @@ spec:
       backendRefs:
         - name: {{ $fullname }}
           port: {{ include "chart-base.servicePort" (first .Values.ports) }}
+    {{- range .Values.httpRoute.rules }}
+    - matches:
+        {{- toYaml .matches | nindent 8 }}
+      backendRefs:
+        - name: {{ $fullname }}
+          port: {{ include "chart-base.routeBackendPort" (list $ .port) }}
+    {{- end }}
 {{- end }}
