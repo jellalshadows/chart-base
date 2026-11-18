@@ -1,6 +1,6 @@
 # ADR-0064: From 1.0.0, a new values key is optional
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0069](0069-grpcroute-httproute-rules-and-appprotocol.md) (1.4.0)
 - **Date:** 2026-11-18
 - **Since:** 1.1.0
 - **Related:** [ADR-0027](0027-required-keys-in-the-schema.md) (amended), [ADR-0058](0058-the-1-0-contract-and-how-it-stays-frozen.md), [ADR-0065](0065-an-opt-in-handover-from-the-chart-s-hpa-to-keda.md)

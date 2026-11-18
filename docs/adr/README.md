@@ -26,7 +26,7 @@ not published; each record restates every fact it uses.
 | [0013](0013-secure-by-default.md) | Secure by default (Pod Security `restricted`) | Accepted | 0.1.0 |
 | [0014](0014-resource-requests-required.md) | `resources.requests` are required | Amended by 0045 | 0.1.0 |
 | [0015](0015-pdb-and-topology-spread-by-default.md) | PDB and topology spread on by default | Amended by 0062 | 0.1.0 |
-| [0016](0016-httproute-first-ingress-optional.md) | HTTPRoute first, Ingress optional | Amended by 0061 | 0.1.0 |
+| [0016](0016-httproute-first-ingress-optional.md) | HTTPRoute first, Ingress optional | Amended by 0061, 0069 | 0.1.0 |
 | [0017](0017-progress-deadline-240s.md) | `progressDeadlineSeconds: 240` | Accepted | 0.1.0 |
 | [0018](0018-kubernetes-version-floor.md) | Kubernetes version floor `>=1.33.0-0` | Amended by 0044 | 0.1.0 |
 | [0019](0019-helm-4-first-helm-3-tested.md) | Helm 4 first, Helm 3.22 still tested | Accepted | 0.1.0 |
@@ -50,7 +50,7 @@ not published; each record restates every fact it uses.
 | [0037](0037-one-prestop-hook.md) | One preStop hook: `lifecycle.preStop` requires `preStopSleepSeconds: 0` | Accepted | 0.3.0 |
 | [0038](0038-one-metrics-endpoint-servicemonitor-or-podmonitor.md) | One metrics endpoint, through a ServiceMonitor or a PodMonitor | Amended by 0068 | 0.4.0 |
 | [0039](0039-prometheus-rules-travel-with-the-component.md) | Prometheus rules travel with the component | Accepted | 0.4.0 |
-| [0040](0040-networkpolicy-per-component-with-sibling-references.md) | One opt-in NetworkPolicy per component, with sibling components referenced by alias | Accepted | 0.5.0 |
+| [0040](0040-networkpolicy-per-component-with-sibling-references.md) | One opt-in NetworkPolicy per component, with sibling components referenced by alias | Amended by 0069 | 0.5.0 |
 | [0041](0041-job-component-networkpolicy-is-a-hook.md) | A job component's NetworkPolicy is a hook of its phase | Amended by 0043, 0057 | 0.5.0 |
 | [0042](0042-existing-serviceaccount-and-namespaced-rbac.md) | An existing ServiceAccount, and namespaced RBAC: rules with no wildcards and a fixed verb list, no `cluster-admin` | Accepted | 0.6.0 |
 | [0043](0043-job-component-rbac-is-a-hook.md) | A job component's Role and RoleBindings are hooks of its phase | Accepted | 0.6.0 |
@@ -58,7 +58,7 @@ not published; each record restates every fact it uses.
 | [0045](0045-null-in-configfiles-and-resources-is-absent.md) | A `null` in `configFiles` removes the file or the key; a `null` resource quantity is absent | Accepted | 0.7.0 |
 | [0046](0046-configfiles-mountpath-compared-normalized-rendered-as-written.md) | `configFiles.mountPath` is compared normalized and rendered as written | Amended by 0060 | 0.7.0 |
 | [0047](0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md) | When-enabled keys are required, an ExternalSecret needs a source, and a probe port name must be declared | Amended by 0050, 0053, 0059, 0061 | 0.7.0 |
-| [0048](0048-httproute-parentrefs-and-matches-are-closed.md) | The entries of `httpRoute.parentRefs` and `httpRoute.matches` are closed objects | Amended by 0050 | 0.7.0 |
+| [0048](0048-httproute-parentrefs-and-matches-are-closed.md) | The entries of `httpRoute.parentRefs` and `httpRoute.matches` are closed objects | Amended by 0050, 0069 | 0.7.0 |
 | [0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md) | Extra volumes are a map of typed entries, each mounted in the main container | Amended by 0051, 0057, 0060, 0067 | 0.7.0 |
 | [0050](0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md) | An existing claim on a Deployment declares its access mode; `strategy.rollingUpdate: null` is absent | Amended by 0056 | 0.7.0 |
 | [0051](0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md) | Init containers and sidecars are two maps in one start order, and nothing is inherited from the main container | Amended by 0053, 0059, 0060, 0066 | 0.8.0 |
@@ -74,11 +74,12 @@ not published; each record restates every fact it uses.
 | [0061](0061-reserved-metadata-keys-and-a-required-ingress-class.md) | Reserved metadata keys in every map, and a required Ingress class | Amended by 0068 | 0.12.0 |
 | [0062](0062-a-pdb-never-blocks-a-drain-at-the-replica-floor.md) | A PodDisruptionBudget never blocks a drain at the replica floor | Accepted | 0.12.0 |
 | [0063](0063-the-chart-does-not-write-app-kubernetes-io-component.md) | The chart does not write `app.kubernetes.io/component` | Accepted | 0.12.0 |
-| [0064](0064-from-1-0-0-a-new-key-is-optional.md) | From 1.0.0, a new values key is optional | Accepted | 1.1.0 |
+| [0064](0064-from-1-0-0-a-new-key-is-optional.md) | From 1.0.0, a new values key is optional | Amended by 0069 | 1.1.0 |
 | [0065](0065-an-opt-in-handover-from-the-chart-s-hpa-to-keda.md) | An opt-in handover from the chart's HPA to KEDA | Accepted | 1.1.0 |
 | [0066](0066-an-entry-level-config-for-literal-variables.md) | An entry-level `config` for literal variables | Accepted | 1.2.0 |
 | [0067](0067-a-per-volume-reloader-opt-out.md) | A per-volume Reloader opt-out | Accepted | 1.3.0 |
 | [0068](0068-schema-checks-on-map-keys-report-the-right-path.md) | Schema checks on map keys report the right path | Accepted | 1.3.1 |
+| [0069](0069-grpcroute-httproute-rules-and-appprotocol.md) | A GRPCRoute, extra HTTPRoute rules and `appProtocol` | Accepted | 1.4.0 |
 
 ## Adding a record
 

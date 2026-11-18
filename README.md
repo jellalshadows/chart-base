@@ -1509,6 +1509,13 @@ code, official docs) and local renders.
     *Rejected:* template guards (an editor that validates against the schema would miss the keys), an `allOf` over
     one shared definition (one more line in every error).
     [ADR-0068](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0068-schema-checks-on-map-keys-report-the-right-path.md)
+69. **A GRPCRoute, extra HTTPRoute rules and `appProtocol`.** `grpcRoute` renders a GRPCRoute to the component's
+    Service, and `httpRoute.rules` adds rules after the one `httpRoute.matches` makes; each sends to a `ports` entry
+    by name (absent: the first). `ports[].appProtocol` goes on the Service port. Guards check a rule's matches, the
+    port names, and a GRPCRoute's `parentRefs` and Service; the NetworkPolicy guards count a GRPCRoute as a route.
+    It amends decisions 16, 40, 48 and 64. *Rejected:* rules that replace `matches` (a frozen key), schema
+    conditionals on a new key (they hold vacuously after a `--reuse-values` upgrade).
+    [ADR-0069](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0069-grpcroute-httproute-rules-and-appprotocol.md)
 
 ## How it compares
 
