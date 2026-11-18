@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/jellalshadows/chart-base/compare/v1.3.1...v1.4.0) (2026-11-18)
+
+
+### Features
+
+* a GRPCRoute, extra HTTPRoute rules and ports[].appProtocol ([#42](https://github.com/jellalshadows/chart-base/issues/42)) ([6ce3adc](https://github.com/jellalshadows/chart-base/commit/6ce3adcd7dc215b93faefb48c42160c75b8d411a))
+
 ## [1.3.1](https://github.com/jellalshadows/chart-base/compare/v1.3.0...v1.3.1) (2026-11-18)
 
 
