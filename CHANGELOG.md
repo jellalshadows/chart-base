@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/jellalshadows/chart-base/compare/v1.3.0...v1.3.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* schema errors on map keys at the right path, and one message for a sidecar's metrics port ([#40](https://github.com/jellalshadows/chart-base/issues/40)) ([fde9efd](https://github.com/jellalshadows/chart-base/commit/fde9efd74ee4ff4f0c5024bd10995900c9e9f192))
+
 ## [1.3.0](https://github.com/jellalshadows/chart-base/compare/v1.2.0...v1.3.0) (2026-11-18)
 
 
