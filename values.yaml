@@ -122,7 +122,7 @@ volumes: {}
 
 # -- Init containers, a map keyed by the container name. Each entry: `image` (`repository`; `tag` or `digest`, the
 # digest wins; `pullPolicy`, default `IfNotPresent`), `resources` (`requests.cpu` and `requests.memory` required),
-# `command`, `args` (a list: an overlay replaces it whole), `securityContext` and `order`. Init containers and
+# `command`, `args` (a list: an overlay replaces it whole), `config`, `env`, `inheritEnv`, `securityContext` and `order`. Init containers and
 # `sidecars` start in ONE order: ascending `order` (an integer from -1000 to 1000; default 0 for an init container, 1000
 # for a sidecar), then init containers before sidecars, then by name. So the init containers run before every sidecar
 # whose `order` is not set: to start a sidecar before an init container, lower the sidecar's `order`; raising an init
@@ -140,10 +140,13 @@ volumes: {}
 # the map form, and a container that would run as UID 0 with `runAsNonRoot: true` (its `securityContext.runAsUser`, else
 # `podSecurityContext.runAsUser`) fails the render, as the main container does: the kubelet would never start it
 # (kubelet source reading). `env`
-# takes references only, `NAME: {valueFrom: ...}` as for the main container (a literal fails: pass it in `args`), and
+# takes references only, `NAME: {valueFrom: ...}` as for the main container (a literal fails, naming `config`), and
+# `config` the container's literal variables, `NAME: value` (a string, a number or a boolean, rendered as a string, as
+# in the component's `config`), rendered after the references and by name: a literal can use `$(NAME)` of a reference
+# or of an earlier literal (the kubelet expands a variable defined before it). A name in both `env` and `config` fails.
 # `inheritEnv` (default `false`) set to `true` gives the container exactly the main container's `envFrom` and `env`,
-# rendered as the main container renders them; an `env` name that the main container already receives then fails the
-# render. Inside one variable's `valueFrom` a `null` stays an error (the definition is shared with the main container):
+# rendered as the main container renders them; an `env` or `config` name that the main container already receives then
+# fails the render. Inside one variable's `valueFrom` a `null` stays an error (the definition is shared with the main container):
 # remove or replace the variable whole (`env.NAME: null`); a `null` in an entry's `env` never removes an inherited
 # variable. An inherited `resourceFieldRef` without `containerName` reads this container's own resources (kubelet source
 # reading). `volumeMounts` is a map keyed by the VOLUME name, each mount with `mountPath` (required, absolute),

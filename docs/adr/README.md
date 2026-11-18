@@ -61,7 +61,7 @@ not published; each record restates every fact it uses.
 | [0048](0048-httproute-parentrefs-and-matches-are-closed.md) | The entries of `httpRoute.parentRefs` and `httpRoute.matches` are closed objects | Amended by 0050 | 0.7.0 |
 | [0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md) | Extra volumes are a map of typed entries, each mounted in the main container | Amended by 0051, 0057, 0060 | 0.7.0 |
 | [0050](0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md) | An existing claim on a Deployment declares its access mode; `strategy.rollingUpdate: null` is absent | Amended by 0056 | 0.7.0 |
-| [0051](0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md) | Init containers and sidecars are two maps in one start order, and nothing is inherited from the main container | Amended by 0053, 0059, 0060 | 0.8.0 |
+| [0051](0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md) | Init containers and sidecars are two maps in one start order, and nothing is inherited from the main container | Amended by 0053, 0059, 0060, 0066 | 0.8.0 |
 | [0052](0052-hpa-targets-measure-the-main-container-with-sidecars.md) | With a sidecar, the HPA's built-in targets measure the main container | Amended by 0055 | 0.8.0 |
 | [0053](0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md) | The ExternalSecret takes `dataFrom`, a curated template and a file mount, and its injection is a switch | Amended by 0057 | 0.9.0 |
 | [0054](0054-env-externalsecretkeyref-references-the-components-own-secret.md) | `env` can reference the component's own ExternalSecret Secret (`externalSecretKeyRef`) | Accepted | 0.9.0 |
@@ -76,6 +76,7 @@ not published; each record restates every fact it uses.
 | [0063](0063-the-chart-does-not-write-app-kubernetes-io-component.md) | The chart does not write `app.kubernetes.io/component` | Accepted | 0.12.0 |
 | [0064](0064-from-1-0-0-a-new-key-is-optional.md) | From 1.0.0, a new values key is optional | Accepted | 1.1.0 |
 | [0065](0065-an-opt-in-handover-from-the-chart-s-hpa-to-keda.md) | An opt-in handover from the chart's HPA to KEDA | Accepted | 1.1.0 |
+| [0066](0066-an-entry-level-config-for-literal-variables.md) | An entry-level `config` for literal variables | Accepted | 1.2.0 |
 
 ## Adding a record
 

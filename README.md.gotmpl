@@ -1351,6 +1351,12 @@ code, official docs) and local renders.
     switch to KEDA takes one upgrade once the HPA carries it; off by default, because it turns KEDA's check off for
     that HPA. It amends decision 56. *Rejected:* the annotation on every HPA, `transfer-hpa-ownership`, a guard.
     [ADR-0065](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0065-an-opt-in-handover-from-the-chart-s-hpa-to-keda.md)
+66. **An entry-level `config` for literal variables.** An init container or a sidecar takes `config`, `NAME: value`,
+    rendered in its `env` after the references and by name, so a literal can use `$(NAME)` of a reference. Before, a
+    literal went in `args` or reached the entry only through `inheritEnv`, which brings the main container's whole
+    environment. A name in both `env` and `config`, or with `inheritEnv` a name the main container receives, fails.
+    It amends decision 51. *Rejected:* literals in `env`, a ConfigMap per entry.
+    [ADR-0066](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0066-an-entry-level-config-for-literal-variables.md)
 
 ## How it compares
 

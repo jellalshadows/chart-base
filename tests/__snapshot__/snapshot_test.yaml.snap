@@ -563,6 +563,15 @@ full scenario:
           initContainers:
             - args:
                 - pause
+              env:
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.name
+                - name: SHIPPER_MODE
+                  value: e2e
+                - name: SHIPPER_SOURCE
+                  value: pod-$(POD_NAME)
               image: registry.k8s.io/e2e-test-images/agnhost:2.66.1
               imagePullPolicy: IfNotPresent
               name: shipper

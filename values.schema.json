@@ -675,6 +675,7 @@
         "securityContext": { "type": ["object", "null"], "description": "Merged over the chart's hardened default, field by field; null restores the default of a field." },
         "restartPolicy": { "description": "Written by the chart, never a value: templates/validate.yaml rejects the key with a remedy (null is absent)." },
         "env": { "$ref": "#/definitions/containerEnv" },
+        "config": { "description": "Literal variables of this container: NAME: a string, a number or a boolean, rendered as env values after the references of env, by name (templates/_containers.tpl). null = none, and NAME: null is absent.", "type": ["object", "null"], "propertyNames": { "$ref": "#/definitions/envName" }, "additionalProperties": { "type": ["string", "number", "boolean", "null"] } },
         "inheritEnv": { "type": ["boolean", "null"], "description": "true: exactly the main container's envFrom and env (default false)." },
         "volumeMounts": { "$ref": "#/definitions/containerMounts" },
         "order": { "description": "An init container's default is 0.", "$ref": "#/definitions/containerOrder" }
@@ -734,6 +735,7 @@
         "securityContext": { "type": ["object", "null"], "description": "Merged over the chart's hardened default, field by field; null restores the default of a field." },
         "restartPolicy": { "description": "Written by the chart, never a value: templates/validate.yaml rejects the key with a remedy (null is absent)." },
         "env": { "$ref": "#/definitions/containerEnv" },
+        "config": { "description": "Literal variables of this container: NAME: a string, a number or a boolean, rendered as env values after the references of env, by name (templates/_containers.tpl). null = none, and NAME: null is absent.", "type": ["object", "null"], "propertyNames": { "$ref": "#/definitions/envName" }, "additionalProperties": { "type": ["string", "number", "boolean", "null"] } },
         "inheritEnv": { "type": ["boolean", "null"], "description": "true: exactly the main container's envFrom and env (default false)." },
         "ports": { "type": ["array", "null"], "items": { "$ref": "#/definitions/sidecarPort" } },
         "probes": { "$ref": "#/definitions/sidecarProbes" },

@@ -63,6 +63,15 @@ capabilities:
 {{- end -}}
 
 {{/*
+chart-base.configValue: a literal of config (the main container's ConfigMap, an entry's config) as a quoted string.
+Values files parse numbers as float64: toJson avoids "1e+07"-style output.
+Usage: {{ include "chart-base.configValue" $value }}
+*/}}
+{{- define "chart-base.configValue" -}}
+{{- if kindIs "string" . }}{{ . | quote }}{{ else }}{{ . | toJson | quote }}{{ end -}}
+{{- end -}}
+
+{{/*
 chart-base.entryContainer: one item of chart-base.containers' ordered list, rendered as an item of a pod's
 initContainers: each field by name from the pruned entry, every string from values quoted, no empty list. A sidecar
 gets restartPolicy: Always, which the chart writes (it is not a value).
@@ -108,9 +117,18 @@ Usage: include "chart-base.entryContainer" (dict "ctx" $ "container" <an item of
   {{- if kindIs "map" $e.env }}
   {{- range $name, $ref := $e.env }}{{ $_ := set $env $name $ref }}{{ end }}
   {{- end }}
-  {{- with include "chart-base.env" (dict "ctx" $ "env" $env) | trim }}
+  {{- /* The entry's config: literal values after the references, by name, so a literal can use $(NAME) of a reference (the kubelet expands a variable defined before it). */}}
+  {{- $refs := include "chart-base.env" (dict "ctx" $ "env" $env) | trim }}
+  {{- $literals := $e.config | default dict }}
+  {{- if or $refs $literals }}
   env:
+    {{- with $refs }}
     {{- . | nindent 4 }}
+    {{- end }}
+    {{- range $name, $value := $literals }}
+    - name: {{ $name | quote }}
+      value: {{ include "chart-base.configValue" $value }}
+    {{- end }}
   {{- end }}
   {{- if $e.inheritEnv }}
   {{- with include "chart-base.envFrom" $ | trim }}

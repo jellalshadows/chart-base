@@ -1014,3 +1014,88 @@ tests:
       - equal:
           path: metadata.annotations["secret.reloader.stakater.com/reload"]
           value: vol-s
+
+  - it: renders an init container's config as literal variables after its references, by name, as strings
+    template: templates/deployment.yaml
+    set:
+      initContainers:
+        migrate:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          env:
+            POD_NAME: {valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+          config:
+            MODE: fast
+            ADDRESS: "pod-$(POD_NAME)"
+            RETRIES: 3
+            BIG: 10000000
+            DEBUG: true
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].env
+          value:
+            - name: POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            - {name: ADDRESS, value: "pod-$(POD_NAME)"}
+            - {name: BIG, value: "10000000"}
+            - {name: DEBUG, value: "true"}
+            - {name: MODE, value: fast}
+            - {name: RETRIES, value: "3"}
+
+  - it: renders a sidecar's config as literal variables (no env of its own)
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        proxy:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          config: {CSQL_PROXY_PORT: 5432, CSQL_PROXY_STRUCTURED_LOGS: "true"}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].env
+          value:
+            - {name: CSQL_PROXY_PORT, value: "5432"}
+            - {name: CSQL_PROXY_STRUCTURED_LOGS, value: "true"}
+      - equal:
+          path: spec.template.spec.initContainers[0].restartPolicy
+          value: Always
+
+  - it: leaves out a null config entry, and renders no env for config null or {}
+    template: templates/deployment.yaml
+    set:
+      initContainers:
+        a: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, config: {KEEP: "1", DROP: null}}
+        b: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, config: null}
+        c: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, config: {}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].env
+          value:
+            - {name: KEEP, value: "1"}
+      - notExists:
+          path: spec.template.spec.initContainers[1].env
+      - notExists:
+          path: spec.template.spec.initContainers[2].env
+
+  - it: with inheritEnv, renders the inherited references, then the entry's literals, and the main envFrom
+    template: templates/deployment.yaml
+    set:
+      config: {APP_MODE: web}
+      env:
+        NODE_IP: {valueFrom: {fieldRef: {fieldPath: status.hostIP}}}
+      initContainers:
+        migrate:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          inheritEnv: true
+          config: {MIGRATE_LOCK: "on-$(NODE_IP)"}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].env
+          value:
+            - name: NODE_IP
+              valueFrom: {fieldRef: {fieldPath: status.hostIP}}
+            - {name: MIGRATE_LOCK, value: "on-$(NODE_IP)"}
+      - equal:
+          path: spec.template.spec.initContainers[0].envFrom[0].configMapRef.name
+          value: vending-chart-base-env

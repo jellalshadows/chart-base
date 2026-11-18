@@ -62,7 +62,8 @@ and from 0.8.x it fails with the line of 0.9.0 (measured the same way); values t
 flag.
 From 1.0.0 on, a new key is optional (never required), so a `--reuse-values` upgrade from 1.0.x renders: 1.1.0 adds
 `autoscaling.kedaHandover`, and a values set without it means `false` (measured by rendering the 1.1.0 chart with
-1.0.0's `values.yaml` as its defaults, the seven `ci/` scenarios, Helm 4.3.0 and 3.22.0).
+1.0.0's `values.yaml` as its defaults, the seven `ci/` scenarios, Helm 4.3.0 and 3.22.0); 1.2.0 adds the optional
+`config` of an init container or a sidecar (measured the same way with 1.0.0's and 1.1.0's defaults).
 Use `--reset-then-reuse-values` (available in Helm 3.22 and 4.3), which starts from the new chart's
 defaults and applies your previous values on top, or pass your values files again. Umbrellas are not
 affected.
@@ -763,3 +764,17 @@ before ([ADR-0064](adr/0064-from-1-0-0-a-new-key-is-optional.md); a `--reuse-val
 takes one upgrade once the HPA carries it (path 1 of [Switching to KEDA](#switching-to-keda);
 [ADR-0065](adr/0065-an-opt-in-handover-from-the-chart-s-hpa-to-keda.md)). While it is `true`, KEDA's webhook does not
 count that HPA, so set it for the switch, not as a default for every component.
+
+## 1.1.x → 1.2.0
+
+Nothing to change: 1.2.0 adds `config` to `initContainers.<name>` and `sidecars.<name>`, and no required key. No
+manifest changes unless an entry sets it.
+
+### New and optional: literal variables of an init container or a sidecar
+
+An entry's `config` takes `NAME: value` (a string, a number or a boolean), rendered in its `env` after its references
+and by name, so a literal can use `$(NAME)` of a reference ([ADR-0066](adr/0066-an-entry-level-config-for-literal-variables.md)).
+A literal passed in `args` only for want of a variable, or the component's `config` reached through `inheritEnv: true`
+only for one literal, can move there. A name in both the entry's `env` and its `config` fails, and so does, with
+`inheritEnv: true`, a `config` name the main container already receives. The message of a literal in an entry's
+`env` now names the entry's `config`.

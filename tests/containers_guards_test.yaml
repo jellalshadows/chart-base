@@ -332,7 +332,7 @@ tests:
         shipper: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, env: {MODE: debug}}
     asserts:
       - failedTemplate:
-          errorPattern: 'chart-base\[chart-base\]: sidecars.shipper.env.MODE is a literal value: env takes valueFrom references only; pass literals in args, or put them in the component''s config and set inheritEnv: true'
+          errorPattern: 'chart-base\[chart-base\]: sidecars.shipper.env.MODE is a literal value: env takes valueFrom references only; put literals in sidecars.shipper.config'
 
   - it: rejects an entry's env written as a Kubernetes list
     set:
@@ -345,7 +345,7 @@ tests:
               value: debug
     asserts:
       - failedTemplate:
-          errorPattern: 'chart-base\[chart-base\]: initContainers.migrate.env is a map of NAME: \{valueFrom: ...\}, not a Kubernetes env list: references go in env as a map, literal values in args \(or in the component''s config, with inheritEnv: true\)'
+          errorPattern: 'chart-base\[chart-base\]: initContainers.migrate.env is a map of NAME: \{valueFrom: ...\}, not a Kubernetes env list: references go in env as a map, literal values in initContainers.migrate.config'
 
   - it: rejects an entry env name that is a variable of the component's env, with inheritEnv true
     set:
@@ -986,3 +986,66 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: 'chart-base\[chart-base\]: sidecars.shipper.volumeMounts.config-files.subPath "b.yaml" names no file of configFiles.files \(app.yaml\): config-files holds only those files; name one of them, or . for the whole directory'
+
+  - it: accepts an entry's config of strings, numbers and booleans
+    set:
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, config: {A: x, B: 1, C: false}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects an entry's config value that is a list
+    set:
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, config: {A: [x]}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/initContainers/migrate/config/A': got array, want"
+
+  - it: rejects an entry's config name that is no variable name
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, config: {"1BAD": x}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "invalid propertyName '1BAD'"
+
+  - it: fails for a name in both an entry's config and its env
+    set:
+      initContainers:
+        migrate:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          env: {MODE: {valueFrom: {fieldRef: {fieldPath: metadata.name}}}}
+          config: {MODE: fast}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: initContainers.migrate.config.MODE is also in initContainers.migrate.env: a variable has one source; keep the literal in config or the reference in env'
+
+  - it: fails for a config name of an entry with inheritEnv that the main container's config already gives it
+    set:
+      config: {APP_MODE: web}
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, inheritEnv: true, config: {APP_MODE: proxy}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: sidecars.proxy.config.APP_MODE is also a variable of the main container, which inheritEnv: true already gives this container: rename it, or drop inheritEnv'
+
+  - it: fails for a config name of an entry with inheritEnv that the main container's env already gives it
+    set:
+      env: {NODE_IP: {valueFrom: {fieldRef: {fieldPath: status.hostIP}}}}
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, inheritEnv: true, config: {NODE_IP: 10.0.0.1}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: initContainers.migrate.config.NODE_IP is also a variable of the main container, which inheritEnv: true already gives this container: rename it, or drop inheritEnv'
+
+  - it: accepts the same config name in an entry without inheritEnv and in the main container's config
+    set:
+      config: {APP_MODE: web}
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, config: {APP_MODE: migrate}}
+    asserts:
+      - hasDocuments:
+          count: 0

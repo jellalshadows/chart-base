@@ -216,6 +216,7 @@ ingress.tls
 initContainers
 initContainers.<name>.args
 initContainers.<name>.command
+initContainers.<name>.config
 initContainers.<name>.env
 initContainers.<name>.env.<name>.valueFrom
 initContainers.<name>.env.<name>.valueFrom.configMapKeyRef
@@ -514,6 +515,7 @@ serviceAccount.name
 sidecars
 sidecars.<name>.args
 sidecars.<name>.command
+sidecars.<name>.config
 sidecars.<name>.env
 sidecars.<name>.env.<name>.valueFrom
 sidecars.<name>.env.<name>.valueFrom.configMapKeyRef
