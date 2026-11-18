@@ -772,8 +772,9 @@ main container's and the sidecars' requests and usage. A name that is neither th
 sidecar fails the render, because the API server and KEDA accept any name (measured on kube-apiserver 1.33.0 and
 1.37.0 and with KEDA 2.21.0). A sidecar can be named too: metrics-server reports a native sidecar's usage next to the
 main container's (source reading of the kubelet and of metrics-server 0.9.0; the kind e2e asserts it). Moving a
-running component from the HPA to KEDA: the
-[upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md#switching-to-keda).
+running component from the HPA to KEDA: set `autoscaling.kedaHandover: true` in one upgrade, then turn the HPA off and
+KEDA on in the next (the
+[upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md#switching-to-keda)).
 
 ### Team labels, an internal load balancer and an object the chart does not render
 
@@ -1340,6 +1341,16 @@ code, official docs) and local renders.
     object is recreated, but every Deployment rolls once at the upgrade to 0.12.0 (it amends decision 10). *Rejected:*
     freezing the workload type, a copy of the alias, a consumer value winning over the chart's.
     [ADR-0063](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0063-the-chart-does-not-write-app-kubernetes-io-component.md)
+64. **From 1.0.0, a new values key is optional.** A required key that a release adds fails a direct install upgraded
+    with `--reuse-values` (`missing property`), which a minor may not do. The templates read a new key absent as its
+    default, and the new chart is rendered with the previous release's defaults before release. It amends
+    decision 27. *Rejected:* documenting each new required key, a default filled in by a helper.
+    [ADR-0064](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0064-from-1-0-0-a-new-key-is-optional.md)
+65. **An opt-in handover from the chart's HPA to KEDA.** `autoscaling.kedaHandover: true` puts
+    `validations.keda.sh/hpa-ownership: "false"` on the chart's HPA, which KEDA's admission webhook skips, so the
+    switch to KEDA takes one upgrade once the HPA carries it; off by default, because it turns KEDA's check off for
+    that HPA. It amends decision 56. *Rejected:* the annotation on every HPA, `transfer-hpa-ownership`, a guard.
+    [ADR-0065](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0065-an-opt-in-handover-from-the-chart-s-hpa-to-keda.md)
 
 ## How it compares
 

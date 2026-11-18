@@ -14,8 +14,8 @@
 # job and worker scenarios check the ExternalSecret's dataFrom, template and file mount: the Secret's key set, the value
 # of a key two sources bring, a templated value and the chart's labels, a key that is no variable name in the
 # environment, the files in the pods and in the hook Job, and a component that reads the Secret without envFrom. The
-# keda scenario checks a ScaledObject (Ready, KEDA's HPA and its target, scale to zero, a second upgrade at zero, and the
-# switch back to the chart's HPA at zero), the full scenario the HPA's behavior, and metrics-server the usage of the full
+# keda scenario checks a ScaledObject (Ready, KEDA's HPA and its target, scale to zero, a second upgrade at zero, the
+# switch back to the chart's HPA at zero, and the switch to KEDA again in one upgrade after autoscaling.kedaHandover), the full scenario the HPA's behavior, and metrics-server the usage of the full
 # scenario's native sidecar. The full scenario also checks commonLabels and commonAnnotations on every object of its
 # release in the cluster, the Service's own annotation, the common label on its pods and on the Secret that External
 # Secrets writes, and an extra object (the ConfigMap full-chart-base.settings).
@@ -355,6 +355,23 @@ done
 n="$(kubectl get deployment -n "$ns" keda-chart-base -o jsonpath='{.spec.replicas}' || true)"
 [ "$n" = 0 ] || fail "the chart's HPA must leave a Deployment at 0 replicas at 0 (the trap docs/upgrading.md describes), got spec.replicas '$n'"
 pass "keda: switched to the chart's HPA at zero, KEDA's objects are gone, and the HPA leaves the Deployment at 0 (ScalingDisabled)"
+# The switch to KEDA in one upgrade (docs/upgrading.md, "Switching to KEDA"): an upgrade with autoscaling.kedaHandover
+# marks the chart's HPA, then one upgrade turns the HPA off and KEDA on. Without the mark KEDA's webhook denies that
+# upgrade, because Helm creates the ScaledObject before it deletes the HPA.
+install keda --set config.APP_MODE=keda-2 -f "$work/keda-to-hpa.yaml" --set autoscaling.kedaHandover=true \
+  || fail "the upgrade that sets autoscaling.kedaHandover on the chart's HPA failed"
+mark="$(kubectl get hpa -n "$ns" keda-chart-base -o jsonpath='{.metadata.annotations.validations\.keda\.sh/hpa-ownership}' || true)"
+[ "$mark" = false ] || fail "with autoscaling.kedaHandover the chart's HPA must carry validations.keda.sh/hpa-ownership: \"false\", got '$mark'"
+install keda --set config.APP_MODE=keda-2 \
+  || fail "the switch from the chart's HPA to KEDA in one upgrade failed after autoscaling.kedaHandover (KEDA's webhook still counted the HPA: see Helm's error above)"
+kubectl wait -n "$ns" scaledobject/keda-chart-base --for=condition=Ready --timeout=120s \
+  || fail "after the one-upgrade switch the ScaledObject keda-chart-base did not become Ready in 120 s"
+left="$(kubectl get hpa -n "$ns" keda-chart-base --ignore-not-found -o name)" \
+  || fail "could not look up the chart's HPA keda-chart-base (a kubectl error, not its absence)"
+[ -z "$left" ] || fail "the switch must delete the chart's HPA keda-chart-base, still there: $left"
+target="$(kubectl get hpa -n "$ns" keda-hpa-keda-chart-base -o jsonpath='{.spec.scaleTargetRef.kind} {.spec.scaleTargetRef.name}' || true)"
+[ "$target" = "Deployment keda-chart-base" ] || fail "after the switch KEDA's HPA keda-hpa-keda-chart-base must target Deployment keda-chart-base, got '$target'"
+pass "keda: with autoscaling.kedaHandover, one upgrade switches from the chart's HPA to KEDA (the ScaledObject is Ready, the chart's HPA is gone)"
 
 echo "== cronjob"
 install cronjob || fail "cronjob scenario failed"

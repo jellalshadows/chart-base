@@ -505,3 +505,18 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: rejects a kedaHandover that is not a boolean
+    set:
+      autoscaling.kedaHandover: "false"
+    asserts:
+      - failedTemplate:
+          errorPattern: "/autoscaling/kedaHandover': got string, want boolean"
+
+  - it: accepts kedaHandover absent (optional, so a --reuse-values upgrade from 1.0.0, whose values lack it, renders)
+    set:
+      autoscaling.enabled: true
+      autoscaling.kedaHandover: null
+    asserts:
+      - hasDocuments:
+          count: 0

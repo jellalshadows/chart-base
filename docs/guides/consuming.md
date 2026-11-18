@@ -702,7 +702,8 @@ so `helm template` and `helm lint` do not catch it):
 - Where KEDA's admission webhook runs (the KEDA chart's default), a ScaledObject for a Deployment that an HPA already
   scales: the webhook denies it (`the workload '<fullname>' of type 'apps/v1.Deployment' is already managed by the hpa
   '<fullname>'`) and the release fails; that is a one-upgrade switch from the chart's HPA to KEDA (measured with KEDA
-  2.21.0's webhook; the [upgrade guide](../upgrading.md#switching-to-keda) has the paths that work).
+  2.21.0's webhook; the [upgrade guide](../upgrading.md#switching-to-keda) has the paths that work). From 1.1.0, an
+  earlier upgrade with `autoscaling.kedaHandover: true` marks the HPA, and the switch then works in one upgrade.
 - A Role or a RoleBinding that grants a permission the deployer does not hold (unless it may `escalate` or `bind`):
   the API server rejects it with `is attempting to grant RBAC permissions not currently held`, a RoleBinding whose
   Role was rejected fails too (`not found`), and the release fails; the objects already created stay. An upgrade that

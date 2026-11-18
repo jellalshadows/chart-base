@@ -772,8 +772,9 @@ main container's and the sidecars' requests and usage. A name that is neither th
 sidecar fails the render, because the API server and KEDA accept any name (measured on kube-apiserver 1.33.0 and
 1.37.0 and with KEDA 2.21.0). A sidecar can be named too: metrics-server reports a native sidecar's usage next to the
 main container's (source reading of the kubelet and of metrics-server 0.9.0; the kind e2e asserts it). Moving a
-running component from the HPA to KEDA: the
-[upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md#switching-to-keda).
+running component from the HPA to KEDA: set `autoscaling.kedaHandover: true` in one upgrade, then turn the HPA off and
+KEDA on in the next (the
+[upgrade guide](https://github.com/jellalshadows/chart-base/blob/main/docs/upgrading.md#switching-to-keda)).
 
 ### Team labels, an internal load balancer and an object the chart does not render
 
@@ -919,6 +920,7 @@ sales-migrations:
 | args | list | `[]` | Container args (overrides the image CMD). |
 | autoscaling.behavior | object | `nil` | The HPA's `spec.behavior`, in Kubernetes' own shape: `scaleUp` and `scaleDown`, each with `stabilizationWindowSeconds` (0 to 3600), `selectPolicy` (`Max`, `Min` or `Disabled`) and `policies` (at least one, each `{type: Pods or Percent, value: 1 or more, periodSeconds: 1 to 1800}`), integers only. Closed at every level: a misspelt field fails the render (Helm 3 alone would only warn and drop it). `null` = not rendered (the API server's defaults); `{}` and an empty direction fail (a value that does nothing). Not offered: `tolerance` (Kubernetes 1.33 and 1.34 drop it without a word: source reading). Not a converted map: a `null` inside (`scaleUp: null`, `policies: null`) fails the schema (on Helm 4.3 a `null` inside it in an umbrella's own values, with nothing passed for the alias, is dropped, and a direction or a `behavior` left empty then fails `minProperties`: see the consuming guide). An override file merges into the `behavior` of a lower layer: it changes a field of a direction by restating it, and cannot remove one direction; `behavior: null` removes the whole block. |
 | autoscaling.enabled | bool | `false` | Render a HorizontalPodAutoscaler (autoscaling/v2). Deployments only. |
+| autoscaling.kedaHandover | bool | `false` | Prepare the switch from this HPA to KEDA (`keda`) in one upgrade: `true` puts `validations.keda.sh/hpa-ownership: "false"` on the HPA, so KEDA's admission webhook no longer counts it as the Deployment's autoscaler. Deploy `true` first; the next upgrade can then set `enabled: false` and `keda.enabled: true` together (without it, KEDA's webhook denies that upgrade: see the upgrade guide). Off by default: the annotation turns KEDA's ownership check off for this HPA. Read only while `enabled` is `true`; it wins over the same key in `commonAnnotations`. |
 | autoscaling.maxReplicas | int | `10` | Maximum replicas. |
 | autoscaling.metrics | list | `[]` | The HPA's `spec.metrics`, in Kubernetes' own list shape. `[]` or `null` = the built-in targets (`targetCPUUtilizationPercentage`, `targetMemoryUtilizationPercentage`). A non-empty list is the WHOLE list and replaces the built-in targets: restate the CPU target in it to keep it, and `targetMemoryUtilizationPercentage` must then be `null` (the render fails otherwise). Each item: `type` (`Resource`, `ContainerResource`, `Pods`, `Object` or `External`) and the block of that type, no other: `resource: {name, target}`, `containerResource: {name, container, target}` (`name`: `cpu` or `memory`), `pods: {metric, target}`, `object: {describedObject: {apiVersion, kind, name}, metric, target}`, `external: {metric, target}`, where `metric` is `{name, selector}` (`selector`: a label selector, optional). A target is `{type: Utilization, averageUtilization}` (`Resource` and `ContainerResource` only), `{type: AverageValue, averageValue}`, or `{type: Value, value}` (`Object` and `External` only); a quantity is a string or a number. Rendered as written, never switched: a `Resource` entry on a component with sidecars measures the whole pod (the main container's and the sidecars' requests and usage); to measure the main container alone, use `ContainerResource` with `container: <alias>`. A `ContainerResource` container must be the main container (named after the alias) or a non-null `sidecars` key (the render fails otherwise; an init container has exited before the metric is read). A list: an override file replaces it whole, and a `null` item or field fails the schema. |
 | autoscaling.minReplicas | int | `2` | Minimum replicas. |
@@ -1472,6 +1474,16 @@ code, official docs) and local renders.
     object is recreated, but every Deployment rolls once at the upgrade to 0.12.0 (it amends decision 10). *Rejected:*
     freezing the workload type, a copy of the alias, a consumer value winning over the chart's.
     [ADR-0063](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0063-the-chart-does-not-write-app-kubernetes-io-component.md)
+64. **From 1.0.0, a new values key is optional.** A required key that a release adds fails a direct install upgraded
+    with `--reuse-values` (`missing property`), which a minor may not do. The templates read a new key absent as its
+    default, and the new chart is rendered with the previous release's defaults before release. It amends
+    decision 27. *Rejected:* documenting each new required key, a default filled in by a helper.
+    [ADR-0064](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0064-from-1-0-0-a-new-key-is-optional.md)
+65. **An opt-in handover from the chart's HPA to KEDA.** `autoscaling.kedaHandover: true` puts
+    `validations.keda.sh/hpa-ownership: "false"` on the chart's HPA, which KEDA's admission webhook skips, so the
+    switch to KEDA takes one upgrade once the HPA carries it; off by default, because it turns KEDA's check off for
+    that HPA. It amends decision 56. *Rejected:* the annotation on every HPA, `transfer-hpa-ownership`, a guard.
+    [ADR-0065](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0065-an-opt-in-handover-from-the-chart-s-hpa-to-keda.md)
 
 ## How it compares
 
