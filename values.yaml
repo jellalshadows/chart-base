@@ -32,7 +32,9 @@ args: []
 # defaults to `containerPort`. A probe port given by name (`httpGet.port`, `tcpSocket.port` in `probes`) must be one of
 # these names: the render fails otherwise. A sidecar's port name is not one (the kubelet resolves a name among the
 # probed container's own ports: source reading), while a port NUMBER reaches whatever listens on it in the pod, a
-# sidecar included (a `grpc` probe takes a number only, so it cannot be checked).
+# sidecar included (a `grpc` probe takes a number only, so it cannot be checked). `appProtocol` (optional, since 1.4.0)
+# goes on the Service port only, for example `kubernetes.io/h2c` for cleartext HTTP/2 or gRPC behind a Gateway; the API
+# server checks its value.
 ports:
   - name: http
     containerPort: 8080

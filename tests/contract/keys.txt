@@ -402,6 +402,7 @@ podAnnotations
 podLabels
 podSecurityContext
 ports
+ports[].appProtocol
 ports[].containerPort
 ports[].name
 ports[].servicePort

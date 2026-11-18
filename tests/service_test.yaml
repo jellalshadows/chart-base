@@ -49,6 +49,63 @@ tests:
               targetPort: grpc
               protocol: TCP
 
+  - it: writes a port's appProtocol on its Service port, and nothing on a port without one
+    set:
+      ports:
+        - name: http
+          containerPort: 8080
+          appProtocol: kubernetes.io/h2c
+        - name: grpc
+          containerPort: 9090
+    asserts:
+      - equal:
+          path: spec.ports
+          value:
+            - name: http
+              port: 8080
+              targetPort: http
+              protocol: TCP
+              appProtocol: kubernetes.io/h2c
+            - name: grpc
+              port: 9090
+              targetPort: grpc
+              protocol: TCP
+
+  - it: renders an appProtocol set to null as absent (the default)
+    set:
+      ports:
+        - name: http
+          containerPort: 8080
+          appProtocol: null
+    asserts:
+      - equal:
+          path: spec.ports
+          value:
+            - name: http
+              port: 8080
+              targetPort: http
+              protocol: TCP
+
+  - it: rejects an appProtocol that is not a string, at its own path
+    set:
+      ports:
+        - name: http
+          containerPort: 8080
+          appProtocol: 5
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/ports/0/appProtocol': got number, want null or string"
+
+  - it: rejects an empty appProtocol
+    set:
+      ports:
+        - name: http
+          containerPort: 8080
+          appProtocol: ''
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/ports/0/appProtocol': minLength: got 0, want 1"
+
   - it: renders no Service for a worker
     set:
       service.enabled: false

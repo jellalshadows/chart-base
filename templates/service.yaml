@@ -19,5 +19,8 @@ spec:
       port: {{ include "chart-base.servicePort" . }}
       targetPort: {{ .name | quote }}
       protocol: TCP
+      {{- with .appProtocol }}
+      appProtocol: {{ . | quote }}
+      {{- end }}
     {{- end }}
 {{- end }}
