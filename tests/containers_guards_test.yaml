@@ -1009,7 +1009,15 @@ tests:
         proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, config: {"1BAD": x}}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName '1BAD'"
+          errorPattern: "at '/sidecars/proxy/config': additional properties '1BAD' not allowed"
+
+  - it: rejects an entry's env name that is no variable name, at the entry's path
+    set:
+      initContainers:
+        migrate: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, env: {bad-name: {valueFrom: {fieldRef: {fieldPath: metadata.uid}}}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/initContainers/migrate/env': additional properties 'bad-name' not allowed"
 
   - it: fails for a name in both an entry's config and its env
     set:

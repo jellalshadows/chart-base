@@ -316,7 +316,7 @@ tests:
       serviceAccount.annotations: {helm.sh/hook-weight: "5"}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'helm.sh/hook-weight'"
+          errorPattern: "at '/serviceAccount/annotations/helm\\.sh~1hook-weight': false schema"
 
   - it: renders a job's hook annotations next to serviceAccount.annotations and the common ones on its ServiceAccount (T10)
     template: templates/serviceaccount.yaml
@@ -396,7 +396,7 @@ tests:
       commonAnnotations: {helm.sh/hook: pre-install}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'helm.sh/hook'"
+          errorPattern: "at '/commonAnnotations/helm\\.sh~1hook': false schema"
 
   - it: rejects helm.sh/hook-weight in commonAnnotations (every helm.sh/hook key) (T11)
     template: templates/service.yaml
@@ -404,7 +404,7 @@ tests:
       commonAnnotations: {helm.sh/hook-weight: "5"}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'helm.sh/hook-weight'"
+          errorPattern: "at '/commonAnnotations/helm\\.sh~1hook-weight': false schema"
 
   - it: rejects meta.helm.sh/release-name in commonAnnotations (Helm's ownership keys) (T11)
     template: templates/service.yaml
@@ -412,7 +412,7 @@ tests:
       commonAnnotations: {meta.helm.sh/release-name: other}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'meta.helm.sh/release-name'"
+          errorPattern: "at '/commonAnnotations/meta\\.helm\\.sh~1release-name': false schema"
 
   - it: rejects checksum/config-env in commonAnnotations (the chart's checksum) (T11)
     template: templates/service.yaml
@@ -420,7 +420,7 @@ tests:
       commonAnnotations: {checksum/config-env: x}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'checksum/config-env'"
+          errorPattern: "at '/commonAnnotations/checksum~1config-env': false schema"
 
   - it: rejects checksum/config-files in commonAnnotations (the chart's checksum) (T11)
     template: templates/service.yaml
@@ -428,7 +428,7 @@ tests:
       commonAnnotations: {checksum/config-files: x}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'checksum/config-files'"
+          errorPattern: "at '/commonAnnotations/checksum~1config-files': false schema"
 
   - it: rejects secret.reloader.stakater.com/reload in commonAnnotations (a Reloader key the chart computes on the Deployment) (T11)
     template: templates/service.yaml
@@ -436,7 +436,7 @@ tests:
       commonAnnotations: {secret.reloader.stakater.com/reload: x}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'secret.reloader.stakater.com/reload'"
+          errorPattern: "at '/commonAnnotations/secret\\.reloader\\.stakater\\.com~1reload': false schema"
 
   - it: rejects configmap.reloader.stakater.com/reload in commonAnnotations (a Reloader key the chart computes on the Deployment) (T11)
     template: templates/service.yaml
@@ -444,7 +444,7 @@ tests:
       commonAnnotations: {configmap.reloader.stakater.com/reload: x}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'configmap.reloader.stakater.com/reload'"
+          errorPattern: "at '/commonAnnotations/configmap\\.reloader\\.stakater\\.com~1reload': false schema"
 
   - it: rejects helm.sh/hook in service.annotations (a Helm hook key) (T11)
     template: templates/service.yaml
@@ -452,7 +452,7 @@ tests:
       service.annotations: {helm.sh/hook: pre-install}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'helm.sh/hook'"
+          errorPattern: "at '/service/annotations/helm\\.sh~1hook': false schema"
 
   - it: rejects helm.sh/hook-weight in service.annotations (every helm.sh/hook key) (T11)
     template: templates/service.yaml
@@ -460,7 +460,7 @@ tests:
       service.annotations: {helm.sh/hook-weight: "5"}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'helm.sh/hook-weight'"
+          errorPattern: "at '/service/annotations/helm\\.sh~1hook-weight': false schema"
 
   - it: rejects meta.helm.sh/release-name in service.annotations (Helm's ownership keys) (T11)
     template: templates/service.yaml
@@ -468,7 +468,7 @@ tests:
       service.annotations: {meta.helm.sh/release-name: other}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'meta.helm.sh/release-name'"
+          errorPattern: "at '/service/annotations/meta\\.helm\\.sh~1release-name': false schema"
 
   - it: rejects checksum/config-env in service.annotations (the chart's checksum) (T11)
     template: templates/service.yaml
@@ -476,7 +476,7 @@ tests:
       service.annotations: {checksum/config-env: x}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'checksum/config-env'"
+          errorPattern: "at '/service/annotations/checksum~1config-env': false schema"
 
   - it: rejects checksum/config-files in service.annotations (the chart's checksum) (T11)
     template: templates/service.yaml
@@ -484,7 +484,7 @@ tests:
       service.annotations: {checksum/config-files: x}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'checksum/config-files'"
+          errorPattern: "at '/service/annotations/checksum~1config-files': false schema"
 
   - it: accepts helm.sh/resource-policy and reloader.stakater.com/auto in commonAnnotations (T11)
     template: templates/service.yaml

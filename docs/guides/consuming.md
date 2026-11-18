@@ -586,8 +586,9 @@ offer ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-
    kinds the chart does not offer as features (a SealedSecret, a SecretProviderClass, a cert-manager Certificate, a
    PersistentVolumeClaim); the chart's integrated secret path stays `externalSecret`, and a plain `Secret` is rejected.
    Values are rendered as written, never as templates.
-8. **A reserved key's message names the key at an unrelated path** (`invalid propertyName '<key>'`, at a path such as
-   `'/prometheusRule'` that moves between Helm versions). Which maps reject which keys: `commonLabels`, `podLabels`,
+8. **A reserved key's message names the key's own path** (`at '/podLabels/app.kubernetes.io~1name': false schema`, a
+   `/` in the key written `~1`; up to 1.3.0, `invalid propertyName '<key>'` at an unrelated path such as
+   `'/prometheusRule'`). Which maps reject which keys: `commonLabels`, `podLabels`,
    `metrics.labels`, `prometheusRule.labels` and an extra object's own labels reject the chart's label keys
    (`app.kubernetes.io/name`, `instance`, `part-of`, `version`, `managed-by`, `helm.sh/chart`; not
    `app.kubernetes.io/component`, which the chart does not write since 0.12.0); every annotations map of an object's

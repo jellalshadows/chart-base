@@ -389,7 +389,7 @@ tests:
       commonLabels: {app.kubernetes.io/name: x}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'app.kubernetes.io/name'"
+          errorPattern: "at '/commonLabels/app\\.kubernetes\\.io~1name': false schema"
 
   - it: rejects app.kubernetes.io/instance in commonLabels (a chart key) (T7)
     template: templates/service.yaml
@@ -397,7 +397,7 @@ tests:
       commonLabels: {app.kubernetes.io/instance: x}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'app.kubernetes.io/instance'"
+          errorPattern: "at '/commonLabels/app\\.kubernetes\\.io~1instance': false schema"
 
   - it: rejects app.kubernetes.io/part-of in commonLabels (a chart key) (T7)
     template: templates/service.yaml
@@ -405,7 +405,7 @@ tests:
       commonLabels: {app.kubernetes.io/part-of: x}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'app.kubernetes.io/part-of'"
+          errorPattern: "at '/commonLabels/app\\.kubernetes\\.io~1part-of': false schema"
 
   - it: accepts app.kubernetes.io/component in commonLabels, the consumer's key since the chart stopped writing it (ADR-0063)
     template: templates/deployment.yaml
@@ -436,7 +436,7 @@ tests:
       commonLabels: {app.kubernetes.io/version: x}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'app.kubernetes.io/version'"
+          errorPattern: "at '/commonLabels/app\\.kubernetes\\.io~1version': false schema"
 
   - it: rejects app.kubernetes.io/managed-by in commonLabels (a chart key) (T7)
     template: templates/service.yaml
@@ -444,7 +444,7 @@ tests:
       commonLabels: {app.kubernetes.io/managed-by: x}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'app.kubernetes.io/managed-by'"
+          errorPattern: "at '/commonLabels/app\\.kubernetes\\.io~1managed-by': false schema"
 
   - it: rejects helm.sh/chart in commonLabels (a chart key) (T7)
     template: templates/service.yaml
@@ -452,7 +452,7 @@ tests:
       commonLabels: {helm.sh/chart: x}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'helm.sh/chart'"
+          errorPattern: "at '/commonLabels/helm\\.sh~1chart': false schema"
 
   - it: rejects a common label whose value is not a string (true)
     template: templates/service.yaml

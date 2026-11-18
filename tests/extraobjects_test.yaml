@@ -369,14 +369,62 @@ tests:
       extraObjects.settings: {apiVersion: v1, kind: ConfigMap, metadata: {labels: {helm.sh/chart: x}}}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'helm.sh/chart'"
+          errorPattern: "at '/extraObjects/settings/metadata/labels/helm\\.sh~1chart': false schema"
 
   - it: rejects a Helm hook key in an extra object's own annotations (T20)
     set:
       extraObjects.settings: {apiVersion: v1, kind: ConfigMap, metadata: {annotations: {helm.sh/hook: pre-install}}}
     asserts:
       - failedTemplate:
-          errorPattern: "invalid propertyName 'helm.sh/hook'"
+          errorPattern: "at '/extraObjects/settings/metadata/annotations/helm\\.sh~1hook': false schema"
+
+  - it: rejects every reserved label key in an extra object's own labels, each at its own path (the list repeats definitions.extraLabels)
+    set:
+      extraObjects.settings:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          labels:
+            app.kubernetes.io/name: x
+            app.kubernetes.io/instance: x
+            app.kubernetes.io/part-of: x
+            app.kubernetes.io/version: x
+            app.kubernetes.io/managed-by: x
+            helm.sh/chart: x
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/extraObjects/settings/metadata/labels/app\\.kubernetes\\.io~1name': false schema"
+      - failedTemplate:
+          errorPattern: "at '/extraObjects/settings/metadata/labels/app\\.kubernetes\\.io~1instance': false schema"
+      - failedTemplate:
+          errorPattern: "at '/extraObjects/settings/metadata/labels/app\\.kubernetes\\.io~1part-of': false schema"
+      - failedTemplate:
+          errorPattern: "at '/extraObjects/settings/metadata/labels/app\\.kubernetes\\.io~1version': false schema"
+      - failedTemplate:
+          errorPattern: "at '/extraObjects/settings/metadata/labels/app\\.kubernetes\\.io~1managed-by': false schema"
+      - failedTemplate:
+          errorPattern: "at '/extraObjects/settings/metadata/labels/helm\\.sh~1chart': false schema"
+
+  - it: rejects every reserved annotation key in an extra object's own annotations, each at its own path (the keys repeat definitions.extraAnnotations)
+    set:
+      extraObjects.settings:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          annotations:
+            helm.sh/hook-weight: "1"
+            meta.helm.sh/release-name: x
+            checksum/config-env: x
+            checksum/config-files: x
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/extraObjects/settings/metadata/annotations/helm\\.sh~1hook-weight': false schema"
+      - failedTemplate:
+          errorPattern: "at '/extraObjects/settings/metadata/annotations/meta\\.helm\\.sh~1release-name': false schema"
+      - failedTemplate:
+          errorPattern: "at '/extraObjects/settings/metadata/annotations/checksum~1config-env': false schema"
+      - failedTemplate:
+          errorPattern: "at '/extraObjects/settings/metadata/annotations/checksum~1config-files': false schema"
 
   - it: rejects a number as an extra object's own label value (T20)
     set:
