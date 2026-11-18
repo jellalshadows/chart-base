@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/jellalshadows/chart-base/compare/v1.2.0...v1.3.0) (2026-11-18)
+
+
+### Features
+
+* a per-volume Reloader opt-out (volumes.&lt;name&gt;.reloadOnChange) ([#38](https://github.com/jellalshadows/chart-base/issues/38)) ([499b8b7](https://github.com/jellalshadows/chart-base/commit/499b8b717ec08ee7b41394e6c47d96ab78b1d611))
+
 ## [1.2.0](https://github.com/jellalshadows/chart-base/compare/v1.1.0...v1.2.0) (2026-11-18)
 
 
