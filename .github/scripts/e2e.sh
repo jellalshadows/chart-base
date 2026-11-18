@@ -472,6 +472,16 @@ for _ in $(seq 1 36); do
 done
 [ "$both" = yes ] || fail "metrics-server must report the usage of the native sidecar shipper next to the main container chart-base, got containers '$reported' after 180 s; kubectl top: $(kubectl top pod -n "$ns" "$pod" --containers 2>&1 | tr '\n' ' ')"
 pass "full: metrics-server reports the usage of the native sidecar (shipper) next to the main container's"
+# The sidecar's own literals (sidecars.shipper.config), rendered after its reference POD_NAME: the kubelet expands
+# $(POD_NAME) in SHIPPER_SOURCE. The environment as the kubelet set it (PID 1's); the file first, then tr.
+kubectl exec -n "$ns" "$pod" -c shipper -- cat /proc/1/environ > "$work/shipper.environ" \
+  || fail "could not read the environment of the sidecar shipper"
+tr '\0' '\n' < "$work/shipper.environ" > "$work/shipper.env" || fail "could not convert the environment of the sidecar shipper"
+grep -qxF 'SHIPPER_MODE=e2e' "$work/shipper.env" \
+  || fail "the sidecar shipper must receive SHIPPER_MODE=e2e from its config, got '$(grep '^SHIPPER_MODE=' "$work/shipper.env" || echo 'no SHIPPER_MODE')'"
+grep -qxF "SHIPPER_SOURCE=pod-$pod" "$work/shipper.env" \
+  || fail "the sidecar shipper's SHIPPER_SOURCE must be pod-$pod (\$(POD_NAME) expanded), got '$(grep '^SHIPPER_SOURCE=' "$work/shipper.env" || echo 'no SHIPPER_SOURCE')'"
+pass "full: the sidecar shipper receives the literals of its config, one built from its reference with \$(POD_NAME)"
 runtime="$(kubectl get pod -n "$ns" "$pod" -o jsonpath='{.spec.priorityClassName} {.spec.priority} {.spec.enableServiceLinks} {.spec.dnsConfig.options[0].name}={.spec.dnsConfig.options[0].value} {.spec.hostAliases[0].ip} {.spec.hostAliases[0].hostnames[0]}')"
 [ "$runtime" = "e2e-high 1000 false ndots=2 10.20.30.40 legacy-db.internal" ] \
   || fail "pod must carry priorityClassName (priority 1000), enableServiceLinks, dnsConfig and hostAliases, got '$runtime'"

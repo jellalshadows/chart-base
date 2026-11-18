@@ -104,6 +104,12 @@ sidecars:
     image: {repository: registry.k8s.io/e2e-test-images/agnhost, tag: "2.66.1"}
     args: ["pause"]
     resources: {requests: {cpu: 10m, memory: 16Mi}}
+    # Literals of the sidecar itself, rendered after its reference: the kubelet expands $(POD_NAME) (the e2e reads them).
+    env:
+      POD_NAME: {valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+    config:
+      SHIPPER_MODE: e2e
+      SHIPPER_SOURCE: "pod-$(POD_NAME)"
 strategy:
   type: RollingUpdate
   rollingUpdate:

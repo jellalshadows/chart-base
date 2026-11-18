@@ -566,19 +566,29 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list . (printf "sidecars on a %s need job.activeDeadlineSeconds (e.g. 600; for a job, below Helm's --timeout): a sidecar that exits before it has started is restarted with back-off and never counts as a failure, so the pod stays Pending and the run never fails; with cronjob.concurrencyPolicy: Forbid every later run is then skipped" .Values.workload.type)) -}}
 {{- end -}}
 
-{{- /* The env of init containers and sidecars: a map of references (a literal and the list form fail with a remedy), and with inheritEnv: true no name that the main container already receives (its env, and chart-base.chartEnvNames, the list of its own duplicate guard). */ -}}
+{{- /* The env and config of init containers and sidecars: env a map of references (a literal and the list form fail with a remedy: the entry's config), a name in config not also in env, and with inheritEnv: true no name of either that the main container already receives (its env, and chart-base.chartEnvNames, the list of its own duplicate guard). */ -}}
 {{- range $c := $containers.ordered -}}
 {{- $path := printf "%s.%s" $c.kind $c.name -}}
 {{- if kindIs "slice" $c.entry.env -}}
-{{- include "chart-base.fail" (list $ (printf "%s.env is a map of NAME: {valueFrom: ...}, not a Kubernetes env list: references go in env as a map, literal values in args (or in the component's config, with inheritEnv: true)" $path)) -}}
+{{- include "chart-base.fail" (list $ (printf "%s.env is a map of NAME: {valueFrom: ...}, not a Kubernetes env list: references go in env as a map, literal values in %s.config" $path $path)) -}}
 {{- end -}}
 {{- if kindIs "map" $c.entry.env -}}
 {{- range $name, $ref := $c.entry.env -}}
 {{- if not (kindIs "map" $ref) -}}
-{{- include "chart-base.fail" (list $ (printf "%s.env.%s is a literal value: env takes valueFrom references only; pass literals in args, or put them in the component's config and set inheritEnv: true" $path $name)) -}}
+{{- include "chart-base.fail" (list $ (printf "%s.env.%s is a literal value: env takes valueFrom references only; put literals in %s.config" $path $name $path)) -}}
 {{- end -}}
 {{- if and $c.entry.inheritEnv (or (hasKey ($.Values.env | default dict) $name) (has $name $chartEnv.names)) -}}
 {{- include "chart-base.fail" (list $ (printf "%s.env.%s is also a variable of the main container, which inheritEnv: true already gives this container: rename it, or drop inheritEnv and reference what the container needs" $path $name)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if kindIs "map" $c.entry.config -}}
+{{- range $name, $_ := $c.entry.config -}}
+{{- if and (kindIs "map" $c.entry.env) (hasKey $c.entry.env $name) -}}
+{{- include "chart-base.fail" (list $ (printf "%s.config.%s is also in %s.env: a variable has one source; keep the literal in config or the reference in env" $path $name $path)) -}}
+{{- end -}}
+{{- if and $c.entry.inheritEnv (or (hasKey ($.Values.env | default dict) $name) (has $name $chartEnv.names)) -}}
+{{- include "chart-base.fail" (list $ (printf "%s.config.%s is also a variable of the main container, which inheritEnv: true already gives this container: rename it, or drop inheritEnv" $path $name)) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

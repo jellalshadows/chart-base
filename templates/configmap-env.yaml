@@ -11,7 +11,6 @@ metadata:
   {{- end }}
 data:
   {{- range $key, $value := .Values.config }}
-  {{- /* Values files parse numbers as float64: toJson avoids "1e+07"-style output. */}}
-  {{ $key | quote }}: {{ if kindIs "string" $value }}{{ $value | quote }}{{ else }}{{ $value | toJson | quote }}{{ end }}
+  {{ $key | quote }}: {{ include "chart-base.configValue" $value }}
   {{- end }}
 {{- end }}
