@@ -98,8 +98,8 @@ Usage: include "chart-base.volumeTypeFields" . | fromYaml
 */}}
 {{- define "chart-base.volumeTypeFields" -}}
 emptyDir: [medium, sizeLimit]
-configMap: [name, items, defaultMode, optional]
-secret: [secretName, items, defaultMode, optional]
+configMap: [name, items, defaultMode, optional, reloadOnChange]
+secret: [secretName, items, defaultMode, optional, reloadOnChange]
 persistentVolumeClaim: [claimName, claimAccessMode]
 ephemeral: [size, accessMode, storageClassName]
 {{- end -}}

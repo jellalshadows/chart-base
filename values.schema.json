@@ -478,6 +478,7 @@
         "items": { "$ref": "#/definitions/volumeItems" },
         "defaultMode": { "$ref": "#/definitions/fileMode" },
         "optional": { "type": ["boolean", "null"] },
+        "reloadOnChange": { "type": ["boolean", "null"], "description": "configMap and secret entries: false leaves the volume's ConfigMap or Secret out of the Reloader annotations (the kubelet updates the mounted files in place). null or absent: listed while the top-level reloadOnChange is true." },
         "claimName": { "type": ["string", "null"], "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?([.][a-z0-9]([-a-z0-9]*[a-z0-9])?)*$", "maxLength": 253 },
         "claimAccessMode": { "enum": ["ReadWriteOnce", "ReadWriteOncePod", "ReadWriteMany", "ReadOnlyMany", null] },
         "size": { "$ref": "#/definitions/positiveQuantity" },

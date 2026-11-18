@@ -43,7 +43,7 @@ not published; each record restates every fact it uses.
 | [0030](0030-env-takes-references-only.md) | `env` takes references only | Amended by 0054 | 0.2.0 |
 | [0031](0031-existing-secrets-referenced-by-name.md) | Existing Secrets are referenced by name | Accepted | 0.2.0 |
 | [0032](0032-external-envfrom-first-env-wins.md) | External `envFrom` sources first, `env` wins | Amended by 0053 | 0.2.0 |
-| [0033](0033-component-level-reload-on-change.md) | Component-level `reloadOnChange` | Accepted | 0.2.0 |
+| [0033](0033-component-level-reload-on-change.md) | Component-level `reloadOnChange` | Amended by 0067 | 0.2.0 |
 | [0034](0034-keyless-cosign-signatures.md) | Keyless cosign signatures by digest | Accepted | after 0.2.0 (ci) |
 | [0035](0035-service-links-off-by-default.md) | Service links are off by default | Accepted | 0.3.0 |
 | [0036](0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md) | Rollout and pod runtime knobs are validated pass-throughs | Amended by 0044, 0050 | 0.3.0 |
@@ -59,7 +59,7 @@ not published; each record restates every fact it uses.
 | [0046](0046-configfiles-mountpath-compared-normalized-rendered-as-written.md) | `configFiles.mountPath` is compared normalized and rendered as written | Amended by 0060 | 0.7.0 |
 | [0047](0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md) | When-enabled keys are required, an ExternalSecret needs a source, and a probe port name must be declared | Amended by 0050, 0053, 0059, 0061 | 0.7.0 |
 | [0048](0048-httproute-parentrefs-and-matches-are-closed.md) | The entries of `httpRoute.parentRefs` and `httpRoute.matches` are closed objects | Amended by 0050 | 0.7.0 |
-| [0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md) | Extra volumes are a map of typed entries, each mounted in the main container | Amended by 0051, 0057, 0060 | 0.7.0 |
+| [0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md) | Extra volumes are a map of typed entries, each mounted in the main container | Amended by 0051, 0057, 0060, 0067 | 0.7.0 |
 | [0050](0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md) | An existing claim on a Deployment declares its access mode; `strategy.rollingUpdate: null` is absent | Amended by 0056 | 0.7.0 |
 | [0051](0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md) | Init containers and sidecars are two maps in one start order, and nothing is inherited from the main container | Amended by 0053, 0059, 0060, 0066 | 0.8.0 |
 | [0052](0052-hpa-targets-measure-the-main-container-with-sidecars.md) | With a sidecar, the HPA's built-in targets measure the main container | Amended by 0055 | 0.8.0 |
@@ -77,6 +77,7 @@ not published; each record restates every fact it uses.
 | [0064](0064-from-1-0-0-a-new-key-is-optional.md) | From 1.0.0, a new values key is optional | Accepted | 1.1.0 |
 | [0065](0065-an-opt-in-handover-from-the-chart-s-hpa-to-keda.md) | An opt-in handover from the chart's HPA to KEDA | Accepted | 1.1.0 |
 | [0066](0066-an-entry-level-config-for-literal-variables.md) | An entry-level `config` for literal variables | Accepted | 1.2.0 |
+| [0067](0067-a-per-volume-reloader-opt-out.md) | A per-volume Reloader opt-out | Accepted | 1.3.0 |
 
 ## Adding a record
 

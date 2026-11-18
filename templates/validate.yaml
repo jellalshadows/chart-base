@@ -438,6 +438,17 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{- /* reloadOnChange: false relies on the kubelet updating the mounted files, which it never does for a subPath mount: the main container's, or a sidecar's (an init container has exited before a change). */ -}}
+{{- if and (hasKey $v "reloadOnChange") (not $v.reloadOnChange) -}}
+{{- $owners := list -}}
+{{- if and (hasKey $v "mountPath") (hasKey $v "subPath") }}{{ $owners = append $owners "the main container" }}{{ end -}}
+{{- range $c := $containers.ordered -}}
+{{- if and (eq $c.kind "sidecars") (hasKey (index ($c.entry.volumeMounts | default dict) $name | default dict) "subPath") }}{{ $owners = append $owners (printf "sidecars.%s" $c.name) }}{{ end -}}
+{{- end -}}
+{{- with $owners -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s.reloadOnChange is false and %s mounts the volume with subPath: the kubelet never updates a subPath mount, so a change of the %s %s would reach that container only when the pod restarts: mount the whole volume, or remove reloadOnChange: false" $name (first .) $v.type (ternary $v.name $v.secretName (eq $v.type "configMap")))) -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 
 {{- /* volumes: paths. A mount path is compared normalized (chart-base.cleanPath), with every mount the main container renders (chart-base.mainMounts); a relative path is checked as written. */ -}}

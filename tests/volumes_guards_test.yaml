@@ -1222,3 +1222,63 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: 'chart-base\[chart-base\]: keda.fallback.replicas \(2\) is above keda.maxReplicaCount \(1\): the HPA caps it, so lower it to 1 or less \(volumes.data mounts the existing claim "sales-data", declared ReadWriteOncePod, which keeps keda.maxReplicaCount at 1\)'
+
+  - it: rejects a volume reloadOnChange that is not a boolean
+    set:
+      volumes:
+        rules: {type: configMap, mountPath: /rules, name: rules, reloadOnChange: "false"}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/rules/reloadOnChange': got string, want null or boolean"
+
+  - it: fails for reloadOnChange on a volume type the Reloader does not watch (emptyDir)
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /cache, reloadOnChange: false}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.cache.reloadOnChange is a field of type configMap or secret and the entry is emptyDir: remove it \(from an overlay, set it to null\)'
+
+  - it: fails for reloadOnChange false on a volume the main container mounts with subPath
+    set:
+      volumes:
+        rules: {type: configMap, mountPath: /etc/app/rules.yaml, subPath: rules.yaml, name: rules, reloadOnChange: false}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.rules.reloadOnChange is false and the main container mounts the volume with subPath: the kubelet never updates a subPath mount, so a change of the configMap rules would reach that container only when the pod restarts: mount the whole volume, or remove reloadOnChange: false'
+
+  - it: fails for reloadOnChange false on a volume a sidecar mounts with subPath
+    set:
+      volumes:
+        tls: {type: secret, secretName: api-tls, reloadOnChange: false}
+      sidecars:
+        proxy:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          volumeMounts:
+            tls: {mountPath: /etc/proxy/tls.crt, subPath: tls.crt}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.tls.reloadOnChange is false and sidecars.proxy mounts the volume with subPath: the kubelet never updates a subPath mount, so a change of the secret api-tls would reach that container only when the pod restarts: mount the whole volume, or remove reloadOnChange: false'
+
+  - it: accepts reloadOnChange false on a volume an init container mounts with subPath (it has exited before a change)
+    set:
+      volumes:
+        tls: {type: secret, mountPath: /tls, secretName: api-tls, reloadOnChange: false}
+      initContainers:
+        setup:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          volumeMounts:
+            tls: {mountPath: /setup/tls.crt, subPath: tls.crt}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts reloadOnChange true with subPath (the Reloader restarts the pod)
+    set:
+      volumes:
+        rules: {type: configMap, mountPath: /etc/app/rules.yaml, subPath: rules.yaml, name: rules, reloadOnChange: true}
+    asserts:
+      - hasDocuments:
+          count: 0
