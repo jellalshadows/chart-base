@@ -420,3 +420,65 @@ tests:
     asserts:
       - notExists:
           path: metadata.annotations
+
+  - it: leaves a configMap or secret entry with reloadOnChange false out of the Reloader annotations, and keeps the others
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        rules: {type: configMap, mountPath: /rules, name: rules, reloadOnChange: false}
+        tls: {type: secret, mountPath: /tls, secretName: api-tls, reloadOnChange: false}
+        certs: {type: secret, mountPath: /certs, secretName: ca-certs}
+        flags: {type: configMap, mountPath: /flags, name: flags, reloadOnChange: true}
+    asserts:
+      - equal:
+          path: metadata.annotations["secret.reloader.stakater.com/reload"]
+          value: ca-certs
+      - equal:
+          path: metadata.annotations["configmap.reloader.stakater.com/reload"]
+          value: flags
+
+  - it: keeps a Secret that an env reference names when its volume opts out of the Reloader
+    template: templates/deployment.yaml
+    set:
+      env:
+        SHARED_TOKEN:
+          valueFrom:
+            secretKeyRef: {name: e2e-shared, key: TOKEN}
+      volumes:
+        shared: {type: secret, mountPath: /shared, secretName: e2e-shared, reloadOnChange: false}
+    asserts:
+      - equal:
+          path: metadata.annotations["secret.reloader.stakater.com/reload"]
+          value: e2e-shared
+
+  - it: lists a volume whose reloadOnChange is null (absent, the default)
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        rules: {type: configMap, mountPath: /rules, name: rules, reloadOnChange: null}
+    asserts:
+      - equal:
+          path: metadata.annotations["configmap.reloader.stakater.com/reload"]
+          value: rules
+
+  - it: renders no Reloader annotation when every listed volume opts out
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        rules: {type: configMap, mountPath: /rules, name: rules, reloadOnChange: false}
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  - it: does not render a volume's reloadOnChange in the pod
+    template: templates/deployment.yaml
+    set:
+      volumes:
+        rules: {type: configMap, mountPath: /rules, name: rules, reloadOnChange: false}
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: rules
+            configMap:
+              name: rules

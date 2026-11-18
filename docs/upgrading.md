@@ -778,3 +778,16 @@ A literal passed in `args` only for want of a variable, or the component's `conf
 only for one literal, can move there. A name in both the entry's `env` and its `config` fails, and so does, with
 `inheritEnv: true`, a `config` name the main container already receives. The message of a literal in an entry's
 `env` now names the entry's `config`.
+
+## 1.2.x → 1.3.0
+
+Nothing to change: 1.3.0 adds `reloadOnChange` to `configMap` and `secret` entries of `volumes`, and no required key.
+No manifest changes unless an entry sets it to `false`.
+
+### New and optional: a per-volume Reloader opt-out
+
+`volumes.<name>.reloadOnChange: false` leaves that volume's ConfigMap or Secret out of the Reloader annotations, for a
+file the application re-reads in place, such as a rotating certificate
+([ADR-0067](adr/0067-a-per-volume-reloader-opt-out.md)). The name stays listed when an `env` reference, `envFrom` or
+another volume names it. A `subPath` mount of the volume in the main container or a sidecar fails: the kubelet never
+updates it. Removing a name from the annotation rolls no pod.

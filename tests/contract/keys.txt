@@ -642,6 +642,7 @@ volumes.<name>.mountPath
 volumes.<name>.name
 volumes.<name>.optional
 volumes.<name>.readOnly
+volumes.<name>.reloadOnChange
 volumes.<name>.secretName
 volumes.<name>.size
 volumes.<name>.sizeLimit

@@ -85,8 +85,8 @@ configFiles:
 # init containers or sidecars mount the volume (`initContainers.<name>.volumeMounts`), an absolute `mountPath`, the main
 # container's mount, with its `subPath` and `readOnly`. Without `mountPath` the main container does not mount it, and
 # `subPath` and `readOnly` fail; a volume that no container mounts fails. The fields of each type: `emptyDir`: `medium`
-# (`Memory`), `sizeLimit`; `configMap`: `name`, `items`, `defaultMode`, `optional`; `secret`: `secretName`, `items`,
-# `defaultMode`, `optional`; `persistentVolumeClaim`: `claimName`, `claimAccessMode` (default `ReadWriteOnce`);
+# (`Memory`), `sizeLimit`; `configMap`: `name`, `items`, `defaultMode`, `optional`, `reloadOnChange`; `secret`:
+# `secretName`, `items`, `defaultMode`, `optional`, `reloadOnChange`; `persistentVolumeClaim`: `claimName`, `claimAccessMode` (default `ReadWriteOnce`);
 # `ephemeral`: `size`, `accessMode` (default `ReadWriteOnce`), `storageClassName` (default: the cluster's default
 # class). An `ephemeral` claim lives as long as its pod (source reading): a CronJob keeps those of the finished runs its
 # history limits keep, a Job keeps its own for `job.ttlSecondsAfterFinished`, and each retry gets one of its own. In
@@ -299,11 +299,12 @@ externalSecret:
 # updated: the ExternalSecret's Secret and every Secret/ConfigMap referenced in `env`/`envFrom` (and in the `env` of an
 # init container or a sidecar) or mounted by a `configMap` or `secret` entry of `volumes`. The chart's own ConfigMaps
 # roll pods through checksum annotations instead.
-# The cost: a mounted certificate or trust bundle that the application reloads in place still restarts the Deployment
-# on every rotation (and every component that mounts it), and `false` is the only switch: it also stops the restarts
-# for `env`/`envFrom` Secrets. Mounted files are updated in place without a restart, except `subPath` mounts, which are
-# never updated: with `false` such a file stays stale until the pod restarts (a deploy restarts it only when the pod
-# template changes).
+# A mounted certificate or trust bundle that the application reloads in place would restart the Deployment on every
+# rotation: set `reloadOnChange: false` on that `configMap` or `secret` entry of `volumes` to leave it out (from 1.3.0;
+# the name stays listed when an `env` reference, `envFrom` or another volume names it, and a `subPath` mount of it in
+# the main container or a sidecar fails, because the kubelet never updates one). Mounted files are updated in place
+# without a restart, except `subPath` mounts: with `false` here, such a file stays stale until the pod restarts (a
+# deploy restarts it only when the pod template changes). `false` here stops every restart, `env`/`envFrom` included.
 reloadOnChange: true
 
 # -- Deployment replicas. Ignored when `autoscaling.enabled` or `keda.enabled` (an autoscaler owns the count).

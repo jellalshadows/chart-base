@@ -1,6 +1,6 @@
 # ADR-0033: Component-level `reloadOnChange`
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0067](0067-a-per-volume-reloader-opt-out.md) (1.3.0)
 - **Date:** 2026-09-28
 - **Since:** 0.2.0
 - **Related:** [ADR-0006](0006-checksum-for-config-reloader-for-secrets.md) (amended),

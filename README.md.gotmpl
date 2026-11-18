@@ -1357,6 +1357,12 @@ code, official docs) and local renders.
     environment. A name in both `env` and `config`, or with `inheritEnv` a name the main container receives, fails.
     It amends decision 51. *Rejected:* literals in `env`, a ConfigMap per entry.
     [ADR-0066](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0066-an-entry-level-config-for-literal-variables.md)
+67. **A per-volume Reloader opt-out.** A `configMap` or `secret` entry of `volumes` takes `reloadOnChange: false`,
+    which leaves its ConfigMap or Secret out of the Reloader annotations: the kubelet updates the mounted files in
+    place, so a certificate the application re-reads no longer restarts the Deployment on every rotation. A name that
+    another source lists stays listed, and a `subPath` mount of the volume in the main container or a sidecar fails
+    (never updated). It amends decisions 33 and 49. *Rejected:* a flag on every source, Reloader's discovery mode.
+    [ADR-0067](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0067-a-per-volume-reloader-opt-out.md)
 
 ## How it compares
 

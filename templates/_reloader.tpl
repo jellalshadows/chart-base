@@ -1,7 +1,8 @@
 {{/*
 Stakater Reloader annotations for things that change OUTSIDE the deploy: the ExternalSecret's
 Secret and every Secret/ConfigMap referenced in env (valueFrom) or envFrom, or mounted by a configMap or secret
-entry of volumes (read through chart-base.volumes: a null entry is not listed), or referenced in the env of an init
+entry of volumes (read through chart-base.volumes: a null entry and an entry with reloadOnChange: false are not
+listed, but an env reference or another volume can still list the same name), or referenced in the env of an init
 container or a sidecar (read through chart-base.containers: a null entry or variable is not listed; inheritEnv adds
 nothing the main container's env does not list; a source other than secretKeyRef and configMapKeyRef is skipped,
 whatever its key). The chart's own
@@ -41,8 +42,10 @@ regex-quoted (a "." would otherwise match any character). Renders nothing when t
 {{- $volumes := dict -}}
 {{- include "chart-base.volumes" (dict "ctx" . "out" $volumes) -}}
 {{- range $_, $v := $volumes -}}
+{{- if not (and (hasKey $v "reloadOnChange") (not $v.reloadOnChange)) -}}
 {{- if eq $v.type "secret" }}{{ $secrets = append $secrets $v.secretName }}{{ end -}}
 {{- if eq $v.type "configMap" }}{{ $configMaps = append $configMaps $v.name }}{{ end -}}
+{{- end -}}
 {{- end -}}
 {{- $quoted := list -}}
 {{- range $secrets | uniq | sortAlpha }}{{ $quoted = append $quoted (regexQuoteMeta .) }}{{ end -}}
