@@ -402,3 +402,22 @@ tests:
                 secretKeyRef:
                   name: pg-local
                   key: password
+
+  - it: renders no config envFrom and no checksum/config-env when every config key is null
+    template: templates/deployment.yaml
+    set:
+      config.GONE: null
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].envFrom
+      - notExists:
+          path: spec.template.metadata.annotations
+
+  - it: does not count a null config key as a duplicate of an env variable
+    template: templates/validate.yaml
+    set:
+      config.APP_MODE: null
+      env.APP_MODE.valueFrom.fieldRef.fieldPath: metadata.name
+    asserts:
+      - hasDocuments:
+          count: 0

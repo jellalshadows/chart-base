@@ -61,14 +61,20 @@ app.kubernetes.io/managed-by are deliberately excluded (ADR-0010): only a values
 
 {{/*
 chart-base.overCommon: a per-object map (own) merged over a common map (common: commonLabels or commonAnnotations), as
-YAML with sorted keys, or nothing when both are empty; nil counts as empty. The per-object value wins on a shared key,
-an empty one ("") included: each per-object key is set over a deep copy of the common map (merge would fill an empty
-per-object value from the common map), never into .Values (a later template would read the merged map).
+YAML with sorted keys, or nothing when both are empty; nil counts as empty. A key set to null in either map is absent
+(chart-base.pruneNulls on deep copies, ADR-0070), so a null per-object key lets the common value apply. The per-object
+value wins on a shared key, an empty one ("") included: each per-object key is set over a deep copy of the common map
+(merge would fill an empty per-object value from the common map), never into .Values (a later template would read the
+merged map). With one map only it is that map without its nulls (podAnnotations, which takes no common annotation; the
+commonLabels of an ephemeral volume's claim template).
 Usage: include "chart-base.overCommon" (dict "own" <a map, or nil> "common" <a map, or nil>)
 */}}
 {{- define "chart-base.overCommon" -}}
 {{- $merged := deepCopy (.common | default dict) -}}
-{{- range $k, $v := (.own | default dict) }}{{ $_ := set $merged $k $v }}{{ end -}}
+{{- include "chart-base.pruneNulls" $merged -}}
+{{- $own := deepCopy (.own | default dict) -}}
+{{- include "chart-base.pruneNulls" $own -}}
+{{- range $k, $v := $own }}{{ $_ := set $merged $k $v }}{{ end -}}
 {{- with $merged }}{{ toYaml . }}{{ end -}}
 {{- end -}}
 

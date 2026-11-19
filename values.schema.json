@@ -124,14 +124,14 @@
       "pattern": "^(0|(([0-9]+)y)?(([0-9]+)w)?(([0-9]+)d)?(([0-9]+)h)?(([0-9]+)m)?(([0-9]+)s)?(([0-9]+)ms)?)$"
     },
     "extraLabels": {
-      "description": "Extra labels of an object that also carries the chart's labels: the keys the chart sets itself are rejected (they would render twice). Each is a false schema, so its error names the key's own path (ADR-0068); extraObject.metadata.labels repeats them.",
+      "description": "Extra labels of an object that also carries the chart's labels: the keys the chart sets itself are rejected (they would render twice), also set to null. Each is a false schema, so its error names the key's own path (ADR-0068); extraObject.metadata.labels repeats them. A key set to null is absent (ADR-0070): a commonLabels value then applies.",
       "type": "object",
       "properties": { "app.kubernetes.io/name": false, "app.kubernetes.io/instance": false, "app.kubernetes.io/part-of": false, "app.kubernetes.io/version": false, "app.kubernetes.io/managed-by": false, "helm.sh/chart": false },
-      "additionalProperties": { "type": "string" }
+      "additionalProperties": { "if": { "not": { "type": "null" } }, "then": { "type": "string" } }
     },
     "extraAnnotations": {
-      "description": "Annotations of an object that also carries the chart's: Helm's hook keys (helm.sh/hook*), Helm's ownership keys (meta.helm.sh/*) and the chart's checksums (checksum/config-env, checksum/config-files) are rejected (a hook key would turn the object into a Helm hook). Values are strings. Each is a false schema, so its error names the key's own path (ADR-0068); extraObject.metadata.annotations and commonAnnotations repeat them.",
-      "type": "object", "additionalProperties": { "type": "string" },
+      "description": "Annotations of an object that also carries the chart's: Helm's hook keys (helm.sh/hook*), Helm's ownership keys (meta.helm.sh/*) and the chart's checksums (checksum/config-env, checksum/config-files) are rejected (a hook key would turn the object into a Helm hook), also set to null. Values are strings; a key set to null is absent (ADR-0070), and a commonAnnotations value then applies. Each reserved key is a false schema, so its error names the key's own path (ADR-0068); extraObject.metadata.annotations and commonAnnotations repeat them.",
+      "type": "object", "additionalProperties": { "if": { "not": { "type": "null" } }, "then": { "type": "string" } },
       "patternProperties": { "^helm\\.sh/hook": false, "^meta\\.helm\\.sh/": false },
       "properties": { "checksum/config-env": false, "checksum/config-files": false }
     },
@@ -825,9 +825,9 @@
     },
     "resources": { "$ref": "#/definitions/resources" },
     "config": {
-      "description": "Literal variables of the main container, in its ConfigMap. A NAME matches ^[A-Za-z_][A-Za-z0-9_]*$ (an environment variable name); another name fails at the map's path.",
+      "description": "Literal variables of the main container, in its ConfigMap. A NAME matches ^[A-Za-z_][A-Za-z0-9_]*$ (an environment variable name); another name fails at the map's path. NAME: null is absent (ADR-0070); with only null entries there is no ConfigMap.",
       "type": "object",
-      "patternProperties": { "^[A-Za-z_][A-Za-z0-9_]*$": { "type": ["string", "number", "boolean"] } },
+      "patternProperties": { "^[A-Za-z_][A-Za-z0-9_]*$": { "if": { "not": { "type": "null" } }, "then": { "type": ["string", "number", "boolean"] } } },
       "additionalProperties": false
     },
     "configFiles": {
@@ -1201,10 +1201,10 @@
                 "enabled": { "type": "boolean" },
                 "namespace": { "$ref": "#/definitions/namespaceName" },
                 "podSelector": {
-                  "description": "null: {k8s-app: kube-dns}. A map replaces it (it is not merged with it).",
+                  "description": "null: {k8s-app: kube-dns}. A map replaces it (it is not merged with it). A key set to null is absent (ADR-0070); a map whose every key is null selects {k8s-app: kube-dns}, as null does.",
                   "type": ["object", "null"],
                   "minProperties": 1,
-                  "additionalProperties": { "type": "string" }
+                  "additionalProperties": { "if": { "not": { "type": "null" } }, "then": { "type": "string" } }
                 },
                 "ports": {
                   "type": "array",
@@ -1295,14 +1295,14 @@
     "commonLabels": { "$ref": "#/definitions/extraLabels" },
     "extraObjects": { "type": ["object", "null"], "additionalProperties": { "$ref": "#/definitions/extraObject" } },
     "commonAnnotations": {
-      "description": "The reserved keys of definitions.extraAnnotations, repeated (one schema: an allOf would add a line to its errors), and the two Reloader keys the chart computes on the Deployment (a common one would render the key twice).",
-      "type": "object", "additionalProperties": { "type": "string" },
+      "description": "The reserved keys of definitions.extraAnnotations, repeated (one schema: an allOf would add a line to its errors), and the two Reloader keys the chart computes on the Deployment (a common one would render the key twice). A key set to null is absent (ADR-0070).",
+      "type": "object", "additionalProperties": { "if": { "not": { "type": "null" } }, "then": { "type": "string" } },
       "patternProperties": { "^helm\\.sh/hook": false, "^meta\\.helm\\.sh/": false },
       "properties": { "checksum/config-env": false, "checksum/config-files": false, "secret.reloader.stakater.com/reload": false, "configmap.reloader.stakater.com/reload": false }
     },
     "podSecurityContext": { "type": "object" },
     "securityContext": { "type": "object" },
-    "nodeSelector": { "type": "object", "additionalProperties": { "type": "string" } },
+    "nodeSelector": { "description": "A key set to null is absent (ADR-0070).", "type": "object", "additionalProperties": { "if": { "not": { "type": "null" } }, "then": { "type": "string" } } },
     "tolerations": { "type": "array", "items": { "type": "object" } },
     "affinity": { "type": "object" },
     "priorityClassName": { "type": ["string", "null"], "minLength": 1 },

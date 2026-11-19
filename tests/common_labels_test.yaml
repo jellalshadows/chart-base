@@ -463,3 +463,61 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "/commonLabels/critical': got boolean, want string"
+
+  # ---- A null key of a label map is absent (ADR-0070): the commonLabels value then applies.
+  - it: lets the commonLabels value apply when podLabels sets the key to null, and leaves a null commonLabels key out
+    template: templates/deployment.yaml
+    set:
+      commonLabels: {team: platform, gone: null}
+      podLabels: {team: null, tier: api}
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels.team
+          value: platform
+      - equal:
+          path: spec.template.metadata.labels.tier
+          value: api
+      - notExists:
+          path: spec.template.metadata.labels.gone
+      - equal:
+          path: metadata.labels.team
+          value: platform
+      - notExists:
+          path: metadata.labels.gone
+
+  - it: lets the commonLabels value apply when metrics.labels sets the key to null on the ServiceMonitor
+    template: templates/servicemonitor.yaml
+    values:
+      - ../ci/full-values.yaml
+    set:
+      commonLabels: {team: a}
+      metrics.labels: {team: null, release: kps}
+    asserts:
+      - equal:
+          path: metadata.labels.team
+          value: a
+      - equal:
+          path: metadata.labels.release
+          value: kps
+
+  - it: leaves a null prometheusRule.labels key out of the PrometheusRule
+    template: templates/prometheusrule.yaml
+    values:
+      - values/base.yaml
+      - values/prometheus-rules.yaml
+    set:
+      prometheusRule.labels: {release: kps, gone: null}
+    asserts:
+      - equal:
+          path: metadata.labels.release
+          value: kps
+      - notExists:
+          path: metadata.labels.gone
+
+  - it: still rejects a reserved label key set to null (a chart key is never the consumer's)
+    template: templates/service.yaml
+    set:
+      podLabels: {app.kubernetes.io/name: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/podLabels/app\\.kubernetes\\.io~1name': false schema"

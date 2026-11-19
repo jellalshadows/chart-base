@@ -36,16 +36,17 @@ spec:
     metadata:
       labels:
         {{- include "chart-base.podLabels" . | nindent 8 }}
-      {{- if or .Values.config (include "chart-base.hasConfigFiles" .) .Values.podAnnotations }}
+      {{- $podAnnotations := include "chart-base.overCommon" (dict "own" .Values.podAnnotations) }}
+      {{- if or (include "chart-base.hasConfig" .) (include "chart-base.hasConfigFiles" .) $podAnnotations }}
       annotations:
-        {{- if .Values.config }}
+        {{- if include "chart-base.hasConfig" . }}
         checksum/config-env: {{ (include (print $.Template.BasePath "/configmap-env.yaml") . | fromYaml).data | toJson | sha256sum }}
         {{- end }}
         {{- if include "chart-base.hasConfigFiles" . }}
         checksum/config-files: {{ (include (print $.Template.BasePath "/configmap-files.yaml") . | fromYaml).data | toJson | sha256sum }}
         {{- end }}
-        {{- with .Values.podAnnotations }}
-        {{- toYaml . | nindent 8 }}
+        {{- with $podAnnotations }}
+        {{- . | nindent 8 }}
         {{- end }}
       {{- end }}
     spec:

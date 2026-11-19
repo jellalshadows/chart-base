@@ -525,3 +525,49 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "got number, want string"
+
+  # ---- A null key of an annotation map is absent (ADR-0070): the commonAnnotations value then applies.
+  - it: lets the commonAnnotations value apply when service.annotations sets the key to null, and leaves a null commonAnnotations key out
+    template: templates/service.yaml
+    set:
+      ports: [{name: http, containerPort: 8080}]
+      service.enabled: true
+      commonAnnotations: {contact: ops, gone: null}
+      service.annotations: {contact: null, lb: internal}
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            contact: ops
+            lb: internal
+
+  - it: lets the commonAnnotations value apply when ingress.annotations sets the key to null
+    template: templates/ingress.yaml
+    set:
+      commonAnnotations: {contact: ops}
+      ingress:
+        enabled: true
+        className: nginx
+        annotations: {contact: null}
+        hosts: [{host: a.example.com, paths: [{path: /, pathType: Prefix}]}]
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            contact: ops
+
+  - it: renders no pod template annotations when every podAnnotations key is null
+    template: templates/deployment.yaml
+    set:
+      podAnnotations: {gone: null}
+    asserts:
+      - notExists:
+          path: spec.template.metadata.annotations
+
+  - it: still rejects a reserved annotation key set to null
+    template: templates/service.yaml
+    set:
+      commonAnnotations: {checksum/config-env: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/commonAnnotations/checksum~1config-env': false schema"

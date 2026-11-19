@@ -49,7 +49,7 @@ Usage: {{- with include "chart-base.envFrom" $ | trim }} envFrom: {{- . | ninden
 {{- with .Values.envFrom }}
 {{ toYaml . }}
 {{- end }}
-{{- if .Values.config }}
+{{- if include "chart-base.hasConfig" . }}
 - configMapRef:
     name: {{ include "chart-base.fullname" . }}-env
 {{- end }}
@@ -221,7 +221,10 @@ volumes:
   - name: {{ $volumeName | quote }}
     {{- include "chart-base.volumeSource" (dict "ctx" $ "volume" $v) | nindent 4 }}
   {{- end }}
-{{- with $.Values.nodeSelector }}
+{{- /* A null key of nodeSelector is absent (ADR-0070). */}}
+{{- $nodeSelector := deepCopy ($.Values.nodeSelector | default dict) }}
+{{- include "chart-base.pruneNulls" $nodeSelector }}
+{{- with $nodeSelector }}
 nodeSelector:
   {{- toYaml . | nindent 2 }}
 {{- end }}

@@ -52,8 +52,20 @@ Usage: {{- $m := dict }}{{- include "chart-base.mainEnv" (dict "ctx" $ "out" $m)
 {{- end -}}
 
 {{/*
+chart-base.hasConfig: "true" when config (nil counts as empty) holds at least one key whose value is not null, nothing
+otherwise (a null key is absent, ADR-0070). The only test for the <fullname>-env ConfigMap, its envFrom entry and
+checksum/config-env.
+Usage: {{- if include "chart-base.hasConfig" . }}
+*/}}
+{{- define "chart-base.hasConfig" -}}
+{{- $config := deepCopy (.Values.config | default dict) -}}
+{{- include "chart-base.pruneNulls" $config -}}
+{{- if $config }}true{{ end -}}
+{{- end -}}
+
+{{/*
 chart-base.chartEnvNames: sets out.names to the names of the variables the main container receives from the chart:
-out.config, the keys of config (in <fullname>-env), and out.secret, the keys of <fullname>-secrets that the chart can see
+out.config, the keys of config whose value is not null (in <fullname>-env), and out.secret, the keys of <fullname>-secrets that the chart can see
 while the Secret is injected (chart-base.externalSecret: delivered, while injected; none otherwise: a disabled block or
 envFrom false injects nothing). The one list of the main container's duplicate guard (its env against it) and of the
 inheritEnv guard of an init container or a sidecar (its env against it and the component's env), so that a change of
@@ -62,7 +74,9 @@ Usage: {{- $e := dict }}{{- include "chart-base.chartEnvNames" (dict "ctx" $ "ou
 */}}
 {{- define "chart-base.chartEnvNames" -}}
 {{- $config := list -}}
-{{- range $name, $_ := .ctx.Values.config | default dict }}{{ $config = append $config $name }}{{ end -}}
+{{- $values := deepCopy (.ctx.Values.config | default dict) -}}
+{{- include "chart-base.pruneNulls" $values -}}
+{{- range $name, $_ := $values }}{{ $config = append $config $name }}{{ end -}}
 {{- $es := dict }}{{ include "chart-base.externalSecret" (dict "ctx" .ctx "out" $es) -}}
 {{- $secret := list -}}
 {{- if $es.injected }}{{ $secret = $es.delivered }}{{ end -}}

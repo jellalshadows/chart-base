@@ -483,3 +483,26 @@ tests:
       - lengthEqual:
           path: spec.egress[0].ports
           count: 2
+
+  # ---- A null key of networkPolicy.egress.dns.podSelector is absent (ADR-0070); a selector left empty is the default.
+  - it: leaves a null key out of the DNS podSelector
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.egress.enabled: true
+      networkPolicy.egress.dns.podSelector: {k8s-app: null, app.kubernetes.io/name: coredns}
+    asserts:
+      - equal:
+          path: spec.egress[0].to[0].podSelector.matchLabels
+          value:
+            app.kubernetes.io/name: coredns
+
+  - it: selects the default DNS pods when every key of the DNS podSelector is null
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.egress.enabled: true
+      networkPolicy.egress.dns.podSelector: {k8s-app: null}
+    asserts:
+      - equal:
+          path: spec.egress[0].to[0].podSelector.matchLabels
+          value:
+            k8s-app: kube-dns

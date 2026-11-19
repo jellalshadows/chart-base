@@ -1091,3 +1091,12 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: does not count a null config key of the main container as a variable that inheritEnv gives an entry
+    set:
+      config.NODE_IP: null
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, inheritEnv: true, env: {NODE_IP: {valueFrom: {fieldRef: {fieldPath: status.hostIP}}}}}
+    asserts:
+      - hasDocuments:
+          count: 0

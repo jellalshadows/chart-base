@@ -1,4 +1,4 @@
-{{- if .Values.config }}
+{{- if include "chart-base.hasConfig" . }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -10,7 +10,9 @@ metadata:
     {{- . | nindent 4 }}
   {{- end }}
 data:
-  {{- range $key, $value := .Values.config }}
+  {{- $config := deepCopy .Values.config }}
+  {{- include "chart-base.pruneNulls" $config }}
+  {{- range $key, $value := $config }}
   {{ $key | quote }}: {{ include "chart-base.configValue" $value }}
   {{- end }}
 {{- end }}

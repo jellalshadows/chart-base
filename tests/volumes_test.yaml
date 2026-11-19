@@ -482,3 +482,17 @@ tests:
             name: rules
             configMap:
               name: rules
+
+  - it: leaves a null commonLabels key out of an ephemeral volume's claim template (ADR-0070)
+    template: templates/deployment.yaml
+    set:
+      commonLabels: {team: a, gone: null}
+      volumes:
+        scratch: {type: ephemeral, size: 1Gi, mountPath: /scratch}
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[1].ephemeral.volumeClaimTemplate.metadata.labels
+          value:
+            app.kubernetes.io/name: chart-base
+            app.kubernetes.io/instance: vending
+            team: a

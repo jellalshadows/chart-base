@@ -1373,3 +1373,12 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: does not count null serviceAccount.annotations keys as annotations without a ServiceAccount (ADR-0070)
+    template: templates/validate.yaml
+    set:
+      serviceAccount.create: false
+      serviceAccount.annotations: {gone: null}
+    asserts:
+      - hasDocuments:
+          count: 0
