@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/jellalshadows/chart-base/compare/v1.4.0...v1.5.0) (2026-11-19)
+
+
+### Features
+
+* a null means absent, chart-wide ([#44](https://github.com/jellalshadows/chart-base/issues/44)) ([f334439](https://github.com/jellalshadows/chart-base/commit/f334439dbc038e3b84a84c3e81c22ba08905b579))
+
 ## [1.4.0](https://github.com/jellalshadows/chart-base/compare/v1.3.1...v1.4.0) (2026-11-18)
 
 
