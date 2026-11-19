@@ -3,7 +3,8 @@
 Generic Helm chart for any workload, consumed as an aliased dependency.
 
 `chart-base` is **one** Helm application chart, with **one** version, that deploys **any** workload:
-an HTTP API, a worker without a Service, a CronJob or a Job. Services never write templates:
+an HTTP API, a worker without a Service, a StatefulSet with a claim per pod, a CronJob or a Job. Services never
+write templates:
 a business-domain umbrella chart declares `chart-base` once per component, each with a different
 `alias`, and configures every component under its alias.
 
@@ -1532,6 +1533,19 @@ code, official docs) and local renders.
     `type` (it changes the message of every wrong value), one prune of the whole values tree (it changes the manifest
     of the pass-through objects).
     [ADR-0070](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0070-a-null-means-absent-chart-wide.md)
+71. **A StatefulSet workload type with a claim per pod.** `workload.type: statefulset` renders a StatefulSet with
+    the Deployment's pod template, and the alias's Service is headless (`clusterIP: None`, `service.type: ClusterIP`
+    only), so each pod gets a DNS name. A `volumes` entry of type `volumeClaimTemplate` (statefulset only, the fields of
+    an `ephemeral` entry) is a claim template named after the volume: each pod mounts its own claim, which outlives the
+    pod. The optional `statefulset` block takes `podManagementPolicy`, `updateStrategy` and
+    `persistentVolumeClaimRetentionPolicy`, through template guards. The routes, the HPA and KEDA (pointed at the
+    StatefulSet), the PodDisruptionBudget, the monitors, the preStop sleep and the default topology spread (per
+    `controller-revision-hash`) apply as on a Deployment; `strategy` and `progressDeadlineSeconds` do not. The name is at
+    most 52 characters, an existing `ReadWriteOnce` claim needs one pod, and `serviceName`, `podManagementPolicy` and
+    the claim templates (their labels, so `commonLabels`, included) cannot change after install. It amends decisions 8,
+    15, 36, 37, 38, 49, 50, 56 and 62. *Rejected:* `statefulset.volumeClaimTemplates` (a second volume name space), a
+    second, ClusterIP Service (a second name), schema conditionals on the block's keys.
+    [ADR-0071](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0071-a-statefulset-workload-type-with-a-claim-per-pod.md)
 
 ## How it compares
 
@@ -1569,7 +1583,7 @@ version it describes. chart-base was checked at the commit of this release.
 | Native sidecars | A typed `sidecars` map | `restartPolicy` per container (`charts/library/common/templates/lib/container/_spec.tpl:56`) | Raw `initContainers` (`application/templates/deployment.yaml:84-86`) | None found (no container-level `restartPolicy` in the templates) |
 | A CRD missing from the cluster | The install fails (no `.Capabilities` gating, decision 12) | An HTTPRoute falls back to `v1alpha2` (`charts/library/common/templates/classes/_route.tpl:10-16`) | ServiceMonitor and PrometheusRule are skipped without a message (`application/templates/servicemonitor.yaml:1`, `application/templates/prometheusrule.yaml:1`) | A CronJob's PrometheusRule is rendered with no API check (`templates/batch/cronjob.yml:119-122`); other kinds not verified |
 | KEDA ScaledObject | Yes | No | No | Yes (the `nuc-keda` subchart) |
-| Workload kinds | Deployment, CronJob, Job; one per alias | Deployment, StatefulSet, DaemonSet, CronJob, Job; several per release | Deployment, CronJob, Job | Deployment, StatefulSet, DaemonSet, Pod, CronJob, Job and hooks (`values.yaml:233-300`); several per release |
+| Workload kinds | Deployment, StatefulSet (1.6.0), CronJob, Job; one per alias | Deployment, StatefulSet, DaemonSet, CronJob, Job; several per release | Deployment, CronJob, Job | Deployment, StatefulSet, DaemonSet, Pod, CronJob, Job and hooks (`values.yaml:233-300`); several per release |
 | Beyond the workload | Left out by design ([roadmap](https://github.com/jellalshadows/chart-base/blob/main/docs/roadmap.md#out-of-scope)) | PVC, Cilium network policy, ReferenceGrant, ListenerSet | VPA, SealedSecrets, Certificate, SecretProviderClass, PVC, ClusterRole, Grafana dashboard, backup | 23 optional subcharts (Argo CD, Flux, Istio, Strimzi, CloudNativePG, …) and a common library |
 | Signed artifact | cosign keyless signature and SLSA provenance (`release.yaml`) | Signature attached (`cosign tree`); keyless signing in `chart-release-steps.yaml:739-767` | Signature attached (OCI referrer); keyless signing (`release.yaml:84,104-123`) | Signature attached (`cosign tree`); a key, published in `artifacthub.io/signKey` (rotated in 3.2.3); not verified against it |
 | CI installs the chart in a cluster | kind, Kubernetes 1.33 and 1.37, Pod Security `restricted` enforced; lint on Helm 3.22 and 4.3 | chart-testing on k3d; no Pod Security enforcement seen (`pr-validate.yaml`, about lines 350-372) | No: helm-unittest only (`ci.yaml`) | Not verified for 3.2.4; at `v3.2.2`, no: render smoke tests, kubeconform and helm-unittest (`tests.yml`) |
