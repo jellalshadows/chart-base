@@ -830,3 +830,45 @@ manifest changes unless values set them.
 - `ports[].appProtocol` goes on the Service port, for example `kubernetes.io/h2c` for a cleartext gRPC backend.
 - One message changed: `routeTrafficAllowedElsewhere` without a route now lists `grpcRoute` among the routes to
   enable.
+
+## 1.4.x → 1.5.0
+
+Nothing to change: 1.5.0 adds no key, and every value that 1.4.0 renders renders the same manifest. It accepts a
+`null` that 1.4.0 rejected with `got null, want …`, on a map entry or on an optional member of a closed object, as
+absent ([ADR-0070](adr/0070-a-null-means-absent-chart-wide.md)).
+
+### New: a `null` removes an entry or an optional member
+
+- **`env`:** `env.<NAME>: null` removes a variable of the main container, as it already removed an entry's. Inside any
+  variable's `valueFrom` a `null` source next to another one is absent, so the override file of an environment that
+  disables the ExternalSecret removes an inherited `externalSecretKeyRef` variable, or switches its source:
+
+  ```yaml
+  externalSecret:
+    enabled: false
+  env:
+    PGPASSWORD:
+      valueFrom:
+        externalSecretKeyRef: null
+        secretKeyRef: {name: pg-dev, key: password}
+  ```
+
+  A `null` optional field of a source (`secretKeyRef.optional`, `fieldRef.apiVersion`) is absent too.
+- **Typed string maps:** a key of `config`, `podLabels`, `podAnnotations`, `commonLabels`, `commonAnnotations`,
+  `metrics.labels`, `prometheusRule.labels`, `service.annotations`, `ingress.annotations`,
+  `serviceAccount.annotations`, `nodeSelector` or `networkPolicy.egress.dns.podSelector` set to `null` is absent from
+  that map; a `commonLabels` or `commonAnnotations` value for the key then applies. A `config` whose every key is `null`
+  renders no ConfigMap, and a DNS `podSelector` whose every key is `null` selects `{k8s-app: kube-dns}`.
+- **Optional members:** `lifecycle.postStart` and `preStop`, a hook's handler next to another one (an override
+  switches the handler), a hook's `httpGet.path`, `scheme` and `httpHeaders`; `strategy.rollingUpdate.maxSurge` and
+  `maxUnavailable`; `dnsConfig.nameservers`, `searches` and `options`; `ports[].servicePort` (the `containerPort`); a
+  direction of `autoscaling.behavior` or `keda.behavior`, or a field of one.
+- **Keys added after 1.0.0:** `autoscaling.kedaHandover`, `grpcRoute` and its `enabled`, `parentRefs` and `hostnames`,
+  and `httpRoute.rules` take `null` as their default. A `--reuse-values` upgrade from 1.0.x to 1.3.x with such a `null`
+  in its values renders.
+- **Still an error:** a required field (`valueFrom`, a source's `key`, a hook's `httpGet.port`), a `valueFrom` or a hook
+  whose every member is `null`, a reserved key of a label or annotation map, a `null` inside a list (a `dnsConfig`
+  option, a `behavior` policy), and a `null` key of a pass-through object (`securityContext`, `affinity`), which is
+  still rendered as `null`.
+- **One message changed:** an `externalSecretKeyRef` of the main container while `externalSecret.enabled` is `false`
+  now ends `or remove env.<NAME> (an overlay removes it with env.<NAME>: null)`, as an entry's did.

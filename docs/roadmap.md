@@ -40,24 +40,9 @@ On 2026-11-02 the roadmap was cut to one more release before 1.0 (see [Cut befor
 | 1.3.0 | A per-volume Reloader opt-out | `volumes.<name>.reloadOnChange` (`configMap` and `secret` entries, optional): `false` leaves the volume's ConfigMap or Secret out of the Reloader annotations; a name another source lists stays listed; the top-level `reloadOnChange: false` still wins; a `subPath` mount of the volume in the main container or a sidecar fails ([ADR-0067](adr/0067-a-per-volume-reloader-opt-out.md)) | Unit tests (the annotations, the dedup with `env`, the guard); the e2e reads the full scenario's annotations as before | Released (2026-11-18) |
 | 1.3.1 | Schema errors at the right path | A reserved key fails at its own path (`false schema`) and a name outside its pattern at its map's path (`additional properties '<key>' not allowed`), never at another key's: the schema has no `propertyNames`, whose errors Helm's schema library reports at another key's path ([ADR-0068](adr/0068-schema-checks-on-map-keys-report-the-right-path.md)); `metrics.port` naming a sidecar's port fails with one message, the end state | Released (2026-11-18) |
 | 1.4.0 | A GRPCRoute, HTTPRoute rules and `appProtocol` | `grpcRoute` (a GRPCRoute to the component's Service, at a `ports` entry by name), `httpRoute.rules` (extra rules after the first, each to a `ports` entry by name) and `ports[].appProtocol` (the Service port), all optional; guards on a rule's matches, the port names, and a GRPCRoute's `parentRefs` and Service; the NetworkPolicy route guards count a GRPCRoute ([ADR-0069](adr/0069-grpcroute-httproute-rules-and-appprotocol.md)) | Unit tests; kubeconform and the e2e's API server check the full scenario's GRPCRoute, extra rule and `appProtocol` | Released (2026-11-19) |
+| 1.5.0 | A `null` means absent, chart-wide | A `null` that 1.4.0's schema rejects on a map entry or on an optional member of a closed object is absent: the main container's `env.<NAME>`, a source or an optional field inside any `valueFrom` (an overlay removes or switches an inherited `externalSecretKeyRef`), a key of `config` and of the label, annotation and selector maps, a `lifecycle` hook or handler, `maxSurge` and `maxUnavailable`, a `dnsConfig` field, `ports[].servicePort`, a direction or a field of a `behavior`; the keys added after 1.0.0 take `null` as their default (a `--reuse-values` upgrade); every value that renders on 1.4.0 renders the same manifest; pass-through objects, `null` inside a list and required fields keep their rule ([ADR-0070](adr/0070-a-null-means-absent-chart-wide.md)) | Unit tests; every `ci/` scenario and a probe set rendered with 1.4.0 and 1.5.0 on Helm 4.3.0 and 3.22.0 (same output but the one changed remedy), and the `--reuse-values` shape with older releases' defaults | In progress |
 
 ## Open decisions
-
-- **A chart-wide "a `null` entry means absent" rule** (cut before 1.0 on 2026-11-02; a candidate after it). Today the rule
-  holds per map only: in 0.7.0 `configFiles.files`, the content of a map-form file, `resources`, `volumes` and
-  `strategy.rollingUpdate` ([ADR-0045](adr/0045-null-in-configfiles-and-resources-is-absent.md), [ADR-0049](adr/0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md),
-  [ADR-0050](adr/0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md)), in 0.8.0 `initContainers` and `sidecars` for optional fields at any depth but inside a list, an env
-  variable's `valueFrom` and a probe's `httpGet` or `exec` (a required field such as a mount's `mountPath` stays an error) ([ADR-0051](adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)), in 0.9.0 `externalSecret.data` (an entry, or an optional field of one) and `externalSecret.template.data` ([ADR-0053](adr/0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md)), in 0.10.0 `keda.triggers` (an entry, an optional field or a metadata key of one; [ADR-0056](adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)), in 0.11.0 `extraObjects` (an entry, or a field of one at any depth through maps; a list kept as written; [ADR-0057](adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)). The main container's `env.<NAME>: null` would give 0.9.0's `externalSecretKeyRef` an overlay remedy in an environment that disables the ExternalSecret ([ADR-0054](adr/0054-env-externalsecretkeyref-references-the-components-own-secret.md)). What stays without it once the maps of 0.7.0 to 0.10.0 are converted: one
-  entry of a typed map (`config`, the main container's `env`, `podLabels`, `podAnnotations`, `ingress.annotations`,
-  `serviceAccount.annotations`, `metrics.labels`, `prometheusRule.labels`, `nodeSelector`,
-  `networkPolicy.egress.dns.podSelector`) and an optional member of a closed object (`lifecycle.<hook>`,
-  `strategy.rollingUpdate.maxSurge` and `.maxUnavailable`, `dnsConfig.nameservers`, `.searches`, `.options`), schema errors today; a key inside a
-  pass-through object (`probes.<probe>.<key>`, `affinity.<key>`, the keys of `podSecurityContext` and
-  `securityContext` that `values.yaml` does not define), rendered as `null` today, so converting it changes the
-  manifest; `httpRoute.matches`; one entry of `commonLabels`, `commonAnnotations` or `service.annotations`. Converting a map
-  converts its template readers and guards with
-  it. 0.12.0 converted one of those pass-through objects, the main container's probes: a `null` field is absent there
-  now, as in a sidecar's ([ADR-0059](adr/0059-one-probe-contract-for-every-container.md)).
 
 - **Follow-ups of 0.8.0** ([ADR-0051](adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)), each additive: a per-entry `automountToken: false` (today every
   init container and sidecar gets the token when the pod does); `lifecycle` on an entry; a sidecar port exposed in the
@@ -69,9 +54,10 @@ On 2026-11-02 the roadmap was cut to one more release before 1.0 (see [Cut befor
   `template.data` value without a template action fail today and can be accepted later without a breaking change, but
   not the reverse.
 - **Follow-ups of 0.10.0** ([ADR-0055](adr/0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md), [ADR-0056](adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)), each additive (the opt-in handover
-  from the chart's HPA to KEDA, O1 of the 0.10.0 design, shipped in 1.1.0 as `autoscaling.kedaHandover`): `tolerance` once the floor reaches Kubernetes 1.35; a
-  chart-rendered TriggerAuthentication and a ScaledJob; `autoscaling.behavior` converted to "a `null` means absent"; a
-  check of the variables that a `...FromEnv` parameter names.
+  from the chart's HPA to KEDA, O1 of the 0.10.0 design, shipped in 1.1.0 as `autoscaling.kedaHandover`, and
+  `autoscaling.behavior` converted to "a `null` means absent" in 1.5.0): `tolerance` once the floor reaches Kubernetes
+  1.35; a chart-rendered TriggerAuthentication and a ScaledJob; a check of the variables that a `...FromEnv` parameter
+  names.
 
 The decision whether NetworkPolicy becomes on by default after 0.5.0 was taken with 0.5.0: it stays off.
 On a CNI that does not enforce it, a policy changes nothing, and its rules depend on facts of each cluster (the
@@ -145,7 +131,10 @@ offer in the meantime.
   already rejects those values at install. The rest of the former 0.11.0, GRPCRoute, HTTPRoute rules and
   `ports[].appProtocol`, shipped additively in 1.4.0 ([ADR-0069](adr/0069-grpcroute-httproute-rules-and-appprotocol.md)).
 - **A chart-wide "a `null` entry means absent" rule** (part of the 0.12.0 planned before the cut; the 0.12.0 that
-  shipped converts only the main container's probes; see [Open decisions](#open-decisions)).
+  shipped converts only the main container's probes). 1.5.0 ships it additively
+  ([ADR-0070](adr/0070-a-null-means-absent-chart-wide.md)); its breaking parts wait for a major: pruning a pass-through
+  object (`securityContext`, `podSecurityContext`, `affinity`, whose `null` keys render today) and a `null` inside a
+  list (an overlay replaces a list whole).
 - **The StatefulSet workload type** (the former 0.13.0): stateful systems usually run under their own operators.
 - **Closing the existing label and annotation maps** to the chart's and Helm's own keys (part of the 0.12.0 planned
   before the cut): breaking, so it joined the checks of the 1.0 contract freeze, and 0.12.0 takes it

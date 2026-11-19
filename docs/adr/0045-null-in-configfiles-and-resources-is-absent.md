@@ -1,6 +1,6 @@
 # ADR-0045: A `null` in `configFiles` removes the file or the key; a `null` resource quantity is absent
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0070](0070-a-null-means-absent-chart-wide.md) (1.5.0)
 - **Date:** 2026-10-06
 - **Since:** 0.7.0
 - **Related:** [ADR-0005](0005-configfiles-string-or-map.md) (amended), [ADR-0014](0014-resource-requests-required.md) (amended), [ADR-0027](0027-required-keys-in-the-schema.md)

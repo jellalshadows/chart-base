@@ -1,6 +1,6 @@
 # ADR-0054: `env` can reference the component's own ExternalSecret Secret (`externalSecretKeyRef`)
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0070](0070-a-null-means-absent-chart-wide.md) (1.5.0)
 - **Date:** 2026-10-09
 - **Since:** 0.9.0
 - **Related:** [ADR-0030](0030-env-takes-references-only.md) (amended), [ADR-0031](0031-existing-secrets-referenced-by-name.md),

@@ -714,7 +714,8 @@ sales:
 `behavior` is rendered as written, and the API server fills Kubernetes' defaults into a direction that leaves fields
 out (measured for a `scaleUp` with `selectPolicy` alone, on kube-apiserver 1.33.0 and 1.37.0). `tolerance` is not
 offered: Kubernetes 1.33 and 1.34 drop it without a word (source reading of each release's `kube_features.go`). An
-override file merges into `behavior` field by field and cannot remove one direction; `behavior: null` removes the
+override file merges into `behavior` field by field, and from 1.5.0 removes a direction or a field by setting it to
+`null`; `behavior: null` removes the
 whole block
 ([ADR-0055](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md)).
 
@@ -1223,8 +1224,8 @@ code, official docs) and local renders.
     init containers first on a tie. Each entry starts from the chart's hardened security context, declares its own `env`
     (references only; `inheritEnv: true` for exactly the main container's) and its `volumeMounts`; what the pod grants
     (the token, `rbac`, the NetworkPolicy, `podSecurityContext`) reaches every container. In these maps a `null` entry
-    or optional field is absent at any depth (a list is kept as written); inside an env variable's `valueFrom` or a
-    probe's `httpGet` or `exec`, and in a required field, it stays a schema error. A sidecar's ports are pod-internal,
+    or optional field is absent at any depth (a list is kept as written), inside a probe's `httpGet` (decision 59) and
+    an env variable's `valueFrom` (decision 70) too; in a required field it stays a schema error. A sidecar's ports are pod-internal,
     port names and numbers are declared once in the pod, and a sidecar's probes are a closed object. It amends decision
     49: `mountPath` is optional for a volume that an init container or a sidecar mounts. *Rejected:* a Kubernetes list
     (an overlay replaces it whole), one default order (init containers behind every sidecar), the component's security
@@ -1259,8 +1260,8 @@ code, official docs) and local renders.
     [ADR-0054](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0054-env-externalsecretkeyref-references-the-components-own-secret.md)
 55. **The HPA's `behavior` and `metrics` are validated pass-throughs, and a non-empty `metrics` list replaces the
     built-in targets.** `autoscaling.behavior` is Kubernetes' `spec.behavior`, closed at every level (no `tolerance`;
-    `{}` and an empty direction fail; not a converted map: a `null` inside fails the schema, except in an umbrella's own
-    values on Helm 4.3 while nothing is passed for the alias, where Helm drops it). `autoscaling.metrics` is Kubernetes'
+    `{}` and an empty direction fail; from 1.5.0 a `null` direction or field is absent: decision 70).
+    `autoscaling.metrics` is Kubernetes'
     list, each item validated per `type`, with the target type tied to its value field. A non-empty list is the whole
     list, rendered as written (never switched to `ContainerResource`), and the memory target next to it fails; `[]` and
     `null` keep the built-in targets, so `spec.metrics` is never empty. A `ContainerResource` entry must name the main
@@ -1305,7 +1306,7 @@ code, official docs) and local renders.
     sidecar's: one handler, no `host`, `grpc.port` a number, a misspelt field fails; `successThreshold` at most 1 on
     `startup` and `liveness` and no `terminationGracePeriodSeconds` on `readiness`, for the main container and the
     sidecars alike, as the API server requires. `{}` and `null` are no probe, and a `null` field or handler is left out
-    in both places, inside `httpGet` and `grpc` too; a `lifecycle` hook's `httpGet` keeps rejecting a `null`. It amends
+    in both places, inside `httpGet` and `grpc` too (a `lifecycle` hook's `httpGet` too from 1.5.0: decision 70). It amends
     decisions 47 and 51. *Rejected:* keeping the main probes open (two contracts frozen at 1.0, values that fail only at
     install), kind rules for one kind of container only.
     [ADR-0059](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0059-one-probe-contract-for-every-container.md)
@@ -1377,6 +1378,18 @@ code, official docs) and local renders.
     It amends decisions 16, 40, 48 and 64. *Rejected:* rules that replace `matches` (a frozen key), schema
     conditionals on a new key (they hold vacuously after a `--reuse-values` upgrade).
     [ADR-0069](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0069-grpcroute-httproute-rules-and-appprotocol.md)
+70. **A `null` means absent, chart-wide.** A `null` that 1.4.0's schema rejects on a map entry or on an optional
+    member of a closed object is absent: the main container's `env.<NAME>`, a source or an optional field inside any
+    variable's `valueFrom` (an overlay switches a source by setting the inherited one to `null` next to the new one), a
+    key of `config` and of the label, annotation and selector maps (a common value for the key then applies), a
+    `lifecycle` hook or handler, `maxSurge` and `maxUnavailable`, a `dnsConfig` field, `ports[].servicePort`, a
+    direction or a field of a `behavior`, and a key added after 1.0.0, which a `--reuse-values` upgrade can reach with a
+    `null`. The templates and every guard read the same pruned copy, and a value that 1.4.0 renders renders the same.
+    A required field, a reserved key, a `null` inside a list and a pass-through object (`securityContext`, `affinity`)
+    keep their rule. It amends decisions 45, 49, 50, 51, 54, 55, 59 and 64. *Rejected:* `null` in each member's
+    `type` (it changes the message of every wrong value), one prune of the whole values tree (it changes the manifest
+    of the pass-through objects).
+    [ADR-0070](https://github.com/jellalshadows/chart-base/blob/main/docs/adr/0070-a-null-means-absent-chart-wide.md)
 
 ## How it compares
 

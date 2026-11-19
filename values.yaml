@@ -29,7 +29,7 @@ command: []
 args: []
 
 # -- Container ports. Each entry also becomes a Service port when a Service is rendered. `servicePort` is optional and
-# defaults to `containerPort`. A probe port given by name (`httpGet.port`, `tcpSocket.port` in `probes`) must be one of
+# defaults to `containerPort` (absent or `null`). A probe port given by name (`httpGet.port`, `tcpSocket.port` in `probes`) must be one of
 # these names: the render fails otherwise. A sidecar's port name is not one (the kubelet resolves a name among the
 # probed container's own ports: source reading), while a port NUMBER reaches whatever listens on it in the pod, a
 # sidecar included (a `grpc` probe takes a number only, so it cannot be checked). `appProtocol` (optional, since 1.4.0)
@@ -44,7 +44,9 @@ ports:
 resources: {}
 
 # -- Environment variables. Rendered into ConfigMap `<fullname>-env` and injected with `envFrom`. Quote a name that YAML
-# 1.1 reads as a boolean (`ON`, `OFF`, `YES`, `NO`, `Y`, `N`): unquoted it becomes `true` or `false`.
+# 1.1 reads as a boolean (`ON`, `OFF`, `YES`, `NO`, `Y`, `N`): unquoted it becomes `true` or `false`. A name set to
+# `null` is absent, so an override file removes a variable with `NAME: null`; with every name `null` no ConfigMap is
+# rendered.
 config: {}
 
 # -- Environment variables from REFERENCES only (literal values belong in `config`): a map of `NAME: {valueFrom:
@@ -52,13 +54,14 @@ config: {}
 # `externalSecretKeyRef: {key}`. `externalSecretKeyRef` reads one key of the component's own ExternalSecret Secret and is
 # rendered as a `secretKeyRef` on `<fullname>-secrets`, a name the chart resolves for every release name and alias (a
 # hand-written `secretKeyRef.name: <release>-<alias>-secrets` breaks under another release name or alias). It takes
-# `key` only (no `name`, no `optional`): it requires `externalSecret.enabled: true` (the render fails otherwise, an
-# override file cannot remove one `env` entry, so keep such an entry in the values of the environments that enable the
-# ExternalSecret), and while the chart knows every key of the Secret (`dataFrom` empty, or a templated `mergePolicy:
+# `key` only (no `name`, no `optional`): it requires `externalSecret.enabled: true` (the render fails otherwise; the
+# override file of an environment that disables the ExternalSecret removes the variable with `NAME: null`, or switches
+# it with `externalSecretKeyRef: null` next to another source), and while the chart knows every key of the Secret (`dataFrom` empty, or a templated `mergePolicy:
 # Replace`) the key must be one of them; with a `dataFrom` entry under `Merge` it is not checked, and a key the Secret
 # lacks keeps the container from being created (`couldn't find key`: kubelet source reading). Rendered as container
 # `env`, which wins over every `envFrom` source. Quote a name that YAML 1.1 reads as a boolean (`ON`, `OFF`, `YES`,
-# `NO`, `Y`, `N`): unquoted it becomes `true` or `false`.
+# `NO`, `Y`, `N`): unquoted it becomes `true` or `false`. A variable set to `null` is absent, and so is a `null` source
+# next to another one and a `null` optional field of a source; `valueFrom` and a source's `key` stay required.
 env: {}
 
 # -- Existing ConfigMaps/Secrets injected whole, e.g. `[{secretRef: {name: sales-kafka-user}}]` or
@@ -148,8 +151,8 @@ volumes: {}
 # or of an earlier literal (the kubelet expands a variable defined before it). A name in both `env` and `config` fails.
 # `inheritEnv` (default `false`) set to `true` gives the container exactly the main container's `envFrom` and `env`,
 # rendered as the main container renders them; an `env` or `config` name that the main container already receives then
-# fails the render. Inside one variable's `valueFrom` a `null` stays an error (the definition is shared with the main container):
-# remove or replace the variable whole (`env.NAME: null`); a `null` in an entry's `env` never removes an inherited
+# fails the render. Inside one variable's `valueFrom` a `null` source next to another one, or a `null` optional
+# field of a source, is absent, as in the main container's `env`; a `null` in an entry's `env` never removes an inherited
 # variable. An inherited `resourceFieldRef` without `containerName` reads this container's own resources (kubelet source
 # reading). `volumeMounts` is a map keyed by the VOLUME name, each mount with `mountPath` (required, absolute),
 # `subPath` and `readOnly`: the chart's `tmp` (shared with the main container: mount it if the container writes to
@@ -317,7 +320,8 @@ progressDeadlineSeconds: 240
 
 # -- (object) Deployment update strategy (`spec.strategy`): `{type: RollingUpdate, rollingUpdate: {maxSurge, maxUnavailable}}`
 # or `{type: Recreate}`. `null` = Kubernetes default (`RollingUpdate`, 25% surge, 25% unavailable). Deployments only.
-# `rollingUpdate: null` means absent and is never rendered: an override file over values that set `rollingUpdate`
+# `rollingUpdate: null` means absent and is never rendered (`maxSurge: null` or `maxUnavailable: null` is the
+# Kubernetes default, 25%): an override file over values that set `rollingUpdate`
 # switches to Recreate with `{type: Recreate, rollingUpdate: null}` (a `rollingUpdate` next to `Recreate`, even `{}`,
 # fails the render). A `persistentVolumeClaim` volume declared `ReadWriteOnce` or `ReadWriteOncePod` requires a
 # strategy that adds no pod (see `volumes`). With Helm 4, a Deployment created without `strategy` (in a release that
@@ -340,7 +344,8 @@ service:
   # -- Annotations of the Service, e.g. a cloud load balancer's settings
   # (`service.beta.kubernetes.io/aws-load-balancer-scheme: internal`). Values are strings: quote a number (`"60"`), an
   # unquoted one fails the schema with `got number, want string`. They win over `commonAnnotations` on a shared key.
-  # `helm.sh/hook*`, `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files` fail the schema. Not rendered
+  # `helm.sh/hook*`, `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files` fail the schema, also set to
+  # `null`; another key set to `null` is absent. Not rendered
   # when no Service is (`service.enabled: false`, a `cronjob` or a `job`).
   annotations: {}
 
@@ -363,7 +368,8 @@ autoscaling:
   # -- Prepare the switch from this HPA to KEDA (`keda`) in one upgrade: `true` puts
   # `validations.keda.sh/hpa-ownership: "false"` on the HPA, so KEDA's admission webhook no longer counts it as the
   # Deployment's autoscaler. Deploy `true` first; the next upgrade can then set `enabled: false` and `keda.enabled:
-  # true` together (without it, KEDA's webhook denies that upgrade: see the upgrade guide). Off by default: the annotation
+  # true` together (without it, KEDA's webhook denies that upgrade: see the upgrade guide). Off by default (`false` or
+  # `null`): the annotation
   # turns KEDA's ownership check off for this HPA. Read only while `enabled` is `true`; it wins over the same key in
   # `commonAnnotations`.
   kedaHandover: false
@@ -386,11 +392,13 @@ autoscaling:
   # each `{type: Pods or Percent, value: 1 or more, periodSeconds: 1 to 1800}`), integers only. Closed at every level: a
   # misspelt field fails the render (Helm 3 alone would only warn and drop it). `null` = not rendered (the API server's
   # defaults); `{}` and an empty direction fail (a value that does nothing). Not offered: `tolerance` (Kubernetes 1.33
-  # and 1.34 drop it without a word: source reading). Not a converted map: a `null` inside (`scaleUp: null`, `policies:
-  # null`) fails the schema (on Helm 4.3 a `null` inside it in an umbrella's own values, with nothing passed for the
-  # alias, is dropped, and a direction or a `behavior` left empty then fails `minProperties`: see the consuming guide).
-  # An override file merges into the `behavior` of a lower layer: it changes a field of a direction by restating it,
-  # and cannot remove one direction; `behavior: null` removes the whole block.
+  # and 1.34 drop it without a word: source reading). A `null` direction or a `null` field of a direction is absent:
+  # with every direction `null` no behavior is rendered, and a direction whose every field is `null` is rendered `{}`,
+  # which the API server fills with its defaults (on Helm 4.3 a `null` in an umbrella's own values, with nothing passed
+  # for the alias, is dropped first, and a direction or a `behavior` left empty then fails `minProperties`: see the
+  # consuming guide). A `null` inside a `policies` item fails the schema. An override file merges into the `behavior`
+  # of a lower layer: it changes a field of a direction by restating it, and removes one direction with `scaleUp: null`
+  # or `scaleDown: null`; `behavior: null` removes the whole block.
   behavior: null
   # -- (list) The HPA's `spec.metrics`, in Kubernetes' own list shape. `[]` or `null` = the built-in targets
   # (`targetCPUUtilizationPercentage`, `targetMemoryUtilizationPercentage`). A non-empty list is the WHOLE list and
@@ -441,8 +449,8 @@ keda:
   # `replicas` at most `maxReplicaCount` (the HPA caps it); the render fails otherwise. `null` = none.
   fallback: null
   # -- (object) The `behavior` of the HPA KEDA creates (`advanced.horizontalPodAutoscalerConfig.behavior`), with the
-  # shape and the rules of `autoscaling.behavior` (closed, no `tolerance`, a `null` inside fails the schema but for Helm
-  # 4.3's exception in an umbrella's own values: see `autoscaling.behavior`). `null` = not rendered.
+  # shape and the rules of `autoscaling.behavior` (closed, no `tolerance`, a `null` direction or field absent: see
+  # `autoscaling.behavior`). `null` = not rendered.
   behavior: null
   # -- The triggers: a map keyed by the trigger's name (rendered as its `name`, in key order) of `{type, metadata,
   # metricType, authenticationRef: {name, kind}, useCachedMetrics}`. `type` (the scaler: `rabbitmq`, `cron`, `cpu`...)
@@ -491,7 +499,8 @@ terminationGracePeriodSeconds: 30
 # An `httpGet.port` given by name must be the name of an entry in `ports`, as a probe's: the kubelet resolves it among
 # the main container's `ports` only, and on a name that `ports` does not declare a `preStop` hook fails with nothing
 # but a `FailedPreStopHook` event while termination goes on, and a `postStart` hook kills the container (kubelet
-# source reading).
+# source reading). A `null` hook is absent, and so is a `null` handler next to another one (an override file switches a
+# hook's handler with `exec: null` next to `httpGet`) and a `null` `httpGet.path`, `scheme` or `httpHeaders`.
 lifecycle: {}
 
 httpRoute:
@@ -514,6 +523,7 @@ httpRoute:
   # `[{matches: [{path: {type: PathPrefix, value: /api}}], port: grpc}]`. Each rule takes `matches` (at least one, entries
   # as in `matches`) and `port`, the name of the `ports` entry it sends to (absent or `null`: the first entry). The backend
   # is always this component's Service; a rule without matches or a `port` that names no `ports` entry fails the render.
+  # `null` = none.
   rules: []
 
 grpcRoute:
@@ -542,7 +552,8 @@ ingress:
   className: ""
   # -- Ingress annotations (a controller's settings). Values are strings. Helm's and the chart's keys fail the schema
   # (`false schema`, at the key's own path): `helm.sh/hook*` (it would turn the Ingress into a
-  # Helm hook), `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files`.
+  # Helm hook), `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files`. Another key set to `null` is
+  # absent.
   annotations: {}
   # -- Hosts, e.g. `[{host: sales.example.com, paths: [{path: /, pathType: Prefix}]}]`.
   hosts: []
@@ -567,6 +578,7 @@ metrics:
   # -- Extra labels on the monitor, e.g. `{release: kube-prometheus-stack}`: with its default values, kube-prometheus-stack's
   # Prometheus only selects monitors labelled `release: <its release name>`. The keys the chart sets itself
   # (`app.kubernetes.io/name`, `instance`, `part-of`, `version`, `managed-by`, `helm.sh/chart`) are rejected.
+  # A key set to `null` is absent (a `commonLabels` value for it then applies).
   labels: {}
 
 prometheusRule:
@@ -574,7 +586,7 @@ prometheusRule:
   # on a CronJob's runs from kube-state-metrics). The CRD must be installed: without it the release fails.
   enabled: false
   # -- Extra labels on the PrometheusRule, e.g. `{release: kube-prometheus-stack}`; the chart's own label keys are
-  # rejected (see `metrics.labels`).
+  # rejected (see `metrics.labels`); a key set to `null` is absent.
   labels: {}
   # -- Rule groups, rendered verbatim as `spec.groups`: `[{name, interval, rules: [{alert or record, expr, for,
   # keep_firing_for, labels, annotations}]}]`; durations must not be empty and a recording rule takes no `for`,
@@ -635,7 +647,8 @@ networkPolicy:
       # unverified what it needs). A map you set REPLACES it, it is not merged with it. OpenShift:
       # `{dns.operator.openshift.io/daemonset-dns: default}`, with `namespace: openshift-dns` and
       # `ports: [{port: 5353, protocol: UDP}, {port: 5353, protocol: TCP}]`. A resolver that a namespace and labels
-      # cannot select: `enabled: false` and an `egress.extra` rule.
+      # cannot select: `enabled: false` and an `egress.extra` rule. A key set to `null` is absent, and with every key
+      # `null` the default applies.
       podSelector: null
       # -- DNS ports, by number, each with its protocol (required: an entry without one would be TCP only and block UDP
       # DNS). OpenShift's DNS pods listen on 5353.
@@ -711,7 +724,7 @@ serviceAccount:
   # with `annotations: null`, not `{}` (maps are merged). Helm's and the chart's keys fail the schema (`false
   # schema`, at the key's own path): `helm.sh/hook*` (a `job`'s ServiceAccount carries the hook
   # keys of its phase), `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files`;
-  # `helm.sh/resource-policy` is allowed.
+  # `helm.sh/resource-policy` is allowed. A key set to `null` is absent.
   annotations: {}
   # -- Mount the ServiceAccount token into the pods. The pods' own `automountServiceAccountToken` is always rendered,
   # so it wins over the ServiceAccount's, an existing one's too. A cloud identity does not need it: EKS IRSA and Pod
@@ -759,8 +772,8 @@ rbac:
 # `version`, `managed-by`, `helm.sh/chart`) fail the schema with
 # `false schema` at the key's own path. `app.kubernetes.io/component` is yours: the chart does not write it, so set it here (or in
 # `podLabels`) for its Kubernetes meaning, the component within the architecture (e.g. `database`). A change changes
-# the pod template: it rolls a Deployment's pods, and the next CronJob run and the next Job get it. Per alias (`global`
-# is not read).
+# the pod template: it rolls a Deployment's pods, and the next CronJob run and the next Job get it. A key set to `null`
+# is absent, here and in a per-object map (where the common value then applies). Per alias (`global` is not read).
 commonLabels: {}
 
 # -- Annotations added to the metadata of every object the chart renders for this component (`extraObjects` included),
@@ -772,20 +785,22 @@ commonLabels: {}
 # key's own path): `helm.sh/hook*`, `meta.helm.sh/*`, `checksum/config-env`, `checksum/config-files`,
 # `secret.reloader.stakater.com/reload` and `configmap.reloader.stakater.com/reload` (other Reloader keys, such as
 # `reloader.stakater.com/auto`, are allowed). `helm.sh/resource-policy: keep` keeps the regular objects on uninstall,
-# never a `job` component's hooks (Helm deletes a hook without reading it). A change rolls nothing. Per alias (`global`
-# is not read).
+# never a `job` component's hooks (Helm deletes a hook without reading it). A change rolls nothing. A key set to
+# `null` is absent, here and in a per-object map (where the common value then applies). Per alias (`global` is not
+# read).
 commonAnnotations: {}
 
 # -- Extra pod annotations, e.g. `{resource.opentelemetry.io/service.name: sales}`. Values are strings. Helm's and the
 # chart's keys fail the schema (`false schema`, at the key's own path): `helm.sh/hook*`,
 # `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files` (the pod template carries the two checksums). A
-# change rolls a Deployment's pods.
+# change rolls a Deployment's pods. A key set to `null` is absent.
 podAnnotations: {}
 
 # -- Extra pod labels, winning over `commonLabels` on a shared key. Values are strings. The chart's own keys
 # (`app.kubernetes.io/name`, `instance`, `part-of`, `version`, `managed-by`, `helm.sh/chart`) fail the schema with
 # `false schema` at the key's own path; `app.kubernetes.io/component` is yours. Never a
-# selector. A change rolls a Deployment's pods.
+# selector. A change rolls a Deployment's pods. A key set to `null` is absent (a `commonLabels` value for it then
+# applies).
 podLabels: {}
 
 # -- Pod security context. Defaults satisfy the Pod Security Standards `restricted` profile; override key by key.
@@ -809,7 +824,7 @@ securityContext:
     drop:
       - ALL
 
-# -- Node selector.
+# -- Node selector. A key set to `null` is absent.
 nodeSelector: {}
 
 # -- Tolerations.
@@ -827,6 +842,7 @@ runtimeClassName: null
 
 # -- (object) DNS settings merged into those of the pod's DNS policy (`dnsConfig`): `nameservers` (at most 3), `searches`
 # (at most 32) and `options`, e.g. `{options: [{name: ndots, value: "2"}]}` (option values are strings: quote them).
+# A field set to `null` is absent, and a `dnsConfig` left empty is not rendered.
 dnsConfig: null
 
 # -- Extra `/etc/hosts` entries of the pods (`hostAliases`), e.g. `[{ip: 10.0.0.5, hostnames: [legacy-db.internal]}]`.
