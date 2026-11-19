@@ -570,3 +570,166 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  # Claim templates: volumeClaimTemplate entries of volumes (ADR-0049's name space), rendered as volumeClaimTemplates[]
+  # named after the volume, with an ephemeral claim's labels and spec, mounted like any volume, never a pod volume.
+  - it: renders a volumeClaimTemplate entry as a claim template named after the volume, ReadWriteOnce by default, no class
+    template: templates/statefulset.yaml
+    set:
+      volumes:
+        data: {type: volumeClaimTemplate, mountPath: /data, size: 10Gi}
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates
+          value:
+            - metadata:
+                name: data
+                labels:
+                  app.kubernetes.io/name: chart-base
+                  app.kubernetes.io/instance: vending
+              spec:
+                accessModes: [ReadWriteOnce]
+                resources:
+                  requests:
+                    storage: 10Gi
+
+  - it: mounts a volumeClaimTemplate volume in the main container and renders no pod volume for it
+    template: templates/statefulset.yaml
+    set:
+      volumes:
+        data: {type: volumeClaimTemplate, mountPath: /data, subPath: db, size: 10Gi}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - {name: tmp, mountPath: /tmp}
+            - {name: data, mountPath: /data, subPath: db}
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - {name: tmp, emptyDir: {}}
+
+  - it: renders the accessMode and storageClassName of a claim template, and readOnly on the main container's mount
+    template: templates/statefulset.yaml
+    set:
+      volumes:
+        data: {type: volumeClaimTemplate, size: 5Gi, accessMode: ReadWriteOncePod, storageClassName: fast.ssd, mountPath: /data, readOnly: true}
+      initContainers:
+        seed:
+          image: {repository: ghcr.io/acme/seed, tag: "1"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          volumeMounts:
+            data: {mountPath: /seed}
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec
+          value:
+            accessModes: [ReadWriteOncePod]
+            storageClassName: fast.ssd
+            resources:
+              requests:
+                storage: 5Gi
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[1]
+          value: {name: data, mountPath: /data, readOnly: true}
+      - equal:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          value:
+            - {name: data, mountPath: /seed}
+
+  - it: labels a claim template with the selector labels and commonLabels without its nulls, never helm.sh/chart or podLabels
+    template: templates/statefulset.yaml
+    set:
+      commonLabels: {team: a, gone: null}
+      podLabels: {tier: data}
+      volumes:
+        data: {type: volumeClaimTemplate, mountPath: /data, size: 1Gi}
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates[0].metadata.labels
+          value:
+            app.kubernetes.io/name: chart-base
+            app.kubernetes.io/instance: vending
+            team: a
+
+  - it: renders the claim templates in key order next to the pod volumes of the other types
+    template: templates/statefulset.yaml
+    set:
+      volumes:
+        wal: {type: volumeClaimTemplate, mountPath: /wal, size: 1Gi}
+        cache: {type: emptyDir, mountPath: /cache}
+        data: {type: volumeClaimTemplate, mountPath: /data, size: 10Gi}
+        scratch: {type: ephemeral, mountPath: /scratch, size: 1Gi}
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates[0].metadata.name
+          value: data
+      - equal:
+          path: spec.volumeClaimTemplates[1].metadata.name
+          value: wal
+      - lengthEqual:
+          path: spec.volumeClaimTemplates
+          count: 2
+      - equal:
+          path: spec.template.spec.volumes[1]
+          value: {name: cache, emptyDir: {}}
+      - equal:
+          path: spec.template.spec.volumes[2].name
+          value: scratch
+      - lengthEqual:
+          path: spec.template.spec.volumes
+          count: 3
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - {name: tmp, mountPath: /tmp}
+            - {name: cache, mountPath: /cache}
+            - {name: data, mountPath: /data}
+            - {name: scratch, mountPath: /scratch}
+            - {name: wal, mountPath: /wal}
+
+  - it: quotes a claim template's name and size (a name and a quantity that YAML reads otherwise)
+    template: templates/statefulset.yaml
+    set:
+      volumes:
+        "true": {type: volumeClaimTemplate, mountPath: /data, size: "1e3"}
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates[0].metadata.name
+          value: "true"
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec.resources.requests.storage
+          value: "1e3"
+
+  - it: renders no volumeClaimTemplates without a volumeClaimTemplate entry
+    template: templates/statefulset.yaml
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /cache}
+    asserts:
+      - notExists:
+          path: spec.volumeClaimTemplates
+
+  - it: renders no claim template for a null entry, and none of its null fields (accessMode, storageClassName)
+    template: templates/statefulset.yaml
+    set:
+      volumes:
+        gone: null
+        data: {type: volumeClaimTemplate, mountPath: /data, size: 1Gi, accessMode: null, storageClassName: null, subPath: null}
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates
+          value:
+            - metadata:
+                name: data
+                labels:
+                  app.kubernetes.io/name: chart-base
+                  app.kubernetes.io/instance: vending
+              spec:
+                accessModes: [ReadWriteOnce]
+                resources:
+                  requests:
+                    storage: 1Gi
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[1]
+          value: {name: data, mountPath: /data}

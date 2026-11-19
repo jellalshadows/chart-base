@@ -87,14 +87,19 @@ configFiles:
 
 # -- Extra volumes of the pod: a map keyed by the volume name, rendered in key order after the chart's own `tmp` and
 # `config-files`. Every entry has a `type` (`emptyDir`; `configMap` and `secret`, mounted read-only;
-# `persistentVolumeClaim`, an EXISTING claim; `ephemeral`, a claim created and deleted with each pod) and, unless only
+# `persistentVolumeClaim`, an EXISTING claim; `ephemeral`, a claim created and deleted with each pod;
+# `volumeClaimTemplate`, since 1.6.0 and on a `statefulset` only, a claim per pod that the StatefulSet creates and
+# keeps) and, unless only
 # init containers or sidecars mount the volume (`initContainers.<name>.volumeMounts`), an absolute `mountPath`, the main
 # container's mount, with its `subPath` and `readOnly`. Without `mountPath` the main container does not mount it, and
 # `subPath` and `readOnly` fail; a volume that no container mounts fails. The fields of each type: `emptyDir`: `medium`
 # (`Memory`), `sizeLimit`; `configMap`: `name`, `items`, `defaultMode`, `optional`, `reloadOnChange`; `secret`:
 # `secretName`, `items`, `defaultMode`, `optional`, `reloadOnChange`; `persistentVolumeClaim`: `claimName`, `claimAccessMode` (default `ReadWriteOnce`);
 # `ephemeral`: `size`, `accessMode` (default `ReadWriteOnce`), `storageClassName` (default: the cluster's default
-# class). An `ephemeral` claim lives as long as its pod (source reading): a CronJob keeps those of the finished runs its
+# class); `volumeClaimTemplate`: the fields of `ephemeral`, rendered as a claim template of the StatefulSet named after
+# the volume (each pod mounts its own claim `<volume>-<release>-<alias>-<ordinal>`, which outlives the pod: see
+# `statefulset.persistentVolumeClaimRetentionPolicy`; the API refuses any change of a claim template once the
+# StatefulSet exists, its labels included, so `commonLabels` too). An `ephemeral` claim lives as long as its pod (source reading): a CronJob keeps those of the finished runs its
 # history limits keep, a Job keeps its own for `job.ttlSecondsAfterFinished`, and each retry gets one of its own. In
 # `volumes`, a `null` entry or field is absent, and `volumes: null` is no volume: an overlay changes the type of a
 # volume that the umbrella defines by setting the previous type's fields to `null` (`cache: {type: ephemeral, size:
@@ -110,7 +115,7 @@ configFiles:
 # and must not be `/` or the ServiceAccount token directory; a directory may lie beneath another mount (`/tmp/cache`),
 # but a `configMap` or `secret` file (`subPath`) must not lie beneath a ConfigMap or Secret mount. `subPath` and
 # `items[].path` are relative, without `..`, and the `items[].path` of one entry are unique. `readOnly: false` fails on
-# a `configMap` or `secret` mount, and an `emptyDir` or `ephemeral` volume that every container mounts read-only fails
+# a `configMap` or `secret` mount, and an `emptyDir`, `ephemeral` or `volumeClaimTemplate` volume that every container mounts read-only fails
 # (nothing could write it; an init container that fills a volume the main container reads mounts it writable). With
 # `items`, the `subPath` of a `configMap` or `secret` entry names one of their paths, a directory that holds one, or `.`
 # (a `subPath` that names none mounts an empty directory), in every container. `sizeLimit` and `size` are strings

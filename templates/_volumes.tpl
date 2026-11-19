@@ -19,10 +19,9 @@ Usage: {{- $volumes := dict }}{{- include "chart-base.volumes" (dict "ctx" $ "ou
 
 {{/*
 chart-base.volumeSource: the source of one volume (an entry of chart-base.volumes), each field rendered by name and every
-string quoted: the lines that follow `- name:` in a pod's volumes. The claim template of an ephemeral volume is labelled
-with chart-base.selectorLabels and commonLabels, never with chart-base.labels: the template is part of the pod template,
-so this label set is a contract (helm.sh/chart would roll every such pod on a chart bump; commonLabels change only with
-the values).
+string quoted: the lines that follow `- name:` in a pod's volumes. The claim template of an ephemeral volume is
+chart-base.claimTemplate's. A volumeClaimTemplate entry has no source: it is a claim template of the StatefulSet
+(templates/statefulset.yaml), never a pod volume, and templates/_pod.tpl skips it.
 Usage: include "chart-base.volumeSource" (dict "ctx" $ "volume" $entry) | nindent 4
 */}}
 {{- define "chart-base.volumeSource" -}}
@@ -72,27 +71,46 @@ persistentVolumeClaim:
 {{- else if eq $v.type "ephemeral" -}}
 ephemeral:
   volumeClaimTemplate:
-    metadata:
-      labels:
-        {{- include "chart-base.selectorLabels" .ctx | nindent 8 }}
-        {{- with include "chart-base.overCommon" (dict "common" .ctx.Values.commonLabels) }}
-        {{- . | nindent 8 }}
-        {{- end }}
-    spec:
-      accessModes:
-        - {{ $v.accessMode | default "ReadWriteOnce" | quote }}
-      {{- if hasKey $v "storageClassName" }}
-      storageClassName: {{ $v.storageClassName | quote }}
-      {{- end }}
-      resources:
-        requests:
-          storage: {{ $v.size | quote }}
+    {{- include "chart-base.claimTemplate" (dict "ctx" .ctx "volume" $v) | nindent 4 }}
 {{- end -}}
 {{- end -}}
 
 {{/*
+chart-base.claimTemplate: the claim template of an ephemeral volume (ephemeral.volumeClaimTemplate) and of a
+volumeClaimTemplate entry (an item of the StatefulSet's volumeClaimTemplates, then named after the volume): the one
+writer of both, so that the two claim types share a shape. Labelled with chart-base.selectorLabels and commonLabels
+without its nulls, never with chart-base.labels: an ephemeral claim template is part of the pod template, and the API
+server refuses any change of a StatefulSet's claim templates, so this label set is a contract (helm.sh/chart would roll
+every such pod, or fail the upgrade, on a chart bump; commonLabels change only with the values). accessMode defaults to
+ReadWriteOnce; every string is quoted.
+Usage: include "chart-base.claimTemplate" (dict "ctx" $ "volume" $entry ["name" <volume name>]) | nindent <n>
+*/}}
+{{- define "chart-base.claimTemplate" -}}
+{{- $v := .volume -}}
+metadata:
+  {{- with .name }}
+  name: {{ . | quote }}
+  {{- end }}
+  labels:
+    {{- include "chart-base.selectorLabels" .ctx | nindent 4 }}
+    {{- with include "chart-base.overCommon" (dict "common" .ctx.Values.commonLabels) }}
+    {{- . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    - {{ $v.accessMode | default "ReadWriteOnce" | quote }}
+  {{- if hasKey $v "storageClassName" }}
+  storageClassName: {{ $v.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $v.size | quote }}
+{{- end -}}
+
+{{/*
 chart-base.volumeTypeFields: the fields each volume type owns besides type, mountPath, subPath and readOnly (every
-type's), as YAML: the one table of the field-ownership guard (templates/validate.yaml). It holds exactly the fields of
+type's), as YAML: the one table of the field-ownership guard (templates/validate.yaml). volumeClaimTemplate shares the
+fields of ephemeral (one claim shape, chart-base.claimTemplate). It holds exactly the fields of
 values.schema.json's definitions.volume (pinned by tests/volumes_guards_test.yaml, one test per field).
 Usage: include "chart-base.volumeTypeFields" . | fromYaml
 */}}
@@ -102,12 +120,13 @@ configMap: [name, items, defaultMode, optional, reloadOnChange]
 secret: [secretName, items, defaultMode, optional, reloadOnChange]
 persistentVolumeClaim: [claimName, claimAccessMode]
 ephemeral: [size, accessMode, storageClassName]
+volumeClaimTemplate: [size, accessMode, storageClassName]
 {{- end -}}
 
 {{/*
 chart-base.mainMounts: sets out.rows to the mounts the main container renders, in rendering order, each a dict: name,
 path (as written), clean (chart-base.cleanPath of the path), source (emptyDir, configMap, secret, persistentVolumeClaim,
-ephemeral), file (true for a subPath mount) and owner (how a message names the path). The chart's own tmp; config-files
+ephemeral, volumeClaimTemplate), file (true for a subPath mount) and owner (how a message names the path). The chart's own tmp; config-files
 only when chart-base.hasConfigFiles says it is rendered; external-secret only when chart-base.externalSecret says the
 main container mounts it (mainMount); then the entries of chart-base.volumes that have a mountPath
 (a volume without one is mounted by an init container or a sidecar only). The one list every mount-path guard of the

@@ -468,7 +468,10 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.volumes" (dict "ctx" . "out" $volumes) -}}
 {{- /* The name: a DNS-1123 label that chart-base does not reserve. The fields: those of the entry's type, and its required one set. */ -}}
 {{- $typeFields := include "chart-base.volumeTypeFields" . | fromYaml -}}
-{{- $requiredField := dict "configMap" "name" "secret" "secretName" "persistentVolumeClaim" "claimName" "ephemeral" "size" -}}
+{{- $requiredField := dict "configMap" "name" "secret" "secretName" "persistentVolumeClaim" "claimName" "ephemeral" "size" "volumeClaimTemplate" "size" -}}
+{{- /* The types an entry can take on this workload type: volumeClaimTemplate on a statefulset only (ADR-0071). The owners a field-ownership message names are among them, so a message on another workload type reads as it did before 1.6.0. */ -}}
+{{- $offered := keys $typeFields -}}
+{{- if ne .Values.workload.type "statefulset" }}{{ $offered = without $offered "volumeClaimTemplate" }}{{ end -}}
 {{- range $name, $v := $volumes -}}
 {{- if or (not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $name)) (gt (len $name) 63) -}}
 {{- include "chart-base.fail" (list $ (printf "volumes.%s: a volume name is a lowercase DNS-1123 label (a-z, 0-9, \"-\", at most 63 characters), e.g. app-data" $name)) -}}
@@ -479,6 +482,9 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if or (hasPrefix "kube-api-access-" $name) (hasPrefix "chart-base-" $name) -}}
 {{- include "chart-base.fail" (list $ (printf "volumes.%s: a name that starts with kube-api-access- (Kubernetes takes such a volume for the ServiceAccount token volume) or chart-base- (reserved for volumes chart-base adds) is not allowed: choose another name" $name)) -}}
 {{- end -}}
+{{- if and (eq $v.type "volumeClaimTemplate") (ne $.Values.workload.type "statefulset") -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s is a volumeClaimTemplate entry, a claim per pod that only a StatefulSet creates, and workload.type is %s: set workload.type: statefulset, or use an ephemeral entry (a claim per pod, deleted with its pod) or a persistentVolumeClaim entry (an existing claim)" $name $.Values.workload.type)) -}}
+{{- end -}}
 {{- $required := index $requiredField $v.type -}}
 {{- if and $required (not (hasKey $v $required)) -}}
 {{- include "chart-base.fail" (list $ (printf "volumes.%s.%s is null, and %s %s entry needs it: set it, or remove the entry with volumes.%s: null" $name $required (ternary "an" "a" (eq $v.type "ephemeral")) $v.type $name)) -}}
@@ -487,7 +493,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- range $field := keys $v | sortAlpha -}}
 {{- if not (has $field $own) -}}
 {{- $owners := list -}}
-{{- range $t := keys $typeFields | sortAlpha }}{{ if has $field (index $typeFields $t) }}{{ $owners = append $owners $t }}{{ end }}{{ end -}}
+{{- range $t := $offered | sortAlpha }}{{ if has $field (index $typeFields $t) }}{{ $owners = append $owners $t }}{{ end }}{{ end -}}
 {{- include "chart-base.fail" (list $ (printf "volumes.%s.%s is a field of type %s and the entry is %s: remove it (from an overlay, set it to null)" $name $field (join " or " $owners) $v.type)) -}}
 {{- end -}}
 {{- end -}}
@@ -552,8 +558,8 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if and (eq $v.type "persistentVolumeClaim") (eq ($v.claimAccessMode | default "ReadWriteOnce") "ReadOnlyMany") (hasKey $v "readOnly") (not $v.readOnly) -}}
 {{- include "chart-base.fail" (list $ (printf "volumes.%s.readOnly is false, and the claim is declared ReadOnlyMany (claimAccessMode), so its mount is read-only: remove readOnly, or declare the claim's real access mode" $name)) -}}
 {{- end -}}
-{{- /* An emptyDir or ephemeral volume that every container mounts read-only can never be written (an init container that fills a volume the main container reads mounts it writable). */ -}}
-{{- if has $v.type (list "emptyDir" "ephemeral") -}}
+{{- /* An emptyDir, ephemeral or volumeClaimTemplate volume that every container mounts read-only can never be written (an init container that fills a volume the main container reads mounts it writable; a new claim starts empty). */ -}}
+{{- if has $v.type (list "emptyDir" "ephemeral" "volumeClaimTemplate") -}}
 {{- $readOnly := list -}}
 {{- if hasKey $v "mountPath" }}{{ $readOnly = append $readOnly (and (hasKey $v "readOnly") $v.readOnly) }}{{ end -}}
 {{- range $c := $containers.ordered }}{{ with get ($c.entry.volumeMounts | default dict) $name }}{{ $readOnly = append $readOnly (and (hasKey . "readOnly") .readOnly) }}{{ end }}{{ end -}}

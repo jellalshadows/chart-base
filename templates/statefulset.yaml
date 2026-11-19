@@ -73,4 +73,15 @@ spec:
       {{- end }}
     spec:
       {{- include "chart-base.podSpec" (dict "ctx" .) | nindent 6 }}
+  {{- /* The volumeClaimTemplate entries of volumes, in key order: a claim <volume>-<fullname>-<ordinal> per pod, mounted by the volume's name (chart-base.podSpec renders the mounts, never a pod volume for them). */}}
+  {{- $volumes := dict }}
+  {{- include "chart-base.volumes" (dict "ctx" . "out" $volumes) }}
+  {{- $claims := list }}
+  {{- range $name, $v := $volumes }}{{ if eq $v.type "volumeClaimTemplate" }}{{ $claims = append $claims $name }}{{ end }}{{ end }}
+  {{- with $claims }}
+  volumeClaimTemplates:
+    {{- range $name := . }}
+    - {{ include "chart-base.claimTemplate" (dict "ctx" $ "volume" (index $volumes $name) "name" $name) | indent 6 | trim }}
+    {{- end }}
+  {{- end }}
 {{- end }}

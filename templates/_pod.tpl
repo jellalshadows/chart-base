@@ -219,9 +219,12 @@ volumes:
   - name: external-secret
     {{- include "chart-base.volumeSource" (dict "ctx" $ "volume" $es.volume) | nindent 4 }}
   {{- end }}
+  {{- /* A volumeClaimTemplate entry is no pod volume: the StatefulSet adds one per pod, from its claim template. */}}
   {{- range $volumeName, $v := $volumes }}
+  {{- if ne $v.type "volumeClaimTemplate" }}
   - name: {{ $volumeName | quote }}
     {{- include "chart-base.volumeSource" (dict "ctx" $ "volume" $v) | nindent 4 }}
+  {{- end }}
   {{- end }}
 {{- /* A null key of nodeSelector is absent (ADR-0070). */}}
 {{- $nodeSelector := deepCopy ($.Values.nodeSelector | default dict) }}

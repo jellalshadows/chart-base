@@ -498,10 +498,10 @@
       }
     },
     "volume": {
-      "description": "An entry of volumes: one pod volume and, with mountPath, its mount in the main container. null = no entry; every optional field also accepts null (absent). One closed list of the fields of every type: a field of another type is rejected by templates/validate.yaml, so that an overlay can change the type by setting the previous type's fields to null.",
+      "description": "An entry of volumes: one pod volume (a volumeClaimTemplate entry: one claim template of a statefulset, ADR-0071) and, with mountPath, its mount in the main container. null = no entry; every optional field also accepts null (absent). One closed list of the fields of every type: a field of another type is rejected by templates/validate.yaml, so that an overlay can change the type by setting the previous type's fields to null.",
       "type": ["object", "null"], "additionalProperties": false, "required": ["type"],
       "properties": {
-        "type": { "enum": ["emptyDir", "configMap", "secret", "persistentVolumeClaim", "ephemeral"] },
+        "type": { "enum": ["emptyDir", "configMap", "secret", "persistentVolumeClaim", "ephemeral", "volumeClaimTemplate"] },
         "mountPath": { "type": ["string", "null"], "pattern": "^/", "description": "The main container's mount, absolute (the kubelet would resolve a relative path against /). null or absent: no mount in the main container (templates/validate.yaml then requires a mount in an init container or a sidecar)." },
         "subPath": { "$ref": "#/definitions/subPath" },
         "readOnly": { "type": ["boolean", "null"] },
@@ -523,7 +523,8 @@
         { "if": { "required": ["type"], "properties": { "type": { "const": "configMap" } } }, "then": { "required": ["name"] } },
         { "if": { "required": ["type"], "properties": { "type": { "const": "secret" } } }, "then": { "required": ["secretName"] } },
         { "if": { "required": ["type"], "properties": { "type": { "const": "persistentVolumeClaim" } } }, "then": { "required": ["claimName"] } },
-        { "if": { "required": ["type"], "properties": { "type": { "const": "ephemeral" } } }, "then": { "required": ["size"] } }
+        { "if": { "required": ["type"], "properties": { "type": { "const": "ephemeral" } } }, "then": { "required": ["size"] } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "volumeClaimTemplate" } } }, "then": { "required": ["size"] } }
       ]
     },
     "resources": {
