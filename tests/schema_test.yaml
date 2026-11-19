@@ -2014,3 +2014,27 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "at '/dnsConfig/options/0/value': got null, want string"
+
+  # ---- Keys added after 1.0.0 take null as their default (ADR-0070). The null reaches the schema only in the
+  # --reuse-values shape (an old release's values.yaml as the defaults), which helm-unittest cannot build: T6 measured
+  # it with a script. A value of the wrong type keeps its message.
+  - it: still rejects a grpcRoute that is not a map
+    set:
+      grpcRoute: enabled
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/grpcRoute': got string, want object"
+
+  - it: still rejects grpcRoute.hostnames that is not a list
+    set:
+      grpcRoute.hostnames: grpc.example.com
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/grpcRoute/hostnames': got string, want array"
+
+  - it: still rejects httpRoute.rules that is not a list
+    set:
+      httpRoute.rules: {api: {port: http}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/httpRoute/rules': got object, want array"

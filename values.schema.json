@@ -999,7 +999,7 @@
       "required": ["enabled", "minReplicas", "maxReplicas", "targetCPUUtilizationPercentage"],
       "properties": {
         "enabled": { "type": "boolean" },
-        "kedaHandover": { "type": "boolean" },
+        "kedaHandover": { "description": "Since 1.1.0; null is the default, false (ADR-0070: a --reuse-values upgrade from 1.0.x keeps a null an override sets).", "if": { "not": { "type": "null" } }, "then": { "type": "boolean" } },
         "minReplicas": { "type": "integer", "minimum": 1 },
         "maxReplicas": { "type": "integer", "minimum": 1 },
         "targetCPUUtilizationPercentage": { "type": "integer", "minimum": 1, "maximum": 100 },
@@ -1074,19 +1074,22 @@
         "parentRefs": { "type": "array", "items": { "$ref": "#/definitions/httpRouteParentRef" } },
         "hostnames": { "type": "array", "items": { "type": "string" } },
         "matches": { "type": "array", "items": { "$ref": "#/definitions/httpRouteMatch" } },
-        "rules": { "description": "Extra HTTPRoute rules (since 1.4.0), after the one matches makes.", "type": "array", "items": { "$ref": "#/definitions/httpRouteRule" } }
+        "rules": { "description": "Extra HTTPRoute rules (since 1.4.0), after the one matches makes; null is none (ADR-0070).", "if": { "not": { "type": "null" } }, "then": { "type": "array", "items": { "$ref": "#/definitions/httpRouteRule" } } }
       }
     },
     "grpcRoute": {
-      "description": "A Gateway API GRPCRoute to this component's Service (since 1.4.0).",
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enabled": { "type": "boolean" },
-        "parentRefs": { "type": "array", "items": { "$ref": "#/definitions/httpRouteParentRef" } },
-        "hostnames": { "type": "array", "items": { "type": "string" } },
-        "matches": { "type": ["array", "null"], "items": { "$ref": "#/definitions/grpcRouteMatch" } },
-        "port": { "description": "The name of the ports entry the route sends to; null: the first entry.", "type": ["string", "null"], "minLength": 1 }
+      "description": "A Gateway API GRPCRoute to this component's Service (since 1.4.0). null, and a null enabled, parentRefs or hostnames, is the default (ADR-0070: a --reuse-values upgrade from 1.3.x or older keeps a null an override sets).",
+      "if": { "not": { "type": "null" } },
+      "then": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "if": { "not": { "type": "null" } }, "then": { "type": "boolean" } },
+          "parentRefs": { "if": { "not": { "type": "null" } }, "then": { "type": "array", "items": { "$ref": "#/definitions/httpRouteParentRef" } } },
+          "hostnames": { "if": { "not": { "type": "null" } }, "then": { "type": "array", "items": { "type": "string" } } },
+          "matches": { "type": ["array", "null"], "items": { "$ref": "#/definitions/grpcRouteMatch" } },
+          "port": { "description": "The name of the ports entry the route sends to; null: the first entry.", "type": ["string", "null"], "minLength": 1 }
+        }
       }
     },
     "ingress": {
@@ -1366,7 +1369,7 @@
       "then": {
         "properties": {
           "httpRoute": { "properties": { "enabled": { "const": false } } },
-          "grpcRoute": { "properties": { "enabled": { "const": false } } },
+          "grpcRoute": { "properties": { "enabled": { "if": { "not": { "type": "null" } }, "then": { "const": false } } } },
           "ingress": { "properties": { "enabled": { "const": false } } },
           "autoscaling": { "properties": { "enabled": { "const": false } } },
           "keda": { "properties": { "enabled": { "const": false } } },
