@@ -1,4 +1,4 @@
-{{- if and (eq .Values.workload.type "deployment") .Values.service.enabled }}
+{{- if and (include "chart-base.longRunning" .) .Values.service.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -11,6 +11,10 @@ metadata:
   {{- end }}
 spec:
   type: {{ .Values.service.type }}
+  {{- /* A statefulset's Service is headless: each pod gets its DNS name <pod>.<fullname>.<namespace>.svc (ADR-0071; templates/validate.yaml requires type ClusterIP). */}}
+  {{- if eq .Values.workload.type "statefulset" }}
+  clusterIP: None
+  {{- end }}
   selector:
     {{- include "chart-base.selectorLabels" . | nindent 4 }}
   ports:

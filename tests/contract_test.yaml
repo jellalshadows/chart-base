@@ -24,6 +24,7 @@ templates:
   - templates/service.yaml
   - templates/serviceaccount.yaml
   - templates/servicemonitor.yaml
+  - templates/statefulset.yaml
 release:
   name: vending
   namespace: vending
@@ -368,3 +369,70 @@ tests:
         template: templates/job.yaml
       - equal: {path: 'metadata.annotations["helm.sh/hook"]', value: "post-install,post-upgrade"}
         template: templates/serviceaccount.yaml
+
+  # workload.type statefulset (1.6.0, ADR-0071): the same names, selector labels, pod labels and annotation keys.
+  - it: names a StatefulSet <release>-<alias>, its headless Service and serviceName the same, and its container the alias, without app.kubernetes.io/component
+    set:
+      workload.type: statefulset
+    asserts:
+      - equal: {path: metadata.name, value: vending-chart-base}
+        template: templates/statefulset.yaml
+      - equal: {path: spec.serviceName, value: vending-chart-base}
+        template: templates/statefulset.yaml
+      - equal: {path: metadata.name, value: vending-chart-base}
+        template: templates/service.yaml
+      - equal: {path: "spec.template.spec.containers[0].name", value: chart-base}
+        template: templates/statefulset.yaml
+      - notExists: {path: 'metadata.labels["app.kubernetes.io/component"]'}
+        template: templates/statefulset.yaml
+      - notExists: {path: 'spec.template.metadata.labels["app.kubernetes.io/component"]'}
+        template: templates/statefulset.yaml
+
+  - it: selects with exactly the two selector labels in the StatefulSet and its Service
+    set:
+      workload.type: statefulset
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels
+          value: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+        template: templates/statefulset.yaml
+      - equal:
+          path: spec.selector
+          value: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+        template: templates/service.yaml
+
+  - it: writes managed-by and helm.sh/chart on a StatefulSet, and name, instance, part-of and version on its pod template, never managed-by or helm.sh/chart
+    set:
+      workload.type: statefulset
+    asserts:
+      - equal: {path: 'metadata.labels["app.kubernetes.io/managed-by"]', value: Helm}
+        template: templates/statefulset.yaml
+      - equal: {path: 'metadata.labels["helm.sh/chart"]', value: chart-base-0.0.0-test}
+        template: templates/statefulset.yaml
+      - equal: {path: 'spec.template.metadata.labels["app.kubernetes.io/name"]', value: chart-base}
+        template: templates/statefulset.yaml
+      - equal: {path: 'spec.template.metadata.labels["app.kubernetes.io/instance"]', value: vending}
+        template: templates/statefulset.yaml
+      - equal: {path: 'spec.template.metadata.labels["app.kubernetes.io/part-of"]', value: vending}
+        template: templates/statefulset.yaml
+      - equal: {path: 'spec.template.metadata.labels["app.kubernetes.io/version"]', value: "1.4.2"}
+        template: templates/statefulset.yaml
+      - notExists: {path: 'spec.template.metadata.labels["app.kubernetes.io/managed-by"]'}
+        template: templates/statefulset.yaml
+      - notExists: {path: 'spec.template.metadata.labels["helm.sh/chart"]'}
+        template: templates/statefulset.yaml
+
+  - it: writes the checksum keys on the pod template and the two Reloader keys on the StatefulSet
+    values:
+      - ../ci/full-values.yaml
+    set:
+      workload.type: statefulset
+    asserts:
+      - exists: {path: 'spec.template.metadata.annotations["checksum/config-env"]'}
+        template: templates/statefulset.yaml
+      - exists: {path: 'spec.template.metadata.annotations["checksum/config-files"]'}
+        template: templates/statefulset.yaml
+      - exists: {path: 'metadata.annotations["secret.reloader.stakater.com/reload"]'}
+        template: templates/statefulset.yaml
+      - exists: {path: 'metadata.annotations["configmap.reloader.stakater.com/reload"]'}
+        template: templates/statefulset.yaml

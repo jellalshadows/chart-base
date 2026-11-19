@@ -1,0 +1,76 @@
+{{- if eq .Values.workload.type "statefulset" }}
+{{- /*
+workload.type statefulset (ADR-0071): the Deployment's pod template (chart-base.podSpec), its labels and its
+annotations, under a StatefulSet named <fullname> with the frozen selector labels. What a StatefulSet has and a
+Deployment does not comes from the statefulset block (chart-base.statefulset); strategy and progressDeadlineSeconds
+have no equivalent and are not read.
+*/}}
+{{- $fullname := include "chart-base.fullname" . }}
+{{- $sts := dict }}
+{{- include "chart-base.statefulset" (dict "ctx" . "out" $sts) }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "chart-base.labels" . | nindent 4 }}
+  {{- with include "chart-base.annotations" (dict "ctx" . "own" (include "chart-base.reloaderAnnotations" . | trim)) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- /* The alias's one Service, headless on a statefulset (templates/service.yaml): it gives each pod its DNS name. */}}
+  {{- if .Values.service.enabled }}
+  serviceName: {{ $fullname }}
+  {{- end }}
+  {{- /* An autoscaler owns the count, as on a Deployment (templates/deployment.yaml). */}}
+  {{- if not (or .Values.autoscaling.enabled (.Values.keda | default dict).enabled) }}
+  replicas: {{ .Values.replicas }}
+  {{- end }}
+  {{- with $sts.members.podManagementPolicy }}
+  podManagementPolicy: {{ . }}
+  {{- end }}
+  {{- /* Field by field: a partition stays an integer whatever its size (toYaml would write a large one as a float). */}}
+  {{- with $sts.members.updateStrategy }}
+  updateStrategy:
+    {{- with .type }}
+    type: {{ . }}
+    {{- end }}
+    {{- if hasKey . "rollingUpdate" }}
+    {{- if hasKey .rollingUpdate "partition" }}
+    rollingUpdate:
+      partition: {{ .rollingUpdate.partition | int64 }}
+    {{- else }}
+    rollingUpdate: {}
+    {{- end }}
+    {{- end }}
+  {{- end }}
+  {{- with $sts.members.persistentVolumeClaimRetentionPolicy }}
+  persistentVolumeClaimRetentionPolicy:
+    {{- with .whenDeleted }}
+    whenDeleted: {{ . }}
+    {{- end }}
+    {{- with .whenScaled }}
+    whenScaled: {{ . }}
+    {{- end }}
+  {{- end }}
+  {{- if not (kindIs "invalid" .Values.minReadySeconds) }}
+  minReadySeconds: {{ .Values.minReadySeconds | int64 }}
+  {{- end }}
+  {{- if not (kindIs "invalid" .Values.revisionHistoryLimit) }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit | int64 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "chart-base.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "chart-base.podLabels" . | nindent 8 }}
+      {{- with include "chart-base.podTemplateAnnotations" . | trim }}
+      annotations:
+        {{- . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- include "chart-base.podSpec" (dict "ctx" .) | nindent 6 }}
+{{- end }}

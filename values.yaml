@@ -5,7 +5,8 @@
 #   enabled - used by umbrellas as `condition: <alias>.enabled`
 
 workload:
-  # -- Workload kind: `deployment` (API or worker), `cronjob`, or `job` (a Helm hook, see `job.phase`).
+  # -- Workload kind: `deployment` (API or worker), `statefulset` (since 1.6.0: a StatefulSet with a headless Service,
+  # stable pod names and a claim per pod, see `statefulset`), `cronjob`, or `job` (a Helm hook, see `job.phase`).
   type: deployment
 
 image:
@@ -312,14 +313,16 @@ externalSecret:
 # deploy restarts it only when the pod template changes). `false` here stops every restart, `env`/`envFrom` included.
 reloadOnChange: true
 
-# -- Deployment replicas. Ignored when `autoscaling.enabled` or `keda.enabled` (an autoscaler owns the count).
+# -- Deployment or StatefulSet replicas. Ignored when `autoscaling.enabled` or `keda.enabled` (an autoscaler owns the count).
 replicas: 1
 
 # -- Seconds without rollout progress before the Deployment is marked Failed (lower than Helm's default 300s timeout).
+# Deployments only: a StatefulSet has no such field, and a `statefulset` component ignores it.
 progressDeadlineSeconds: 240
 
 # -- (object) Deployment update strategy (`spec.strategy`): `{type: RollingUpdate, rollingUpdate: {maxSurge, maxUnavailable}}`
-# or `{type: Recreate}`. `null` = Kubernetes default (`RollingUpdate`, 25% surge, 25% unavailable). Deployments only.
+# or `{type: Recreate}`. `null` = Kubernetes default (`RollingUpdate`, 25% surge, 25% unavailable). Deployments only
+# (a `statefulset` component ignores it: see `statefulset.updateStrategy`).
 # `rollingUpdate: null` means absent and is never rendered (`maxSurge: null` or `maxUnavailable: null` is the
 # Kubernetes default, 25%): an override file over values that set `rollingUpdate`
 # switches to Recreate with `{type: Recreate, rollingUpdate: null}` (a `rollingUpdate` next to `Recreate`, even `{}`,
@@ -330,16 +333,43 @@ progressDeadlineSeconds: 240
 strategy: null
 
 # -- (int) Seconds a new pod must be Ready, without any container crashing, before it counts as available
-# (`spec.minReadySeconds`). `null` = Kubernetes default (0). Must be lower than `progressDeadlineSeconds`. Deployments only.
+# (`spec.minReadySeconds`). `null` = Kubernetes default (0). Deployments and StatefulSets; on a Deployment it must be
+# lower than `progressDeadlineSeconds`.
 minReadySeconds: null
 
-# -- (int) Old ReplicaSets kept for `kubectl rollout undo` (`spec.revisionHistoryLimit`). `null` = Kubernetes default (10). Deployments only.
+# -- (int) Old revisions kept for `kubectl rollout undo` (`spec.revisionHistoryLimit`: ReplicaSets of a Deployment,
+# ControllerRevisions of a StatefulSet). `null` = Kubernetes default (10). Deployments and StatefulSets.
 revisionHistoryLimit: null
 
+# The StatefulSet of `workload.type: statefulset` (since 1.6.0, ADR-0071). Every member is optional: absent or `null` is
+# the Kubernetes default, and a `null` field is absent. A non-null member on another workload type fails the render.
+# Once the StatefulSet exists, the API refuses a change of `podManagementPolicy`, of its `serviceName` (`service.enabled`)
+# and of its claim templates (`volumeClaimTemplate` entries of `volumes`, their labels included): see the upgrade guide.
+statefulset:
+  # -- `OrderedReady` (the Kubernetes default: pods are created and removed one at a time, in ordinal order, each
+  # waiting for the previous one to be Ready) or `Parallel` (all at once; a rolling update still replaces one pod at a
+  # time). `null` = the Kubernetes default. Cannot change once the StatefulSet exists.
+  podManagementPolicy: null
+  # -- (object) `spec.updateStrategy`: `{type: RollingUpdate, rollingUpdate: {partition}}` or `{type: OnDelete}` (a pod
+  # takes the new template only when it is deleted). `null` = the Kubernetes default (`RollingUpdate`, partition 0). With
+  # `partition: N`, the pods whose ordinal is lower than N keep the old template (a staged rollout); `type` absent is
+  # `RollingUpdate`. A `rollingUpdate` next to `OnDelete`, even `{}`, fails the render (Kubernetes rejects it); a `null`
+  # field is absent (`{type: OnDelete, rollingUpdate: null}` from an override file). `maxUnavailable` is not offered
+  # (alpha at Kubernetes 1.33).
+  updateStrategy: null
+  # -- (object) `spec.persistentVolumeClaimRetentionPolicy`: `whenDeleted` and `whenScaled`, each `Retain` or `Delete`:
+  # whether the claims of the claim templates are deleted when the StatefulSet is (`helm uninstall`) and when a scale-in
+  # removes their pod. Absent or `null` = `Retain` (the Kubernetes default): the claims and their data stay, and a pod
+  # that comes back mounts them again. `Delete` deletes the data with the claim.
+  persistentVolumeClaimRetentionPolicy: null
+
 service:
-  # -- Render a Service (deployments only). Set `false` for workers.
+  # -- Render a Service (deployments and statefulsets). Set `false` for workers. On a `statefulset` the Service is
+  # headless (`clusterIP: None`): it gives each pod a DNS name, `<pod>.<release>-<alias>.<namespace>.svc`, and the
+  # StatefulSet names it in `serviceName`.
   enabled: true
-  # -- Service type.
+  # -- Service type. On a `statefulset` only `ClusterIP` (a headless Service has no cluster IP): another type fails the
+  # render.
   type: ClusterIP
   # -- Annotations of the Service, e.g. a cloud load balancer's settings
   # (`service.beta.kubernetes.io/aws-load-balancer-scheme: internal`). Values are strings: quote a number (`"60"`), an

@@ -23,6 +23,33 @@ render aborts).
 {{- end -}}
 
 {{/*
+chart-base.longRunning: "true" when workload.type keeps its pods running: deployment or statefulset (ADR-0071); nothing
+for cronjob and job. The one test of what a Deployment and a StatefulSet share: the Service, the routes, the
+autoscalers, the PodDisruptionBudget, the monitors, the built-in preStop sleep and the default topology spread, and
+their guards. What has no StatefulSet equivalent (strategy, progressDeadlineSeconds) tests workload.type deployment.
+Usage: {{- if include "chart-base.longRunning" . }}
+*/}}
+{{- define "chart-base.longRunning" -}}
+{{- if has .Values.workload.type (list "deployment" "statefulset") }}true{{ end -}}
+{{- end -}}
+
+{{/*
+chart-base.statefulset: fills the dict `out` with what templates/statefulset.yaml renders and templates/validate.yaml
+checks of the statefulset block: out.members, the members that are set, by name, each without its null fields
+(chart-base.pruneNulls on a deep copy, ADR-0070). A null or absent block (a --reuse-values upgrade from 1.5 or older
+has none), a null member and a member left empty by its nulls are not set: Kubernetes' default applies. The one reader
+of .Values.statefulset.
+Usage: {{- $s := dict }}{{- include "chart-base.statefulset" (dict "ctx" $ "out" $s) }}, then $s.members
+*/}}
+{{- define "chart-base.statefulset" -}}
+{{- $block := deepCopy (.ctx.Values.statefulset | default dict) -}}
+{{- include "chart-base.pruneNulls" $block -}}
+{{- $members := dict -}}
+{{- range $name, $member := $block }}{{ if $member }}{{ $_ := set $members $name $member }}{{ end }}{{ end -}}
+{{- $_ := set .out "members" $members -}}
+{{- end -}}
+
+{{/*
 chart-base.hasConfigFiles: "true" when configFiles.files (nil counts as empty) holds at least one file whose value is
 not null, nothing otherwise. A map-form file whose content is {} is a file. The only test for the <fullname>-files
 ConfigMap, the config-files volume and mount, checksum/config-files and the pod template's annotations key.

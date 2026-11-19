@@ -164,6 +164,24 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list . "strategy.rollingUpdate.maxSurge and maxUnavailable cannot both be 0 (the rollout could not replace any pod)") -}}
 {{- end -}}
 {{- end -}}
+{{- /* statefulset (ADR-0071), read through chart-base.statefulset: a null member, or one left empty by its nulls, is not set. Template guards, not a schema if on a key of the block, which holds vacuously when a --reuse-values upgrade lacks it (ADR-0069). */ -}}
+{{- $sts := dict -}}
+{{- include "chart-base.statefulset" (dict "ctx" . "out" $sts) -}}
+{{- if ne .Values.workload.type "statefulset" -}}
+{{- range $member, $_ := $sts.members -}}
+{{- include "chart-base.fail" (list $ (printf "statefulset.%s applies to workload.type statefulset only, and workload.type is %s: remove it (from an overlay, set it to null), or set workload.type: statefulset" $member $.Values.workload.type)) -}}
+{{- end -}}
+{{- end -}}
+{{- /* Kubernetes rejects any rollingUpdate next to OnDelete, an empty one included (also one left empty by its nulls). */ -}}
+{{- with $sts.members.updateStrategy -}}
+{{- if and (eq (.type | default "") "OnDelete") (hasKey . "rollingUpdate") -}}
+{{- include "chart-base.fail" (list $ "statefulset.updateStrategy.rollingUpdate is set and statefulset.updateStrategy.type is OnDelete, which Kubernetes rejects (an empty rollingUpdate too): remove statefulset.updateStrategy.rollingUpdate (from an override file over values that set it, write statefulset.updateStrategy: {type: OnDelete, rollingUpdate: null}), or set statefulset.updateStrategy.type: RollingUpdate") -}}
+{{- end -}}
+{{- end -}}
+{{- /* A statefulset's Service is headless (clusterIP: None), which the API server allows on type ClusterIP only. */ -}}
+{{- if and (eq .Values.workload.type "statefulset") .Values.service.enabled (ne .Values.service.type "ClusterIP") -}}
+{{- include "chart-base.fail" (list . (printf "service.type is %s, and the Service of a statefulset is headless (clusterIP: None, which gives each pod its DNS name), which only type ClusterIP allows: set service.type: ClusterIP, and expose the component outside the cluster with httpRoute, grpcRoute or ingress" .Values.service.type)) -}}
+{{- end -}}
 {{- /* pdb: the PodDisruptionBudget must allow one eviction at the replica floor, or every node drain stalls (ADR-0062). The floor is max(keda.minReplicaCount, 1) with KEDA (a pod runs while a trigger is active), autoscaling.minReplicas with the HPA, otherwise replicas (0: no pod to protect, nothing checked). The disruption controller rounds a percentage up (getExpectedPodCount). minAvailable wins over maxUnavailable, as in templates/pdb.yaml; a string that is not a percentage is the API server's to reject. */ -}}
 {{- if and (eq .Values.workload.type "deployment") .Values.pdb.enabled -}}
 {{- $floor := int64 .Values.replicas -}}
