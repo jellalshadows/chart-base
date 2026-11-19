@@ -34,9 +34,9 @@ spec:
         metadata:
           labels:
             {{- include "chart-base.podLabels" . | nindent 12 }}
-          {{- with .Values.podAnnotations }}
+          {{- with include "chart-base.overCommon" (dict "own" .Values.podAnnotations) }}
           annotations:
-            {{- toYaml . | nindent 12 }}
+            {{- . | nindent 12 }}
           {{- end }}
         spec:
           {{- include "chart-base.podSpec" (dict "ctx" . "restartPolicy" "Never") | nindent 10 }}

@@ -198,7 +198,8 @@ covered: a hyphen in the values key, the `condition` path and the resource names
   in all four; `externalSecret.data: null` fails the source guard in U0, U1 and F; a `null` when-enabled key fails and
   the error names the alias; a liveness probe on an undeclared port name fails; and one check per row of the
   [null table of the consuming guide](consuming.md#what-a-null-does-in-each-values-layer), with the result each Helm
-  version gives in U0. For `volumes`: a `null` entry and a `null` field are absent in all four layers; a type change
+  version gives in U0 (row 6: a reserved `podLabels` key set to `null` fails with `false schema`); from 1.5.0 a `null`
+  entry of `nodeSelector` is absent in all four layers (row 8). For `volumes`: a `null` entry and a `null` field are absent in all four layers; a type change
   (`emptyDir` to `ephemeral`) renders with the old field set to `null` in all four, and fails with the guard's message
   without it; a `null` `secretName` fails (on Helm 4.3 U0 the schema answers, because Helm drops the `null`);
   `volumes: null` from F and U0 leaves the chart's own volume only. And `strategy: {type: Recreate, rollingUpdate:
@@ -207,8 +208,9 @@ covered: a hyphen in the values key, the `condition` path and the resource names
   the hardened `true`, on Helm 3.22 too); `sidecars: null` and `initContainers: null` from F and U0 render no init
   container; an `order` from `--set` (an integer) sorts with one of the umbrella's values; an autoscaled component's
   HPA has `ContainerResource` metrics of its main container with a sidecar and `Resource` ones once its only sidecar is
-  `null` from F or S; a sidecar named like the alias fails; a `null` inside a sidecar's `env` `valueFrom` fails the
-  schema (F); and a `--set` below an entry that an override file sets to `null` fails in Helm itself. For
+  `null` from F or S; a sidecar named like the alias fails; a `null` optional field inside a sidecar's `env`
+  `valueFrom` is absent in all four layers (from 1.5.0); and a `--set` below an entry that an override file sets to
+  `null` fails in Helm itself. For
   `externalSecret`: a `null` `data` entry, a `null` field of an entry and a `null` `template.data` entry are absent in
   all four layers; a `null` `template.mergePolicy` fails in U1, F and S, and in U0 on Helm 3.22, while Helm 4.3 U0 keeps
   the chart's `Merge`; a `null` `template` or `envFrom` fails in U1, F and S, each error naming the alias (Helm 4.3 U0
@@ -217,7 +219,9 @@ covered: a hyphen in the values key, the `condition` path and the resource names
   `items` fails with the remedy of `items` in all four; a mount whose `items` and `defaultMode` are the chart's `null`
   defaults renders the volume with `secretName` alone in all four (Helm hands those defaults as present `null` keys in
   some layers); and an `externalSecretKeyRef` renders a `secretKeyRef` on the ExternalSecret's target, with its key,
-  under the alias `api` for two release names, with no `externalSecretKeyRef` in any manifest. A layer check that
+  under the alias `api` for two release names, with no `externalSecretKeyRef` in any manifest; from 1.5.0, with the
+  ExternalSecret disabled, `externalSecretKeyRef: null` next to a `secretKeyRef` renders the main container's variable
+  from the `secretKeyRef` alone in all four layers. A layer check that
   fails prints each layer that differs with what it rendered, or the render's error. Paths go through values files
   (Git Bash rewrites `--set a=/x`);
 - for `keda` and `autoscaling`: in `keda.triggers` a `null` trigger and a `null` metadata key are absent in all four
@@ -226,8 +230,8 @@ covered: a hyphen in the values key, the `condition` path and the resource names
   chart's defaults; `keda: null` renders no ScaledObject in all four, and the Deployment's `replicas` in U0, U1 and F
   (in S, next to `autoscaling.enabled`, the shape of a `--reuse-values` upgrade from 0.9.x: no `replicas` and no guard
   failure); `autoscaling.behavior: null` and `metrics: null` render no behavior and the built-in CPU target in all
-  four, and a `null`
-  `behavior.scaleUp` fails the schema in U1, F and S and in U0 on Helm 3.22, while Helm 4.3 U0 drops it; the memory
+  four, and from 1.5.0 a `null`
+  `behavior.scaleUp` is absent in all four, the other direction rendered alone; the memory
   guard's remedy (`targetMemoryUtilizationPercentage: null` next to a `metrics` list) renders the list alone in all
   four; and the ScaledObject is named `<release>-<alias>` and targets the alias's Deployment, for two release names;
 - for `commonLabels`, `commonAnnotations` and `extraObjects`, with a third umbrella of two aliases, `api` and `worker`,
@@ -235,8 +239,8 @@ covered: a hyphen in the values key, the `condition` path and the resource names
   objects share a kind and a name, and `api`'s common label and annotation are on every object of `api` and on none of
   `worker`; then, in the one-alias umbrella, a `null` extra object and a `null` field of one (`data.retired`,
   `metadata.labels.tier`) are absent in U0, U1, F and S, `commonLabels: null` leaves no common label on the Deployment
-  or its pod template in all four, and a `null` entry of `commonLabels` fails with `got null, want string` in U1, F and
-  S and in U0 on Helm 3.22, while Helm 4.3 U0 drops it;
+  or its pod template in all four, and from 1.5.0 a `null` entry of `commonLabels` is absent from the Deployment and
+  its pod template in all four;
 - an uppercase alias is rejected by the guard.
 
 **Where it lives.** `.github/scripts/alias-contract.sh <chart-dir>`. The script copies the chart next to

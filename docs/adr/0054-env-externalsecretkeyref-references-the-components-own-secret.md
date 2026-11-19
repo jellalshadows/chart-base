@@ -1,6 +1,6 @@
 # ADR-0054: `env` can reference the component's own ExternalSecret Secret (`externalSecretKeyRef`)
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0070](0070-a-null-means-absent-chart-wide.md) (1.5.0)
 - **Date:** 2026-10-09
 - **Since:** 0.9.0
 - **Related:** [ADR-0030](0030-env-takes-references-only.md) (amended), [ADR-0031](0031-existing-secrets-referenced-by-name.md),
@@ -57,7 +57,9 @@ This amends ADR-0030: `valueFrom` holds exactly one of `fieldRef`, `resourceFiel
 - An environment that disables the ExternalSecret cannot drop a main-container reference with an overlay: the main
   container's `env.<NAME>: null` is a schema error and a second source fails the `oneOf` (measured on the 0.6.0
   chart); keep such an entry in the values of the environments that enable the block. An init container's or a
-  sidecar's entry is removed with `env.<NAME>: null` (ADR-0051).
+  sidecar's entry is removed with `env.<NAME>: null` (ADR-0051). Since 1.5.0
+  ([ADR-0070](0070-a-null-means-absent-chart-wide.md)), an overlay removes a main-container reference with
+  `env.<NAME>: null`, or swaps it with `valueFrom.externalSecretKeyRef: null` next to another source.
 - With `envFrom` on, a secret value can sit in the environment under two names.
 - For 0.10.0: with `externalSecret.envFrom: false`, a KEDA `...FromEnv` parameter names the `env` NAME of an
   `externalSecretKeyRef` entry, rendered as a plain `secretKeyRef`, one of the forms KEDA resolves (the 0.10.0

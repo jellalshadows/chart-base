@@ -28,8 +28,10 @@ spec:
     failureThreshold: {{ .failureThreshold | int64 }}
     replicas: {{ .replicas | int64 }}
   {{- end }}
-  {{- /* advanced only for a behavior: the shape of autoscaling.behavior, as written. */}}
-  {{- with $k.keda.behavior }}
+  {{- /* advanced only for a behavior: the shape of autoscaling.behavior, as written without its nulls (ADR-0070). */}}
+  {{- $behavior := deepCopy ($k.keda.behavior | default dict) }}
+  {{- include "chart-base.pruneNulls" $behavior }}
+  {{- with $behavior }}
   advanced:
     horizontalPodAutoscalerConfig:
       behavior:

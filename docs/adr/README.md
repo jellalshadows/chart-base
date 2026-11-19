@@ -55,31 +55,32 @@ not published; each record restates every fact it uses.
 | [0042](0042-existing-serviceaccount-and-namespaced-rbac.md) | An existing ServiceAccount, and namespaced RBAC: rules with no wildcards and a fixed verb list, no `cluster-admin` | Accepted | 0.6.0 |
 | [0043](0043-job-component-rbac-is-a-hook.md) | A job component's Role and RoleBindings are hooks of its phase | Accepted | 0.6.0 |
 | [0044](0044-guards-fail-the-render-helm-lint-reports-them.md) | Guards fail the render; `helm lint` reports them without failing | Accepted | 0.6.0 |
-| [0045](0045-null-in-configfiles-and-resources-is-absent.md) | A `null` in `configFiles` removes the file or the key; a `null` resource quantity is absent | Accepted | 0.7.0 |
+| [0045](0045-null-in-configfiles-and-resources-is-absent.md) | A `null` in `configFiles` removes the file or the key; a `null` resource quantity is absent | Amended by 0070 | 0.7.0 |
 | [0046](0046-configfiles-mountpath-compared-normalized-rendered-as-written.md) | `configFiles.mountPath` is compared normalized and rendered as written | Amended by 0060 | 0.7.0 |
 | [0047](0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md) | When-enabled keys are required, an ExternalSecret needs a source, and a probe port name must be declared | Amended by 0050, 0053, 0059, 0061 | 0.7.0 |
 | [0048](0048-httproute-parentrefs-and-matches-are-closed.md) | The entries of `httpRoute.parentRefs` and `httpRoute.matches` are closed objects | Amended by 0050, 0069 | 0.7.0 |
-| [0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md) | Extra volumes are a map of typed entries, each mounted in the main container | Amended by 0051, 0057, 0060, 0067 | 0.7.0 |
-| [0050](0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md) | An existing claim on a Deployment declares its access mode; `strategy.rollingUpdate: null` is absent | Amended by 0056 | 0.7.0 |
-| [0051](0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md) | Init containers and sidecars are two maps in one start order, and nothing is inherited from the main container | Amended by 0053, 0059, 0060, 0066 | 0.8.0 |
+| [0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md) | Extra volumes are a map of typed entries, each mounted in the main container | Amended by 0051, 0057, 0060, 0067, 0070 | 0.7.0 |
+| [0050](0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md) | An existing claim on a Deployment declares its access mode; `strategy.rollingUpdate: null` is absent | Amended by 0056, 0070 | 0.7.0 |
+| [0051](0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md) | Init containers and sidecars are two maps in one start order, and nothing is inherited from the main container | Amended by 0053, 0059, 0060, 0066, 0070 | 0.8.0 |
 | [0052](0052-hpa-targets-measure-the-main-container-with-sidecars.md) | With a sidecar, the HPA's built-in targets measure the main container | Amended by 0055 | 0.8.0 |
 | [0053](0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md) | The ExternalSecret takes `dataFrom`, a curated template and a file mount, and its injection is a switch | Amended by 0057 | 0.9.0 |
-| [0054](0054-env-externalsecretkeyref-references-the-components-own-secret.md) | `env` can reference the component's own ExternalSecret Secret (`externalSecretKeyRef`) | Accepted | 0.9.0 |
-| [0055](0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md) | The HPA's `behavior` and `metrics` are validated pass-throughs, and a non-empty `metrics` list replaces the built-in targets | Accepted | 0.10.0 |
+| [0054](0054-env-externalsecretkeyref-references-the-components-own-secret.md) | `env` can reference the component's own ExternalSecret Secret (`externalSecretKeyRef`) | Amended by 0070 | 0.9.0 |
+| [0055](0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md) | The HPA's `behavior` and `metrics` are validated pass-throughs, and a non-empty `metrics` list replaces the built-in targets | Amended by 0070 | 0.10.0 |
 | [0056](0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md) | KEDA: a curated ScaledObject block with a triggers map, in place of the HPA | Amended by 0065 | 0.10.0 |
 | [0057](0057-common-labels-and-annotations-service-annotations-and-extraobjects.md) | Common labels and annotations, Service annotations and `extraObjects` | Amended by 0061, 0068 | 0.11.0 |
 | [0058](0058-the-1-0-contract-and-how-it-stays-frozen.md) | The 1.0 contract, and how it stays frozen | Accepted | 0.12.0 |
-| [0059](0059-one-probe-contract-for-every-container.md) | One probe contract for every container | Accepted | 0.12.0 |
+| [0059](0059-one-probe-contract-for-every-container.md) | One probe contract for every container | Amended by 0070 | 0.12.0 |
 | [0060](0060-the-main-container-takes-the-entries-checks-and-one-token-directory-rule.md) | The main container takes the entries' checks, and one token-directory rule for every mount | Accepted | 0.12.0 |
 | [0061](0061-reserved-metadata-keys-and-a-required-ingress-class.md) | Reserved metadata keys in every map, and a required Ingress class | Amended by 0068 | 0.12.0 |
 | [0062](0062-a-pdb-never-blocks-a-drain-at-the-replica-floor.md) | A PodDisruptionBudget never blocks a drain at the replica floor | Accepted | 0.12.0 |
 | [0063](0063-the-chart-does-not-write-app-kubernetes-io-component.md) | The chart does not write `app.kubernetes.io/component` | Accepted | 0.12.0 |
-| [0064](0064-from-1-0-0-a-new-key-is-optional.md) | From 1.0.0, a new values key is optional | Amended by 0069 | 1.1.0 |
+| [0064](0064-from-1-0-0-a-new-key-is-optional.md) | From 1.0.0, a new values key is optional | Amended by 0069, 0070 | 1.1.0 |
 | [0065](0065-an-opt-in-handover-from-the-chart-s-hpa-to-keda.md) | An opt-in handover from the chart's HPA to KEDA | Accepted | 1.1.0 |
 | [0066](0066-an-entry-level-config-for-literal-variables.md) | An entry-level `config` for literal variables | Accepted | 1.2.0 |
 | [0067](0067-a-per-volume-reloader-opt-out.md) | A per-volume Reloader opt-out | Accepted | 1.3.0 |
 | [0068](0068-schema-checks-on-map-keys-report-the-right-path.md) | Schema checks on map keys report the right path | Accepted | 1.3.1 |
 | [0069](0069-grpcroute-httproute-rules-and-appprotocol.md) | A GRPCRoute, extra HTTPRoute rules and `appProtocol` | Accepted | 1.4.0 |
+| [0070](0070-a-null-means-absent-chart-wide.md) | A `null` means absent, chart-wide | Accepted | 1.5.0 |
 
 ## Adding a record
 

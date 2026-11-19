@@ -74,7 +74,10 @@ spec:
                   - {{ $eg.dns.namespace | quote }}
           podSelector:
             matchLabels:
-              {{- toYaml ($eg.dns.podSelector | default (dict "k8s-app" "kube-dns")) | nindent 14 }}
+              {{- /* A null key is absent (ADR-0070); a selector left empty is the default, as null is. */}}
+              {{- $dnsPods := deepCopy ($eg.dns.podSelector | default dict) }}
+              {{- include "chart-base.pruneNulls" $dnsPods }}
+              {{- toYaml ($dnsPods | default (dict "k8s-app" "kube-dns")) | nindent 14 }}
         {{- range $eg.dns.cidrs }}
         - ipBlock:
             cidr: {{ . | quote }}

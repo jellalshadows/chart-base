@@ -268,3 +268,71 @@ tests:
       - notExists:
           path: spec.template.spec.containers[0].livenessProbe
         template: templates/deployment.yaml
+
+  # ---- A null key of podAnnotations or nodeSelector is absent (ADR-0070)
+  - it: leaves a null podAnnotations key out of the Deployment's pod template
+    template: templates/deployment.yaml
+    set:
+      podAnnotations: {a: b, gone: null}
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations
+          value:
+            a: b
+
+  - it: leaves a null podAnnotations key out of the Job's pod template
+    template: templates/job.yaml
+    set:
+      workload.type: job
+      podAnnotations: {a: b, gone: null}
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations
+          value:
+            a: b
+
+  - it: renders no pod template annotations on a cronjob when every podAnnotations key is null
+    template: templates/cronjob.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "*/5 * * * *"
+      podAnnotations: {gone: null}
+    asserts:
+      - notExists:
+          path: spec.jobTemplate.spec.template.metadata.annotations
+
+  - it: leaves a null nodeSelector key out
+    template: templates/deployment.yaml
+    set:
+      nodeSelector: {kubernetes.io/os: linux, gone: null}
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value:
+            kubernetes.io/os: linux
+
+  - it: renders no nodeSelector when every key is null
+    template: templates/deployment.yaml
+    set:
+      nodeSelector: {gone: null}
+    asserts:
+      - notExists:
+          path: spec.template.spec.nodeSelector
+
+  - it: leaves null dnsConfig fields out, and renders no dnsConfig when every field is null (ADR-0070)
+    template: templates/deployment.yaml
+    set:
+      dnsConfig: {nameservers: [1.1.1.1], searches: null, options: null}
+    asserts:
+      - equal:
+          path: spec.template.spec.dnsConfig
+          value:
+            nameservers: [1.1.1.1]
+
+  - it: renders no dnsConfig when every field is null
+    template: templates/deployment.yaml
+    set:
+      dnsConfig: {nameservers: null}
+    asserts:
+      - notExists:
+          path: spec.template.spec.dnsConfig

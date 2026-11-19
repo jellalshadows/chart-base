@@ -140,3 +140,12 @@ tests:
       - equal:
           path: spec.ports[0].targetPort
           value: "true"
+
+  - it: exposes a port whose servicePort is null on its containerPort (ADR-0070)
+    set:
+      ports:
+        - {name: http, containerPort: 8080, servicePort: null}
+    asserts:
+      - equal:
+          path: spec.ports[0].port
+          value: 8080

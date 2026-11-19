@@ -9,15 +9,19 @@
 
 {{/*
 chart-base.env: the items of a container's env from a map NAME -> {valueFrom: ...}, in key order: the one renderer of
-the env of every container (the main container's, an init container's, a sidecar's). The Kubernetes sources are copied
-as written; externalSecretKeyRef, the chart's own source, is rendered as a secretKeyRef on <fullname>-secrets, so that
-no manifest carries it and the name follows the release and the alias. A literal (not a map) is never rendered:
+the env of every container (the main container's, an init container's, a sidecar's, and what inheritEnv gives one). It
+reads the map without its nulls (chart-base.pruneNulls on a deep copy, ADR-0070): a null variable, a null source next to
+another one and a null optional field of a source are absent. The Kubernetes sources are copied as written;
+externalSecretKeyRef, the chart's own source, is rendered as a secretKeyRef on <fullname>-secrets, so that no manifest
+carries it and the name follows the release and the alias. A literal (not a map) is never rendered:
 templates/validate.yaml rejects it.
 Usage: {{- with include "chart-base.env" (dict "ctx" $ "env" <map>) | trim }} env: {{- . | nindent <n> }} {{- end }}
 */}}
 {{- define "chart-base.env" -}}
 {{- $secret := printf "%s-secrets" (include "chart-base.fullname" .ctx) -}}
-{{- range $name, $ref := .env }}
+{{- $env := deepCopy (.env | default dict) -}}
+{{- include "chart-base.pruneNulls" $env -}}
+{{- range $name, $ref := $env }}
 {{- if kindIs "map" $ref }}
 - name: {{ $name | quote }}
   valueFrom:
@@ -45,7 +49,7 @@ Usage: {{- with include "chart-base.envFrom" $ | trim }} envFrom: {{- . | ninden
 {{- with .Values.envFrom }}
 {{ toYaml . }}
 {{- end }}
-{{- if .Values.config }}
+{{- if include "chart-base.hasConfig" . }}
 - configMapRef:
     name: {{ include "chart-base.fullname" . }}-env
 {{- end }}
@@ -145,7 +149,9 @@ containers:
     readinessProbe:
       {{- toYaml . | nindent 6 }}
     {{- end }}
-    {{- $lifecycle := $.Values.lifecycle | default dict }}
+    {{- /* A null hook, a null handler and a null optional httpGet field are absent (ADR-0070). */}}
+    {{- $lifecycle := deepCopy ($.Values.lifecycle | default dict) }}
+    {{- include "chart-base.pruneNulls" $lifecycle }}
     {{- $preStopSleep := and $isDeployment (gt (int $.Values.preStopSleepSeconds) 0) }}
     {{- if or $lifecycle $preStopSleep }}
     lifecycle:
@@ -217,7 +223,10 @@ volumes:
   - name: {{ $volumeName | quote }}
     {{- include "chart-base.volumeSource" (dict "ctx" $ "volume" $v) | nindent 4 }}
   {{- end }}
-{{- with $.Values.nodeSelector }}
+{{- /* A null key of nodeSelector is absent (ADR-0070). */}}
+{{- $nodeSelector := deepCopy ($.Values.nodeSelector | default dict) }}
+{{- include "chart-base.pruneNulls" $nodeSelector }}
+{{- with $nodeSelector }}
 nodeSelector:
   {{- toYaml . | nindent 2 }}
 {{- end }}
@@ -235,7 +244,10 @@ priorityClassName: {{ . | quote }}
 {{- with $.Values.runtimeClassName }}
 runtimeClassName: {{ . | quote }}
 {{- end }}
-{{- with $.Values.dnsConfig }}
+{{- /* A null field of dnsConfig is absent (ADR-0070); one left empty is not rendered. */}}
+{{- $dnsConfig := deepCopy ($.Values.dnsConfig | default dict) }}
+{{- include "chart-base.pruneNulls" $dnsConfig }}
+{{- with $dnsConfig }}
 dnsConfig:
   {{- toYaml . | nindent 2 }}
 {{- end }}

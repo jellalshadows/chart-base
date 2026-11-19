@@ -472,3 +472,26 @@ tests:
           value:
             - {type: Resource, resource: {name: cpu, target: {type: Utilization, averageUtilization: 80}}}
             - {type: Resource, resource: {name: memory, target: {type: Utilization, averageUtilization: 70}}}
+
+  - it: renders spec.behavior without its null directions and null fields (ADR-0070)
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.behavior:
+        scaleUp: null
+        scaleDown: {stabilizationWindowSeconds: 600, selectPolicy: null, policies: null}
+    asserts:
+      - equal:
+          path: spec.behavior
+          value:
+            scaleDown:
+              stabilizationWindowSeconds: 600
+
+  - it: renders no behavior when every direction is null
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.behavior: {scaleUp: null, scaleDown: null}
+    asserts:
+      - notExists:
+          path: spec.behavior

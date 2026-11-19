@@ -75,8 +75,8 @@ ephemeral:
     metadata:
       labels:
         {{- include "chart-base.selectorLabels" .ctx | nindent 8 }}
-        {{- with .ctx.Values.commonLabels }}
-        {{- toYaml . | nindent 8 }}
+        {{- with include "chart-base.overCommon" (dict "common" .ctx.Values.commonLabels) }}
+        {{- . | nindent 8 }}
         {{- end }}
     spec:
       accessModes:

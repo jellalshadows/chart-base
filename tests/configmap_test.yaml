@@ -235,3 +235,23 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  # ---- A null config key is absent (ADR-0070)
+  - it: leaves a null config key out of the env ConfigMap
+    template: templates/configmap-env.yaml
+    set:
+      config.APP_MODE: api
+      config.GONE: null
+    asserts:
+      - equal:
+          path: data
+          value:
+            APP_MODE: api
+
+  - it: renders no env ConfigMap when every config key is null
+    template: templates/configmap-env.yaml
+    set:
+      config.GONE: null
+    asserts:
+      - hasDocuments:
+          count: 0

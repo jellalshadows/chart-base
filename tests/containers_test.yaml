@@ -516,6 +516,63 @@ tests:
       - notExists:
           path: spec.template.spec.initContainers[0].envFrom
 
+  - it: gives an entry with inheritEnv true the main container's env without its null variables and null sources (ADR-0070)
+    template: templates/deployment.yaml
+    values:
+      - values/base.yaml
+      - values/env-refs.yaml
+    set:
+      env.MEMORY_MB: null
+      env.FLAG_X: null
+      env.DB_PASSWORD.valueFrom.secretKeyRef: null
+      env.DB_PASSWORD.valueFrom.configMapKeyRef: {name: db-config, key: password, optional: null}
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, inheritEnv: true}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].env
+          value:
+            - name: DB_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: db-config
+                  key: password
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: DB_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: db-config
+                  key: password
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+
+  - it: renders an entry's variable without a null source and without a null optional field (ADR-0070)
+    template: templates/deployment.yaml
+    set:
+      sidecars:
+        proxy:
+          image: {repository: ghcr.io/acme/tool, tag: "1.0"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          env:
+            PGPASSWORD: {valueFrom: {externalSecretKeyRef: null, secretKeyRef: {name: pg-local, key: password, optional: null}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].env
+          value:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pg-local
+                  key: password
+
   - it: gives an entry with inheritEnv true exactly the main container's envFrom and env, in the same order
     template: templates/deployment.yaml
     values:

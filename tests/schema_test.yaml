@@ -1828,7 +1828,7 @@ tests:
       - failedTemplate:
           errorPattern: "/httpRoute/matches/0/headers/0/type': value must be one of"
 
-  - it: still rejects a null strategy.rollingUpdate.maxSurge (only rollingUpdate itself means absent when null)
+  - it: accepts a null strategy.rollingUpdate.maxSurge (absent, ADR-0070), and still rejects a maxSurge that is not a count or a percentage
     set:
       strategy:
         type: RollingUpdate
@@ -1836,8 +1836,15 @@ tests:
           maxSurge: null
           maxUnavailable: 1
     asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: still rejects a strategy.rollingUpdate.maxSurge that is not a count or a percentage
+    set:
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: "x"}}
+    asserts:
       - failedTemplate:
-          errorPattern: "/strategy/rollingUpdate/maxSurge': got null, want integer or string"
+          errorPattern: "/strategy/rollingUpdate/maxSurge': 'x' does not match pattern"
 
   # One probe contract (ADR-0059): the main container's probes are definitions.probe, closed at every level, plus the
   # rule of their kind; {} and null are no probe.
@@ -1943,9 +1950,91 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: rejects a null inside a lifecycle hook's httpGet (a hook keeps definitions.httpGetHandler, as in 0.11.0)
+  - it: accepts a null optional field of a lifecycle hook's httpGet (absent, ADR-0070)
     set:
-      lifecycle.postStart.httpGet: {path: null, port: 8080}
+      lifecycle.postStart.httpGet: {path: null, port: 8080, scheme: null, httpHeaders: null}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: still rejects a null required field of a lifecycle hook (httpGet.port, exec.command, sleep.seconds)
+    set:
+      lifecycle.postStart.httpGet: {port: null}
     asserts:
       - failedTemplate:
-          errorPattern: "at '/lifecycle/postStart/httpGet/path': got null, want string"
+          errorPattern: "at '/lifecycle/postStart/httpGet/port': got null, want integer or string"
+
+  - it: still rejects a null exec.command of a lifecycle hook
+    set:
+      preStopSleepSeconds: 0
+      lifecycle.preStop.exec: {command: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/lifecycle/preStop/exec/command': got null, want array"
+
+  - it: still rejects a null sleep.seconds of a lifecycle hook
+    set:
+      lifecycle.postStart.sleep: {seconds: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/lifecycle/postStart/sleep/seconds': got null, want integer"
+
+  - it: rejects a lifecycle hook whose every handler is null (a hook keeps exactly one handler)
+    set:
+      lifecycle.postStart: {exec: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/lifecycle/postStart': 'oneOf' failed, none matched"
+
+  - it: still rejects a lifecycle hook with two handlers
+    set:
+      lifecycle.postStart: {exec: {command: [x]}, sleep: {seconds: 1}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/lifecycle/postStart': 'oneOf' failed, subschemas 0, 2 matched"
+
+  - it: accepts a null ports[].servicePort (the containerPort, ADR-0070) and a null dnsConfig field
+    set:
+      ports: [{name: http, containerPort: 8080, servicePort: null}]
+      dnsConfig: {nameservers: null, searches: null, options: null}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: still rejects a servicePort out of range
+    set:
+      ports: [{name: http, containerPort: 8080, servicePort: 0}]
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/ports/0/servicePort': minimum: got 0, want 1"
+
+  - it: still rejects a null field inside a dnsConfig option (an item of a list is taken as written)
+    set:
+      dnsConfig: {options: [{name: ndots, value: null}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/dnsConfig/options/0/value': got null, want string"
+
+  # ---- Keys added after 1.0.0 take null as their default (ADR-0070). The null reaches the schema only in the
+  # --reuse-values shape (an old release's values.yaml as the defaults), which helm-unittest cannot build: T6 measured
+  # it with a script. A value of the wrong type keeps its message.
+  - it: still rejects a grpcRoute that is not a map
+    set:
+      grpcRoute: enabled
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/grpcRoute': got string, want object"
+
+  - it: still rejects grpcRoute.hostnames that is not a list
+    set:
+      grpcRoute.hostnames: grpc.example.com
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/grpcRoute/hostnames': got string, want array"
+
+  - it: still rejects httpRoute.rules that is not a list
+    set:
+      httpRoute.rules: {api: {port: http}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/httpRoute/rules': got object, want array"

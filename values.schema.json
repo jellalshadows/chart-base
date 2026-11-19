@@ -37,7 +37,7 @@
       "properties": {
         "name": { "type": "string", "minLength": 1 },
         "key": { "type": "string", "minLength": 1 },
-        "optional": { "type": "boolean" }
+        "optional": { "if": { "not": { "type": "null" } }, "then": { "type": "boolean" } }
       }
     },
     "objectRef": {
@@ -55,22 +55,26 @@
       "pattern": "^[0-9]+%$"
     },
     "lifecycleHandler": {
+      "description": "A lifecycle hook of the main container: exactly one handler. A handler set to null is absent (ADR-0070; each oneOf branch requires its handler non-null), so an override switches the handler by setting the previous one to null next to the new one.",
       "type": "object",
       "additionalProperties": false,
       "oneOf": [
-        { "required": ["exec"] },
-        { "required": ["httpGet"] },
-        { "required": ["sleep"] }
+        { "required": ["exec"], "properties": { "exec": { "not": { "type": "null" } } } },
+        { "required": ["httpGet"], "properties": { "httpGet": { "not": { "type": "null" } } } },
+        { "required": ["sleep"], "properties": { "sleep": { "not": { "type": "null" } } } }
       ],
       "properties": {
-        "exec": { "$ref": "#/definitions/execHandler" },
-        "httpGet": { "$ref": "#/definitions/httpGetHandler" },
+        "exec": { "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/execHandler" } },
+        "httpGet": { "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/httpGetHandler" } },
         "sleep": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["seconds"],
-          "properties": {
-            "seconds": { "type": "integer", "minimum": 1 }
+          "if": { "not": { "type": "null" } },
+          "then": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["seconds"],
+            "properties": {
+              "seconds": { "type": "integer", "minimum": 1 }
+            }
           }
         }
       }
@@ -85,19 +89,19 @@
       }
     },
     "httpGetHandler": {
-      "description": "The httpGet handler of a lifecycle hook; no host (Pod Security baseline rejects it from policy v1.34). Inside it a null stays an error. A probe's is definitions.probeHttpGetHandler, the same fields with a null optional field absent.",
+      "description": "The httpGet handler of a lifecycle hook; no host (Pod Security baseline rejects it from policy v1.34). A null optional field (path, scheme, httpHeaders) is absent (ADR-0070; the hooks render pruned); port stays required. A probe's is definitions.probeHttpGetHandler, the same fields.",
       "type": "object",
       "additionalProperties": false,
       "required": ["port"],
       "properties": {
-        "path": { "type": "string" },
+        "path": { "if": { "not": { "type": "null" } }, "then": { "type": "string" } },
         "port": { "type": ["integer", "string"] },
-        "scheme": { "enum": ["HTTP", "HTTPS"] },
-        "httpHeaders": { "type": "array", "items": { "$ref": "#/definitions/httpHeader" } }
+        "scheme": { "if": { "not": { "type": "null" } }, "then": { "enum": ["HTTP", "HTTPS"] } },
+        "httpHeaders": { "if": { "not": { "type": "null" } }, "then": { "type": "array", "items": { "$ref": "#/definitions/httpHeader" } } }
       }
     },
     "probeHttpGetHandler": {
-      "description": "The httpGet handler of a probe of any container: definitions.httpGetHandler whose optional fields (path, scheme, httpHeaders) also take null, which is absent (the probes render pruned; the API server defaults path to / and scheme to HTTP). A lifecycle hook keeps definitions.httpGetHandler.",
+      "description": "The httpGet handler of a probe of any container: the fields of definitions.httpGetHandler, whose optional fields (path, scheme, httpHeaders) take null, which is absent (the probes render pruned; the API server defaults path to / and scheme to HTTP).",
       "type": "object",
       "additionalProperties": false,
       "required": ["port"],
@@ -124,14 +128,14 @@
       "pattern": "^(0|(([0-9]+)y)?(([0-9]+)w)?(([0-9]+)d)?(([0-9]+)h)?(([0-9]+)m)?(([0-9]+)s)?(([0-9]+)ms)?)$"
     },
     "extraLabels": {
-      "description": "Extra labels of an object that also carries the chart's labels: the keys the chart sets itself are rejected (they would render twice). Each is a false schema, so its error names the key's own path (ADR-0068); extraObject.metadata.labels repeats them.",
+      "description": "Extra labels of an object that also carries the chart's labels: the keys the chart sets itself are rejected (they would render twice), also set to null. Each is a false schema, so its error names the key's own path (ADR-0068); extraObject.metadata.labels repeats them. A key set to null is absent (ADR-0070): a commonLabels value then applies.",
       "type": "object",
       "properties": { "app.kubernetes.io/name": false, "app.kubernetes.io/instance": false, "app.kubernetes.io/part-of": false, "app.kubernetes.io/version": false, "app.kubernetes.io/managed-by": false, "helm.sh/chart": false },
-      "additionalProperties": { "type": "string" }
+      "additionalProperties": { "if": { "not": { "type": "null" } }, "then": { "type": "string" } }
     },
     "extraAnnotations": {
-      "description": "Annotations of an object that also carries the chart's: Helm's hook keys (helm.sh/hook*), Helm's ownership keys (meta.helm.sh/*) and the chart's checksums (checksum/config-env, checksum/config-files) are rejected (a hook key would turn the object into a Helm hook). Values are strings. Each is a false schema, so its error names the key's own path (ADR-0068); extraObject.metadata.annotations and commonAnnotations repeat them.",
-      "type": "object", "additionalProperties": { "type": "string" },
+      "description": "Annotations of an object that also carries the chart's: Helm's hook keys (helm.sh/hook*), Helm's ownership keys (meta.helm.sh/*) and the chart's checksums (checksum/config-env, checksum/config-files) are rejected (a hook key would turn the object into a Helm hook), also set to null. Values are strings; a key set to null is absent (ADR-0070), and a commonAnnotations value then applies. Each reserved key is a false schema, so its error names the key's own path (ADR-0068); extraObject.metadata.annotations and commonAnnotations repeat them.",
+      "type": "object", "additionalProperties": { "if": { "not": { "type": "null" } }, "then": { "type": "string" } },
       "patternProperties": { "^helm\\.sh/hook": false, "^meta\\.helm\\.sh/": false },
       "properties": { "checksum/config-env": false, "checksum/config-files": false }
     },
@@ -192,27 +196,30 @@
       }
     },
     "hpaBehavior": {
-      "description": "An HPA's spec.behavior (autoscaling.behavior, keda.behavior), Kubernetes' shape without tolerance; null = not rendered. Not converted: a null inside is an error wherever it reaches the chart (Helm 4.3 drops one written in an umbrella's own values while nothing is passed for the alias).",
+      "description": "An HPA's spec.behavior (autoscaling.behavior, keda.behavior), Kubernetes' shape without tolerance; null = not rendered. A null direction or a null field of a direction is absent (ADR-0070; rendered pruned): a behavior whose every direction is null is not rendered, and a direction whose every field is null renders {}, which the API server fills with its defaults, as an absent direction. An item of policies is taken as written.",
       "type": ["object", "null"], "additionalProperties": false, "minProperties": 1,
       "properties": {
-        "scaleUp": { "$ref": "#/definitions/hpaScalingRules" },
-        "scaleDown": { "$ref": "#/definitions/hpaScalingRules" }
+        "scaleUp": { "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/hpaScalingRules" } },
+        "scaleDown": { "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/hpaScalingRules" } }
       }
     },
     "hpaScalingRules": {
       "description": "One direction of an HPA's behavior: at least one field; policies, when present, has at least one policy.",
       "minProperties": 1, "type": "object", "additionalProperties": false,
       "properties": {
-        "stabilizationWindowSeconds": { "type": "integer", "minimum": 0, "maximum": 3600 },
-        "selectPolicy": { "enum": ["Max", "Min", "Disabled"] },
+        "stabilizationWindowSeconds": { "if": { "not": { "type": "null" } }, "then": { "type": "integer", "minimum": 0, "maximum": 3600 } },
+        "selectPolicy": { "if": { "not": { "type": "null" } }, "then": { "enum": ["Max", "Min", "Disabled"] } },
         "policies": {
-          "type": "array", "minItems": 1,
-          "items": {
-            "required": ["type", "value", "periodSeconds"], "type": "object", "additionalProperties": false,
-            "properties": {
-              "type": { "enum": ["Pods", "Percent"] },
-              "value": { "type": "integer", "minimum": 1 },
-              "periodSeconds": { "type": "integer", "minimum": 1, "maximum": 1800 }
+          "if": { "not": { "type": "null" } },
+          "then": {
+            "type": "array", "minItems": 1,
+            "items": {
+              "required": ["type", "value", "periodSeconds"], "type": "object", "additionalProperties": false,
+              "properties": {
+                "type": { "enum": ["Pods", "Percent"] },
+                "value": { "type": "integer", "minimum": 1 },
+                "periodSeconds": { "type": "integer", "minimum": 1, "maximum": 1800 }
+              }
             }
           }
         }
@@ -537,7 +544,7 @@
       }
     },
     "envVar": {
-      "description": "One variable of env, NAME: {valueFrom: {<one source>}}: the one definition of the env of every container (the main container's, an init container's, a sidecar's). The sources: fieldRef, resourceFieldRef, secretKeyRef, configMapKeyRef (Kubernetes', copied as written) and externalSecretKeyRef (the chart's: a key of the component's own ExternalSecret Secret, rendered as a secretKeyRef on <fullname>-secrets). A literal (a string, number or boolean) passes the schema and fails in templates/validate.yaml with a remedy. Inside it a null stays an error: it is shared with the main container, whose env does not take null.",
+      "description": "One variable of env, NAME: {valueFrom: {<one source>}}: the one definition of the env of every container (the main container's, an init container's, a sidecar's). The sources: fieldRef, resourceFieldRef, secretKeyRef, configMapKeyRef (Kubernetes', copied as written) and externalSecretKeyRef (the chart's: a key of the component's own ExternalSecret Secret, rendered as a secretKeyRef on <fullname>-secrets). A literal (a string, number or boolean) passes the schema and fails in templates/validate.yaml with a remedy. A null source and a null optional field of a source are absent (ADR-0070; each oneOf branch requires its source non-null, so an override switches the source by setting the previous one to null next to the new one); valueFrom and a source's required fields stay non-null, and exactly one non-null source remains.",
       "type": ["object", "string", "number", "boolean"],
       "additionalProperties": false,
       "required": ["valueFrom"],
@@ -546,38 +553,47 @@
           "type": "object",
           "additionalProperties": false,
           "oneOf": [
-            { "required": ["fieldRef"] },
-            { "required": ["resourceFieldRef"] },
-            { "required": ["secretKeyRef"] },
-            { "required": ["configMapKeyRef"] },
-            { "required": ["externalSecretKeyRef"] }
+            { "required": ["fieldRef"], "properties": { "fieldRef": { "not": { "type": "null" } } } },
+            { "required": ["resourceFieldRef"], "properties": { "resourceFieldRef": { "not": { "type": "null" } } } },
+            { "required": ["secretKeyRef"], "properties": { "secretKeyRef": { "not": { "type": "null" } } } },
+            { "required": ["configMapKeyRef"], "properties": { "configMapKeyRef": { "not": { "type": "null" } } } },
+            { "required": ["externalSecretKeyRef"], "properties": { "externalSecretKeyRef": { "not": { "type": "null" } } } }
           ],
           "properties": {
             "fieldRef": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["fieldPath"],
-              "properties": {
-                "fieldPath": { "type": "string", "minLength": 1 },
-                "apiVersion": { "type": "string" }
+              "if": { "not": { "type": "null" } },
+              "then": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["fieldPath"],
+                "properties": {
+                  "fieldPath": { "type": "string", "minLength": 1 },
+                  "apiVersion": { "if": { "not": { "type": "null" } }, "then": { "type": "string" } }
+                }
               }
             },
             "resourceFieldRef": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["resource"],
-              "properties": {
-                "resource": { "type": "string", "minLength": 1 },
-                "containerName": { "type": "string" },
-                "divisor": { "type": ["string", "number"] }
+              "if": { "not": { "type": "null" } },
+              "then": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["resource"],
+                "properties": {
+                  "resource": { "type": "string", "minLength": 1 },
+                  "containerName": { "if": { "not": { "type": "null" } }, "then": { "type": "string" } },
+                  "divisor": { "if": { "not": { "type": "null" } }, "then": { "type": ["string", "number"] } }
+                }
               }
             },
-            "secretKeyRef": { "$ref": "#/definitions/keyRef" },
-            "configMapKeyRef": { "$ref": "#/definitions/keyRef" },
+            "secretKeyRef": { "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/keyRef" } },
+            "configMapKeyRef": { "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/keyRef" } },
             "externalSecretKeyRef": {
               "description": "A key of the component's own ExternalSecret Secret: the chart resolves its name (<fullname>-secrets). No name and no optional (a missing key must stop the container, not unset the variable).",
-              "type": "object", "additionalProperties": false, "required": ["key"],
-              "properties": { "key": { "type": "string", "minLength": 1, "maxLength": 253, "pattern": "^[-._a-zA-Z0-9]+$" } }
+              "if": { "not": { "type": "null" } },
+              "then": {
+                "type": "object", "additionalProperties": false, "required": ["key"],
+                "properties": { "key": { "type": "string", "minLength": 1, "maxLength": 253, "pattern": "^[-._a-zA-Z0-9]+$" } }
+              }
             }
           }
         }
@@ -809,16 +825,16 @@
         "properties": {
           "name": { "type": "string", "pattern": "^[a-z]([-a-z0-9]*[a-z0-9])?$", "maxLength": 15 },
           "containerPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
-          "servicePort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+          "servicePort": { "description": "The Service port; absent or null: containerPort (ADR-0070).", "if": { "not": { "type": "null" } }, "then": { "type": "integer", "minimum": 1, "maximum": 65535 } },
           "appProtocol": { "description": "The application protocol of the Service port (since 1.4.0), written on the Service port only: an IANA service name, kubernetes.io/h2c, kubernetes.io/ws, kubernetes.io/wss or a domain-prefixed name, which the API server checks. null or absent writes none.", "type": ["string", "null"], "minLength": 1 }
         }
       }
     },
     "resources": { "$ref": "#/definitions/resources" },
     "config": {
-      "description": "Literal variables of the main container, in its ConfigMap. A NAME matches ^[A-Za-z_][A-Za-z0-9_]*$ (an environment variable name); another name fails at the map's path.",
+      "description": "Literal variables of the main container, in its ConfigMap. A NAME matches ^[A-Za-z_][A-Za-z0-9_]*$ (an environment variable name); another name fails at the map's path. NAME: null is absent (ADR-0070); with only null entries there is no ConfigMap.",
       "type": "object",
-      "patternProperties": { "^[A-Za-z_][A-Za-z0-9_]*$": { "type": ["string", "number", "boolean"] } },
+      "patternProperties": { "^[A-Za-z_][A-Za-z0-9_]*$": { "if": { "not": { "type": "null" } }, "then": { "type": ["string", "number", "boolean"] } } },
       "additionalProperties": false
     },
     "configFiles": {
@@ -910,8 +926,8 @@
     "reloadOnChange": { "type": "boolean" },
     "env": {
       "type": ["object", "array"],
-      "description": "References only: literal values belong in `config`. A NAME matches ^[A-Za-z_][A-Za-z0-9_]*$ (an environment variable name); another name fails at the map's path.",
-      "patternProperties": { "^[A-Za-z_][A-Za-z0-9_]*$": { "$ref": "#/definitions/envVar" } },
+      "description": "References only: literal values belong in `config`. A NAME matches ^[A-Za-z_][A-Za-z0-9_]*$ (an environment variable name); another name fails at the map's path. NAME: null is absent (ADR-0070), as in an entry's env (definitions.containerEnv).",
+      "patternProperties": { "^[A-Za-z_][A-Za-z0-9_]*$": { "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/envVar" } } },
       "additionalProperties": false
     },
     "envFrom": {
@@ -939,14 +955,17 @@
       "properties": {
         "type": { "enum": ["RollingUpdate", "Recreate"] },
         "rollingUpdate": {
-          "description": "null means absent (never rendered); a rollingUpdate next to Recreate is rejected by templates/validate.yaml.",
+          "description": "null means absent (never rendered), and so does a null maxSurge or maxUnavailable (ADR-0070); a rollingUpdate next to Recreate is rejected by templates/validate.yaml, also one left empty by its nulls.",
           "type": ["object", "null"], "additionalProperties": false,
           "properties": {
-            "maxSurge": { "$ref": "#/definitions/intOrPercent" },
+            "maxSurge": { "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/intOrPercent" } },
             "maxUnavailable": {
               "description": "Kubernetes rejects a percentage above 100% (maxSurge has no such cap).",
-              "allOf": [{ "$ref": "#/definitions/intOrPercent" }],
-              "pattern": "^0*([0-9]{1,2}|100)%$"
+              "if": { "not": { "type": "null" } },
+              "then": {
+                "allOf": [{ "$ref": "#/definitions/intOrPercent" }],
+                "pattern": "^0*([0-9]{1,2}|100)%$"
+              }
             }
           }
         }
@@ -980,7 +999,7 @@
       "required": ["enabled", "minReplicas", "maxReplicas", "targetCPUUtilizationPercentage"],
       "properties": {
         "enabled": { "type": "boolean" },
-        "kedaHandover": { "type": "boolean" },
+        "kedaHandover": { "description": "Since 1.1.0; null is the default, false (ADR-0070: a --reuse-values upgrade from 1.0.x keeps a null an override sets).", "if": { "not": { "type": "null" } }, "then": { "type": "boolean" } },
         "minReplicas": { "type": "integer", "minimum": 1 },
         "maxReplicas": { "type": "integer", "minimum": 1 },
         "targetCPUUtilizationPercentage": { "type": "integer", "minimum": 1, "maximum": 100 },
@@ -1039,11 +1058,12 @@
     "preStopSleepSeconds": { "type": "integer", "minimum": 0 },
     "terminationGracePeriodSeconds": { "type": "integer", "minimum": 0 },
     "lifecycle": {
+      "description": "The main container's hooks (definitions.lifecycleHandler); a hook set to null is absent (ADR-0070).",
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "postStart": { "$ref": "#/definitions/lifecycleHandler" },
-        "preStop": { "$ref": "#/definitions/lifecycleHandler" }
+        "postStart": { "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/lifecycleHandler" } },
+        "preStop": { "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/lifecycleHandler" } }
       }
     },
     "httpRoute": {
@@ -1054,19 +1074,22 @@
         "parentRefs": { "type": "array", "items": { "$ref": "#/definitions/httpRouteParentRef" } },
         "hostnames": { "type": "array", "items": { "type": "string" } },
         "matches": { "type": "array", "items": { "$ref": "#/definitions/httpRouteMatch" } },
-        "rules": { "description": "Extra HTTPRoute rules (since 1.4.0), after the one matches makes.", "type": "array", "items": { "$ref": "#/definitions/httpRouteRule" } }
+        "rules": { "description": "Extra HTTPRoute rules (since 1.4.0), after the one matches makes; null is none (ADR-0070).", "if": { "not": { "type": "null" } }, "then": { "type": "array", "items": { "$ref": "#/definitions/httpRouteRule" } } }
       }
     },
     "grpcRoute": {
-      "description": "A Gateway API GRPCRoute to this component's Service (since 1.4.0).",
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enabled": { "type": "boolean" },
-        "parentRefs": { "type": "array", "items": { "$ref": "#/definitions/httpRouteParentRef" } },
-        "hostnames": { "type": "array", "items": { "type": "string" } },
-        "matches": { "type": ["array", "null"], "items": { "$ref": "#/definitions/grpcRouteMatch" } },
-        "port": { "description": "The name of the ports entry the route sends to; null: the first entry.", "type": ["string", "null"], "minLength": 1 }
+      "description": "A Gateway API GRPCRoute to this component's Service (since 1.4.0). null, and a null enabled, parentRefs or hostnames, is the default (ADR-0070: a --reuse-values upgrade from 1.3.x or older keeps a null an override sets).",
+      "if": { "not": { "type": "null" } },
+      "then": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "if": { "not": { "type": "null" } }, "then": { "type": "boolean" } },
+          "parentRefs": { "if": { "not": { "type": "null" } }, "then": { "type": "array", "items": { "$ref": "#/definitions/httpRouteParentRef" } } },
+          "hostnames": { "if": { "not": { "type": "null" } }, "then": { "type": "array", "items": { "type": "string" } } },
+          "matches": { "type": ["array", "null"], "items": { "$ref": "#/definitions/grpcRouteMatch" } },
+          "port": { "description": "The name of the ports entry the route sends to; null: the first entry.", "type": ["string", "null"], "minLength": 1 }
+        }
       }
     },
     "ingress": {
@@ -1192,10 +1215,10 @@
                 "enabled": { "type": "boolean" },
                 "namespace": { "$ref": "#/definitions/namespaceName" },
                 "podSelector": {
-                  "description": "null: {k8s-app: kube-dns}. A map replaces it (it is not merged with it).",
+                  "description": "null: {k8s-app: kube-dns}. A map replaces it (it is not merged with it). A key set to null is absent (ADR-0070); a map whose every key is null selects {k8s-app: kube-dns}, as null does.",
                   "type": ["object", "null"],
                   "minProperties": 1,
-                  "additionalProperties": { "type": "string" }
+                  "additionalProperties": { "if": { "not": { "type": "null" } }, "then": { "type": "string" } }
                 },
                 "ports": {
                   "type": "array",
@@ -1286,33 +1309,37 @@
     "commonLabels": { "$ref": "#/definitions/extraLabels" },
     "extraObjects": { "type": ["object", "null"], "additionalProperties": { "$ref": "#/definitions/extraObject" } },
     "commonAnnotations": {
-      "description": "The reserved keys of definitions.extraAnnotations, repeated (one schema: an allOf would add a line to its errors), and the two Reloader keys the chart computes on the Deployment (a common one would render the key twice).",
-      "type": "object", "additionalProperties": { "type": "string" },
+      "description": "The reserved keys of definitions.extraAnnotations, repeated (one schema: an allOf would add a line to its errors), and the two Reloader keys the chart computes on the Deployment (a common one would render the key twice). A key set to null is absent (ADR-0070).",
+      "type": "object", "additionalProperties": { "if": { "not": { "type": "null" } }, "then": { "type": "string" } },
       "patternProperties": { "^helm\\.sh/hook": false, "^meta\\.helm\\.sh/": false },
       "properties": { "checksum/config-env": false, "checksum/config-files": false, "secret.reloader.stakater.com/reload": false, "configmap.reloader.stakater.com/reload": false }
     },
     "podSecurityContext": { "type": "object" },
     "securityContext": { "type": "object" },
-    "nodeSelector": { "type": "object", "additionalProperties": { "type": "string" } },
+    "nodeSelector": { "description": "A key set to null is absent (ADR-0070).", "type": "object", "additionalProperties": { "if": { "not": { "type": "null" } }, "then": { "type": "string" } } },
     "tolerations": { "type": "array", "items": { "type": "object" } },
     "affinity": { "type": "object" },
     "priorityClassName": { "type": ["string", "null"], "minLength": 1 },
     "runtimeClassName": { "type": ["string", "null"], "minLength": 1 },
     "dnsConfig": {
+      "description": "The pod's dnsConfig; a null field is absent (ADR-0070), and a dnsConfig left empty is not rendered. An item of options is taken as written.",
       "type": ["object", "null"],
       "additionalProperties": false,
       "properties": {
-        "nameservers": { "type": "array", "maxItems": 3, "items": { "type": "string" } },
-        "searches": { "type": "array", "maxItems": 32, "items": { "type": "string" } },
+        "nameservers": { "if": { "not": { "type": "null" } }, "then": { "type": "array", "maxItems": 3, "items": { "type": "string" } } },
+        "searches": { "if": { "not": { "type": "null" } }, "then": { "type": "array", "maxItems": 32, "items": { "type": "string" } } },
         "options": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["name"],
-            "properties": {
-              "name": { "type": "string" },
-              "value": { "type": "string" }
+          "if": { "not": { "type": "null" } },
+          "then": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name"],
+              "properties": {
+                "name": { "type": "string" },
+                "value": { "type": "string" }
+              }
             }
           }
         }
@@ -1342,7 +1369,7 @@
       "then": {
         "properties": {
           "httpRoute": { "properties": { "enabled": { "const": false } } },
-          "grpcRoute": { "properties": { "enabled": { "const": false } } },
+          "grpcRoute": { "properties": { "enabled": { "if": { "not": { "type": "null" } }, "then": { "const": false } } } },
           "ingress": { "properties": { "enabled": { "const": false } } },
           "autoscaling": { "properties": { "enabled": { "const": false } } },
           "keda": { "properties": { "enabled": { "const": false } } },
