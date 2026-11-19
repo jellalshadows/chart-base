@@ -1,6 +1,6 @@
 # ADR-0055: The HPA's `behavior` and `metrics` are validated pass-throughs, and a non-empty `metrics` list replaces the built-in targets
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0070](0070-a-null-means-absent-chart-wide.md) (1.5.0)
 - **Date:** 2026-10-12
 - **Since:** 0.10.0
 - **Related:** [ADR-0011](0011-strict-draft-07-schema.md), [ADR-0014](0014-resource-requests-required.md), [ADR-0027](0027-required-keys-in-the-schema.md), [ADR-0036](0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md), [ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md), [ADR-0052](0052-hpa-targets-measure-the-main-container-with-sidecars.md) (amended), [ADR-0056](0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)

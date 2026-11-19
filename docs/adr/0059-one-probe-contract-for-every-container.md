@@ -1,6 +1,6 @@
 # ADR-0059: One probe contract for every container
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0070](0070-a-null-means-absent-chart-wide.md) (1.5.0)
 - **Date:** 2026-11-17
 - **Since:** 0.12.0
 - **Related:** [ADR-0011](0011-strict-draft-07-schema.md), [ADR-0045](0045-null-in-configfiles-and-resources-is-absent.md), [ADR-0047](0047-when-enabled-keys-required-externalsecret-source-probe-port-names.md) (amended), [ADR-0051](0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md) (amended), [ADR-0058](0058-the-1-0-contract-and-how-it-stays-frozen.md)

@@ -192,6 +192,9 @@ pod() { echo "$1" | yq -N -o=json -I=0 "select(.kind == \"Deployment\") | .spec.
 expect_fail() { # <rendered output> <text the error must contain> <what failed to fail>
   grep -qF -- "$2" <<<"$1" || fail "$3: expected an error with '$2', got: $(grep -m1 'Error' <<<"$1" || echo 'a render without that error')"
 }
+seen() { # <rendered output> <what a check read>: what a FAIL line prints, the render's error when it failed (Helm 4 prints it on several lines)
+  case "$1" in *"Error:"*) echo "$1" | grep -m1 -A2 'Error:' | grep -v 'Use --debug' | tr -s ' \n' ' ' || true ;; *) echo "$2" ;; esac
+}
 
 nulls='  configFiles:
     files:
@@ -283,15 +286,29 @@ pass "null table row 4: a whole map of the chart's values.yaml is cleared (F; U0
 expect_fail "$(lrender '' -f "$(over '  resources: {requests: null}')")" "got null, want object" "row 5, F"
 expect_fail "$(lrender '  resources: {requests: null}')" "$($helm4 && echo "missing property 'requests'" || echo 'got null, want object')" "row 5, U0"
 pass "null table row 5: a map that the chart's values.yaml does not define (resources.requests) fails the schema (F, U0)"
-out="$(lrender '  nodeSelector: {disk: ssd, zone: null}')"
-if $helm4; then [ "$(pod "$out" '.spec.nodeSelector')" = '{"disk":"ssd"}' ] || fail "row 6: Helm 4.3 U0 must drop the null entry"
-else expect_fail "$out" "got null, want string" "row 6, Helm 3 U0"; fi
-expect_fail "$(lrender '  nodeSelector: {disk: ssd, zone: z}' -f "$(over '  nodeSelector: {zone: null}')")" "got null, want string" "row 6, F"
-pass "null table row 6: one entry of a typed map fails the schema (F$($helm4 || echo ', U0')); Helm 4.3 U0 drops it"
+out="$(lrender '  podLabels: {team: a, app.kubernetes.io/name: null}')"
+if $helm4; then [ "$(pod "$out" '.metadata.labels.team')" = '"a"' ] || fail "row 6: Helm 4.3 U0 must drop the null reserved key and render, got $(seen "$out" "$(pod "$out" '.metadata.labels.team')")"
+else expect_fail "$out" "/podLabels/app.kubernetes.io~1name': false schema" "row 6, Helm 3 U0"; fi
+expect_fail "$(lrender '  podLabels: {team: a}' -f "$(over '  podLabels: {app.kubernetes.io/name: null}')")" "/podLabels/app.kubernetes.io~1name': false schema" "row 6, F"
+pass "null table row 6: a reserved key set to null fails the schema (F$($helm4 || echo ', U0')); Helm 4.3 U0 drops it"
 af='.spec.affinity'
 [ "$(pod "$(lrender '  affinity: {nodeAffinity: null}')" "$af")" = "$($helm4 && echo null || echo '{"nodeAffinity":null}')" ] || fail "row 7: U0 affinity"
 [ "$(pod "$(lrender '' -f "$(over '  affinity: {nodeAffinity: null}')")" "$af")" = '{"nodeAffinity":null}' ] || fail "row 7: F must render the null"
 pass "null table row 7: a key inside a pass-through object is rendered as null (F$($helm4 || echo ', U0')); Helm 4.3 U0 drops it"
+# From 1.5.0 one entry of a typed map is absent in every layer (null table row 8, ADR-0070).
+bad_layers=""
+for layer in U0 U1 F S; do
+  case $layer in
+    U0) out="$(lrender '  nodeSelector: {disk: ssd, zone: null}')" ;;
+    U1) out="$(lrender '  nodeSelector: {disk: ssd, zone: null}' --set api.replicas=2)" ;;
+    F) out="$(lrender '  nodeSelector: {disk: ssd, zone: z}' -f "$(over '  nodeSelector: {zone: null}')")" ;;
+    S) out="$(lrender '  nodeSelector: {disk: ssd, zone: z}' --set api.nodeSelector.zone=null)" ;;
+  esac
+  got="$(pod "$out" '.spec.nodeSelector')"
+  [ "$got" = '{"disk":"ssd"}' ] || bad_layers="$bad_layers $layer (got: $(seen "$out" "$got"))"
+done
+[ -z "$bad_layers" ] || fail "nodeSelector: a null entry must be absent, the same in every layer; differs in:$bad_layers"
+pass "null table row 8: one entry of a typed map (nodeSelector.zone) is absent in U0, U1, F and S"
 
 # volumes (0.7.0): in this map a null entry or field is absent in every layer (null table row 8); an overlay changes a
 # volume's type by setting the previous type's fields to null; volumes: null leaves the chart's own volume only (row 4),
@@ -435,8 +452,20 @@ pass "a sidecar named like the component's alias fails, naming the main containe
 
 vf='  resources: {requests: {cpu: 10m, memory: 32Mi}}
   sidecars: {proxy: {image: {repository: ghcr.io/acme/proxy, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, env: {TOKEN: {valueFrom: {secretKeyRef: {name: t, key: k, optional: true}}}}}}'
-expect_fail "$(lrender "$vf" -f "$(over '  sidecars: {proxy: {env: {TOKEN: {valueFrom: {secretKeyRef: {optional: null}}}}}}')")" "got null, want boolean" "row 6: a null inside a sidecar's env valueFrom, F"
-pass "null table row 6: a null inside a sidecar's env valueFrom (a definition shared with the main container) fails the schema (F)"
+want_vf='[{"name":"TOKEN","valueFrom":{"secretKeyRef":{"key":"k","name":"t"}}}]'
+bad_layers=""
+for layer in U0 U1 F S; do
+  case $layer in
+    U0) out="$(lrender "${vf/optional: true/optional: null}")" ;;
+    U1) out="$(lrender "${vf/optional: true/optional: null}" --set api.replicas=2)" ;;
+    F) out="$(lrender "$vf" -f "$(over '  sidecars: {proxy: {env: {TOKEN: {valueFrom: {secretKeyRef: {optional: null}}}}}}')")" ;;
+    S) out="$(lrender "$vf" --set api.sidecars.proxy.env.TOKEN.valueFrom.secretKeyRef.optional=null)" ;;
+  esac
+  got="$(pod "$out" '.spec.initContainers[0].env')"
+  [ "$got" = "$want_vf" ] || bad_layers="$bad_layers $layer (got: $(seen "$out" "$got"))"
+done
+[ -z "$bad_layers" ] || fail "a null optional field inside a sidecar's env valueFrom must be absent ($want_vf), the same in every layer; differs in:$bad_layers"
+pass "null table row 8: a null optional field inside a sidecar's env valueFrom (a definition shared with the main container) is absent in U0, U1, F and S"
 
 expect_fail "$(lrender "$hpa_side" -f "$(over '  sidecars: {proxy: null}')" --set api.sidecars.proxy.order=1)" "failed parsing --set data" "--set below an entry that an override file sets to null"
 pass "--set below an entry that an override file sets to null fails in Helm itself (failed parsing --set data)"
@@ -447,9 +476,6 @@ pass "--set below an entry that an override file sets to null fails in Helm itse
 # items, defaultMode) read the same absent or null; and externalSecretKeyRef follows the release name and the alias.
 es_data() { echo "$1" | yq -N -o=json -I=0 'select(.kind == "ExternalSecret") | .spec.data' - 2>/dev/null || true; }
 es_spec() { echo "$1" | yq -N -o=json -I=0 "select(.kind == \"ExternalSecret\") | .spec$2" - 2>/dev/null || true; }
-seen() { # <rendered output> <what a check read>: what a FAIL line prints, the render's error when it failed (Helm 4 prints it on several lines)
-  case "$1" in *"Error:"*) echo "$1" | grep -m1 -A2 'Error:' | grep -v 'Use --debug' | tr -s ' \n' ' ' || true ;; *) echo "$2" ;; esac
-}
 es_full='  externalSecret:
     enabled: true
     secretStoreRef: {name: vault}
@@ -587,10 +613,29 @@ for rel in vending vending-staging; do
 done
 pass "externalSecretKeyRef renders a secretKeyRef on the ExternalSecret's target, with its key, under alias api for the releases vending and vending-staging, and no manifest contains externalSecretKeyRef"
 
+# From 1.5.0 a null source next to another one is absent (null table row 8, ADR-0070): an environment that disables the
+# ExternalSecret switches the main container's inherited externalSecretKeyRef to another source, in every layer.
+switched='  externalSecret: {enabled: false}
+  env: {PGPASSWORD: {valueFrom: {externalSecretKeyRef: null, secretKeyRef: {name: pg-dev, key: password}}}}'
+want_env='[{"name":"PGPASSWORD","valueFrom":{"secretKeyRef":{"key":"password","name":"pg-dev"}}}]'
+bad_layers=""
+for layer in U0 U1 F S; do
+  case $layer in
+    U0) out="$(lrender "$switched")" ;;
+    U1) out="$(lrender "$switched" --set api.replicas=2)" ;;
+    F) out="$(lrender "$ref" -f "$(over "$switched")")" ;;
+    S) out="$(lrender "$ref" --set api.externalSecret.enabled=false --set api.env.PGPASSWORD.valueFrom.externalSecretKeyRef=null --set api.env.PGPASSWORD.valueFrom.secretKeyRef.name=pg-dev --set api.env.PGPASSWORD.valueFrom.secretKeyRef.key=password)" ;;
+  esac
+  got="$(pod "$out" '.spec.containers[0].env')"
+  [ "$got" = "$want_env" ] || bad_layers="$bad_layers $layer (got: $(seen "$out" "$got"))"
+done
+[ -z "$bad_layers" ] || fail "env: externalSecretKeyRef: null next to a secretKeyRef must render the secretKeyRef alone ($want_env), the same in every layer; differs in:$bad_layers"
+pass "env: an override switches the main container's externalSecretKeyRef to a secretKeyRef with externalSecretKeyRef: null, with the ExternalSecret disabled, in U0, U1, F and S (null table row 8)"
+
 # keda and autoscaling (0.10.0): in keda.triggers a null entry or field is absent in every layer (null table row 8);
 # keda's required minReplicaCount and maxReplicaCount fail on a null where Helm hands one to the chart (Helm 4.3 drops
-# the umbrella's own null in U0 and keeps the chart's default); keda: null is KEDA off in every layer; behavior is not a
-# converted map (a null direction fails where it reaches the chart), behavior: null and metrics: null clear what the
+# the umbrella's own null in U0 and keeps the chart's default); keda: null is KEDA off in every layer; a null direction
+# of behavior is absent in every layer (from 1.5.0, ADR-0070), behavior: null and metrics: null clear what the
 # umbrella sets, and so does a null memory target next to a metrics list; the ScaledObject follows the release and alias.
 so_spec() { echo "$1" | yq -N -o=json -I=0 "select(.kind == \"ScaledObject\") | .spec$2" - 2>/dev/null || true; }
 hpa_spec() { echo "$1" | yq -N -o=json -I=0 "select(.kind == \"HorizontalPodAutoscaler\") | .spec$2" - 2>/dev/null || true; }
@@ -670,13 +715,20 @@ done
 [ -z "$bad_layers" ] || fail "autoscaling: behavior null and metrics null must render no behavior and the built-in CPU target, the same in every layer; differs in:$bad_layers"
 pass "autoscaling: behavior null and metrics null render no behavior and the built-in CPU target in U0, U1, F and S (in F and S over values that set both)"
 
-out="$(lrender '  autoscaling: {enabled: true, behavior: {scaleUp: null, scaleDown: {selectPolicy: Max}}}')"
-if $helm4; then [ "$(hpa_spec "$out" '.behavior')" = '{"scaleDown":{"selectPolicy":"Max"}}' ] || fail "behavior.scaleUp null in U0: Helm 4.3 drops the umbrella's own null, so the behavior has scaleDown alone, got $(seen "$out" "$(hpa_spec "$out" '.behavior')")"
-else expect_fail "$out" "got null, want object" "behavior.scaleUp null, Helm 3 U0"; fi
-expect_fail "$(lrender '  autoscaling: {enabled: true, behavior: {scaleUp: null, scaleDown: {selectPolicy: Max}}}' --set api.replicas=2)" "got null, want object" "behavior.scaleUp null, U1"
-expect_fail "$(lrender "$hpa_on" -f "$(over '  autoscaling: {behavior: {scaleUp: null}}')")" "got null, want object" "behavior.scaleUp null, F"
-expect_fail "$(lrender "$hpa_on" --set api.autoscaling.behavior.scaleUp=null)" "got null, want object" "behavior.scaleUp null, S"
-pass "autoscaling.behavior is not converted: a null direction fails the schema (U1, F, S$($helm4 || echo ', U0')); Helm 4.3 U0 drops the umbrella's own null"
+up_null='  autoscaling: {enabled: true, behavior: {scaleUp: null, scaleDown: {selectPolicy: Max}}}'
+bad_layers=""
+for layer in U0 U1 F S; do
+  case $layer in
+    U0) out="$(lrender "$up_null")"; want='{"scaleDown":{"selectPolicy":"Max"}}' ;;
+    U1) out="$(lrender "$up_null" --set api.replicas=2)"; want='{"scaleDown":{"selectPolicy":"Max"}}' ;;
+    F) out="$(lrender "$hpa_on" -f "$(over '  autoscaling: {behavior: {scaleUp: null}}')")"; want='{"scaleDown":{"stabilizationWindowSeconds":600}}' ;;
+    S) out="$(lrender "$hpa_on" --set api.autoscaling.behavior.scaleUp=null)"; want='{"scaleDown":{"stabilizationWindowSeconds":600}}' ;;
+  esac
+  got="$(hpa_spec "$out" '.behavior')"
+  [ "$got" = "$want" ] || bad_layers="$bad_layers $layer (got: $(seen "$out" "$got"))"
+done
+[ -z "$bad_layers" ] || fail "autoscaling.behavior: a null direction must be absent (the other direction rendered alone), the same in every layer; differs in:$bad_layers"
+pass "autoscaling.behavior: a null direction is absent in U0, U1, F and S, the other direction rendered alone (null table row 8)"
 
 mem_on='  autoscaling:
     enabled: true
@@ -708,7 +760,7 @@ pass "the ScaledObject is named <release>-<alias> and targets the Deployment of 
 # commonLabels, commonAnnotations and extraObjects (0.11.0): an extra object is named <release>-<alias>.<key>, so two
 # aliases with the same key never share a name, and an alias's common maps stay its own. In extraObjects a null entry and
 # a null field at any depth through maps are absent in every layer (null table row 8); commonLabels: null clears the map
-# (row 4), and a null entry of commonLabels fails the schema (row 6; Helm 4.3 drops the umbrella's own null in U0).
+# (row 4), and a null entry of commonLabels is absent in every layer (row 8, from 1.5.0: ADR-0070).
 twin="$work/twin"
 make_umbrella "$twin" api worker
 cat > "$twin/values.yaml" <<'EOF'
@@ -774,13 +826,19 @@ done
 [ -z "$bad_layers" ] || fail "commonLabels: null must leave no common label on the Deployment and its pod template (F and S over values that set one), the same in every layer; differs in:$bad_layers"
 pass "commonLabels: null clears the map in U0, U1, F and S (null table row 4)"
 cl_entry='  commonLabels: {team: payments, tier: null}'
-out="$(lrender "$cl_entry")"
-if $helm4; then [ "$(echo "$out" | yq -N 'select(.kind == "Deployment") | .metadata.labels.team + "/" + (.metadata.labels.tier // "-")' - 2>/dev/null || true)" = "payments/-" ] || fail "commonLabels.tier null in U0: Helm 4.3 drops the umbrella's own null, got $(seen "$out" "")"
-else expect_fail "$out" "got null, want string" "commonLabels.tier null, Helm 3 U0"; fi
-expect_fail "$(lrender "$cl_entry" --set api.replicas=2)" "got null, want string" "commonLabels.tier null, U1"
-expect_fail "$(lrender '  commonLabels: {team: payments, tier: backend}' -f "$(over '  commonLabels: {tier: null}')")" "got null, want string" "commonLabels.tier null, F"
-expect_fail "$(lrender '  commonLabels: {team: payments, tier: backend}' --set api.commonLabels.tier=null)" "got null, want string" "commonLabels.tier null, S"
-pass "commonLabels: a null entry fails the schema (U1, F, S$($helm4 || echo ', U0')); Helm 4.3 U0 drops the umbrella's own null (null table row 6)"
+bad_layers=""
+for layer in U0 U1 F S; do
+  case $layer in
+    U0) out="$(lrender "$cl_entry")" ;;
+    U1) out="$(lrender "$cl_entry" --set api.replicas=2)" ;;
+    F) out="$(lrender '  commonLabels: {team: payments, tier: backend}' -f "$(over '  commonLabels: {tier: null}')")" ;;
+    S) out="$(lrender '  commonLabels: {team: payments, tier: backend}' --set api.commonLabels.tier=null)" ;;
+  esac
+  got="$(echo "$out" | yq -N 'select(.kind == "Deployment") | .metadata.labels.team + "/" + (.metadata.labels.tier // "-") + "/" + (.spec.template.metadata.labels.team // "-") + "/" + (.spec.template.metadata.labels.tier // "-")' - 2>/dev/null || true)"
+  [ "$got" = "payments/-/payments/-" ] || bad_layers="$bad_layers $layer (got: $(seen "$out" "$got"))"
+done
+[ -z "$bad_layers" ] || fail "commonLabels: a null entry must be absent from the Deployment and its pod template (team kept), the same in every layer; differs in:$bad_layers"
+pass "commonLabels: a null entry is absent from the Deployment and its pod template in U0, U1, F and S (null table row 8)"
 
 bad="$work/bad"
 make_umbrella "$bad" Sales
