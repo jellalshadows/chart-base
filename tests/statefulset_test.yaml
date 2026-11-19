@@ -646,16 +646,26 @@ tests:
           value:
             - {name: data, mountPath: /seed}
 
-  - it: labels a claim template with the selector labels and commonLabels without its nulls, never helm.sh/chart or podLabels
+  # The API server refuses any change of a claim template: a label that can change (commonLabels) would fail every
+  # upgrade that changes it, so a claim template carries the two frozen selector labels only (ADR-0071).
+  - it: labels a claim template with exactly the two selector labels, never commonLabels, podLabels or helm.sh/chart, while an ephemeral claim template keeps commonLabels
     template: templates/statefulset.yaml
     set:
       commonLabels: {team: a, gone: null}
       podLabels: {tier: data}
       volumes:
         data: {type: volumeClaimTemplate, mountPath: /data, size: 1Gi}
+        scratch: {type: ephemeral, mountPath: /scratch, size: 1Gi}
     asserts:
       - equal:
-          path: spec.volumeClaimTemplates[0].metadata.labels
+          path: spec.volumeClaimTemplates[0].metadata
+          value:
+            name: data
+            labels:
+              app.kubernetes.io/name: chart-base
+              app.kubernetes.io/instance: vending
+      - equal:
+          path: spec.template.spec.volumes[1].ephemeral.volumeClaimTemplate.metadata.labels
           value:
             app.kubernetes.io/name: chart-base
             app.kubernetes.io/instance: vending

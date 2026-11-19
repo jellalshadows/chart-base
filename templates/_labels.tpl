@@ -48,9 +48,10 @@ helm.sh/chart: {{ printf "chart-base-%s" .ctx.Chart.Version | replace "+" "_" }}
 {{- end -}}
 
 {{/*
-Pod template labels (the pod templates of the Deployment, the CronJob and the Job, and the CronJob's job template): the
-base labels, then podLabels merged over commonLabels (podLabels wins on a shared key). helm.sh/chart and
-app.kubernetes.io/managed-by are deliberately excluded (ADR-0010): only a values change changes this set.
+Pod template labels (the pod templates of the Deployment, the StatefulSet, the CronJob and the Job, and the CronJob's
+job template): the base labels, then podLabels merged over commonLabels (podLabels wins on a shared key).
+helm.sh/chart and app.kubernetes.io/managed-by are deliberately excluded (ADR-0010): only a values change changes this
+set.
 */}}
 {{- define "chart-base.podLabels" -}}
 {{ include "chart-base.baseLabels" . }}

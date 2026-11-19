@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-19
 - **Since:** 1.6.0
-- **Related:** [ADR-0008](0008-names-are-release-alias-and-never-truncated.md) (amended), [ADR-0015](0015-pdb-and-topology-spread-by-default.md) (amended), [ADR-0036](0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md) (amended), [ADR-0037](0037-one-prestop-hook.md) (amended), [ADR-0038](0038-one-metrics-endpoint-servicemonitor-or-podmonitor.md) (amended), [ADR-0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md) (amended), [ADR-0050](0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md) (amended), [ADR-0056](0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md) (amended), [ADR-0062](0062-a-pdb-never-blocks-a-drain-at-the-replica-floor.md) (amended), [ADR-0017](0017-progress-deadline-240s.md), [ADR-0058](0058-the-1-0-contract-and-how-it-stays-frozen.md), [ADR-0064](0064-from-1-0-0-a-new-key-is-optional.md), [ADR-0069](0069-grpcroute-httproute-rules-and-appprotocol.md), [ADR-0070](0070-a-null-means-absent-chart-wide.md)
+- **Related:** [ADR-0008](0008-names-are-release-alias-and-never-truncated.md) (amended), [ADR-0015](0015-pdb-and-topology-spread-by-default.md) (amended), [ADR-0036](0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md) (amended), [ADR-0037](0037-one-prestop-hook.md) (amended), [ADR-0038](0038-one-metrics-endpoint-servicemonitor-or-podmonitor.md) (amended), [ADR-0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md) (amended), [ADR-0050](0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md) (amended), [ADR-0056](0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md) (amended), [ADR-0057](0057-common-labels-and-annotations-service-annotations-and-extraobjects.md) (amended), [ADR-0062](0062-a-pdb-never-blocks-a-drain-at-the-replica-floor.md) (amended), [ADR-0017](0017-progress-deadline-240s.md), [ADR-0058](0058-the-1-0-contract-and-how-it-stays-frozen.md), [ADR-0064](0064-from-1-0-0-a-new-key-is-optional.md), [ADR-0069](0069-grpcroute-httproute-rules-and-appprotocol.md), [ADR-0070](0070-a-null-means-absent-chart-wide.md)
 
 ## Context
 
@@ -80,14 +80,22 @@ None of the four turned out false, so no alternative ruling was needed.
   [ADR-0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)). It takes the fields of an
   `ephemeral` entry (`size`, required; `accessMode`, `ReadWriteOnce` by default; `storageClassName`) and its shape:
   one helper, `chart-base.claimTemplate`, writes both claim templates, and an `ephemeral` volume renders the same. The
-  entry renders an item of `volumeClaimTemplates`, named after the volume and labelled as an `ephemeral` claim
-  template (the selector labels and `commonLabels`), never a pod volume; each pod mounts its own claim,
+  entry renders an item of `volumeClaimTemplates`, named after the volume, never a pod volume; each pod mounts its
+  own claim,
   `<volume>-<StatefulSet name>-<ordinal>`, by the volume's name, in the main container, an init container or a sidecar,
   like any volume. A template guard allows the type on a `statefulset` only, and its message names the alternatives
   (an `ephemeral` entry, a `persistentVolumeClaim` entry). The guards of an `ephemeral` entry apply: a `null` size, a
   size of zero, a field of another type, and a volume that every container mounts read-only. The field-ownership
   message names `volumeClaimTemplate` among a field's owners on a `statefulset` only, so the messages of the other
   workload types are unchanged.
+- **A claim template carries the two selector labels only, never `commonLabels`** (a ruling after review, L27). The
+  API server refuses any change of a StatefulSet's claim templates, their labels included, so a label that the values
+  can change would fail every upgrade that changes it; the selector labels are frozen
+  ([ADR-0058](0058-the-1-0-contract-and-how-it-stays-frozen.md)) and never do. It is the one labels map
+  `commonLabels` does not reach, which amends
+  [ADR-0057](0057-common-labels-and-annotations-service-annotations-and-extraobjects.md). An `ephemeral` claim template
+  keeps `commonLabels`: it is part of the pod template, which may change. `chart-base.claimTemplate` stays the one
+  writer: given a name (a StatefulSet's claim template), it leaves `commonLabels` out.
 - **As on a Deployment:** the HTTPRoute, the GRPCRoute and the Ingress; the HPA and the KEDA ScaledObject, with the
   handover annotation ([ADR-0065](0065-an-opt-in-handover-from-the-chart-s-hpa-to-keda.md)), both pointed at the
   StatefulSet by `chart-base.scaleTargetRef`, the one writer of the target; the PodDisruptionBudget and its floor guard
@@ -122,13 +130,11 @@ None of the four turned out false, so no alternative ruling was needed.
   `Retain`), `helm uninstall` and a scale-down leave the claims, and their volumes, in place; a later install with the
   same names mounts them again. `Delete` removes them with the StatefulSet or the scaled-down pods: that choice is the
   consumer's, written in the values.
-- **`commonLabels` is fixed on a release with a claim template.** The claim templates carry `commonLabels`, as an
-  `ephemeral` claim template does, and the API server refuses any change of a StatefulSet's claim templates: changing
-  `commonLabels` then fails the upgrade. The same holds for adding or removing a `volumeClaimTemplate` entry, or
-  changing its size, access mode or class. The upgrade guide gives the procedure (delete the StatefulSet with
-  `--cascade=orphan`, then upgrade). Leaving `commonLabels` off the claim templates would have avoided this and broken
-  the rule that `commonLabels` reaches every labels map the chart writes
-  ([ADR-0057](0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)); the rule was kept.
+- **The claim templates are fixed once the StatefulSet exists.** Adding, removing or renaming a `volumeClaimTemplate`
+  entry, or changing its size, access mode or class, fails the upgrade at the API server. The upgrade guide gives the
+  procedure (delete the StatefulSet with `--cascade=orphan`, then upgrade). `commonLabels` stays free to change: the
+  claim templates do not carry it, so a tool that selects claims by a common label (a backup, a cost report) selects
+  them by the two selector labels instead.
 - A Deployment, a CronJob and a Job render as on 1.5.0, guards and messages included (measured: every 1.5.0 `ci/`
   scenario and a probe set of the features this decision touches, on Helm 4.3.0 and 3.22.0).
 - The kind e2e installs `ci/statefulset-values.yaml` and checks the headless Service, one Bound claim per pod on
@@ -145,6 +151,13 @@ None of the four turned out false, so no alternative ruling was needed.
 The cut row named the block. A second place for volumes would split the name space that the mounts, the guards, the
 mount-path rules and the containers' `volumeMounts` share, and a template there would need its own mount mechanism.
 Rejected for the `volumes` entry type.
+
+### `commonLabels` on a claim template, as on an `ephemeral` one
+
+It would keep ADR-0057's rule that `commonLabels` reaches every labels map the chart writes. But the API server refuses
+any change of a StatefulSet's claim templates, so every later change of `commonLabels`, a routine values change, would
+fail the upgrade of every statefulset with a claim template, until someone deletes the StatefulSet with
+`--cascade=orphan`. Rejected: a claim template carries the two frozen selector labels only.
 
 ### A ClusterIP Service next to a headless one
 

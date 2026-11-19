@@ -493,9 +493,10 @@ tests:
         template: templates/scaledobject.yaml
 
   # The claim of a pod is <claim template name>-<StatefulSet name>-<ordinal>: renaming either orphans every pod's data.
-  - it: names a claim template after its volume, and writes the two selector labels on it, never managed-by or helm.sh/chart
+  - it: names a claim template after its volume, and writes exactly the two selector labels on it, never commonLabels, managed-by or helm.sh/chart
     set:
       workload.type: statefulset
+      commonLabels: {team: a}
       volumes:
         data: {type: volumeClaimTemplate, mountPath: /data, size: 1Gi}
     asserts:

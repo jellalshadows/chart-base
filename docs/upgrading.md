@@ -911,8 +911,9 @@ The API server refuses an update of a StatefulSet's `serviceName`, `podManagemen
 upgrade then fails at the StatefulSet. With chart-base that is a change of:
 
 - `statefulset.podManagementPolicy`, or `service.enabled` (it decides `serviceName`);
-- a `volumeClaimTemplate` entry added, removed or renamed, or its `size`, `accessMode` or `storageClassName`;
-- `commonLabels`: the claim templates carry them, as an `ephemeral` claim template does.
+- a `volumeClaimTemplate` entry added, removed or renamed, or its `size`, `accessMode` or `storageClassName`.
+
+`commonLabels` is not among them: a claim template carries the two selector labels only, which never change.
 
 To apply such a change, delete the StatefulSet without its pods, then upgrade; the new StatefulSet adopts the running
 pods and the existing claims (the selector labels are the same), and rolls the pods when their template changed:

@@ -98,8 +98,9 @@ configFiles:
 # `ephemeral`: `size`, `accessMode` (default `ReadWriteOnce`), `storageClassName` (default: the cluster's default
 # class); `volumeClaimTemplate`: the fields of `ephemeral`, rendered as a claim template of the StatefulSet named after
 # the volume (each pod mounts its own claim `<volume>-<release>-<alias>-<ordinal>`, which outlives the pod: see
-# `statefulset.persistentVolumeClaimRetentionPolicy`; the API refuses any change of a claim template once the
-# StatefulSet exists, its labels included, so `commonLabels` too). An `ephemeral` claim lives as long as its pod (source reading): a CronJob keeps those of the finished runs its
+# `statefulset.persistentVolumeClaimRetentionPolicy`; labelled with the two selector labels only, never `commonLabels`;
+# the API refuses any change of a claim template once the StatefulSet exists, so its size, access mode and class are
+# fixed: see docs/upgrading.md). An `ephemeral` claim lives as long as its pod (source reading): a CronJob keeps those of the finished runs its
 # history limits keep, a Job keeps its own for `job.ttlSecondsAfterFinished`, and each retry gets one of its own. In
 # `volumes`, a `null` entry or field is absent, and `volumes: null` is no volume: an overlay changes the type of a
 # volume that the umbrella defines by setting the previous type's fields to `null` (`cache: {type: ephemeral, size:
@@ -350,7 +351,8 @@ revisionHistoryLimit: null
 # The StatefulSet of `workload.type: statefulset` (since 1.6.0, ADR-0071). Every member is optional: absent or `null` is
 # the Kubernetes default, and a `null` field is absent. A non-null member on another workload type fails the render.
 # Once the StatefulSet exists, the API refuses a change of `podManagementPolicy`, of its `serviceName` (`service.enabled`)
-# and of its claim templates (`volumeClaimTemplate` entries of `volumes`, their labels included): see the upgrade guide.
+# and of its claim templates (`volumeClaimTemplate` entries of `volumes`: added, removed, renamed, or their size, access
+# mode or class; they carry the two selector labels only, so `commonLabels` changes freely): see the upgrade guide.
 statefulset:
   # -- `OrderedReady` (the Kubernetes default: pods are created and removed one at a time, in ordinal order, each
   # waiting for the previous one to be Ready) or `Parallel` (all at once; a rolling update still replaces one pod at a
@@ -803,7 +805,8 @@ rbac:
   clusterRoles: []
 
 # -- Labels added to every labels map the chart writes for this component: the metadata of every object it renders
-# (`extraObjects` included), the pod templates, the CronJob's job template, an `ephemeral` volume's claim template and
+# (`extraObjects` included), the pod templates, the CronJob's job template, an `ephemeral` volume's claim template (not a
+# `volumeClaimTemplate` entry's) and
 # the ExternalSecret's `template.metadata.labels` (so the Secret that External Secrets writes carries them too), e.g.
 # `{team: payments, cost-center: cc-42}`. Never a selector: the selectors keep the chart's two selector labels. A
 # per-object map wins on a shared key: `podLabels`, `metrics.labels`, `prometheusRule.labels`, an extra object's
@@ -812,10 +815,9 @@ rbac:
 # `false schema` at the key's own path. `app.kubernetes.io/component` is yours: the chart does not write it, so set it here (or in
 # `podLabels`) for its Kubernetes meaning, the component within the architecture (e.g. `database`). A change changes
 # the pod template: it rolls a Deployment's or a StatefulSet's pods, and the next CronJob run and the next Job get it.
-# On a `statefulset` with a `volumeClaimTemplate` entry, the claim templates carry these labels too, and the API
-# server refuses any change of a claim template: a change of `commonLabels` then fails the upgrade (see
-# docs/upgrading.md). A key set to `null`
-# is absent, here and in a per-object map (where the common value then applies). Per alias (`global` is not read).
+# Not on a StatefulSet's claim templates (`volumeClaimTemplate` entries), which carry the two selector labels only: the
+# API server refuses any change of a claim template, so a change of `commonLabels` would fail the upgrade. A key set
+# to `null` is absent, here and in a per-object map (where the common value then applies). Per alias (`global` is not read).
 commonLabels: {}
 
 # -- Annotations added to the metadata of every object the chart renders for this component (`extraObjects` included),

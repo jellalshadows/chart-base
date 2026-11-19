@@ -77,12 +77,13 @@ ephemeral:
 
 {{/*
 chart-base.claimTemplate: the claim template of an ephemeral volume (ephemeral.volumeClaimTemplate) and of a
-volumeClaimTemplate entry (an item of the StatefulSet's volumeClaimTemplates, then named after the volume): the one
-writer of both, so that the two claim types share a shape. Labelled with chart-base.selectorLabels and commonLabels
-without its nulls, never with chart-base.labels: an ephemeral claim template is part of the pod template, and the API
-server refuses any change of a StatefulSet's claim templates, so this label set is a contract (helm.sh/chart would roll
-every such pod, or fail the upgrade, on a chart bump; commonLabels change only with the values). accessMode defaults to
-ReadWriteOnce; every string is quoted.
+volumeClaimTemplate entry (an item of the StatefulSet's volumeClaimTemplates, given its name: the volume's): the one
+writer of both, so that the two claim types share a shape. Never labelled with chart-base.labels (helm.sh/chart would
+roll every pod, or fail the upgrade, on a chart bump). An ephemeral claim template is part of the pod template: it
+carries chart-base.selectorLabels and commonLabels without its nulls (ADR-0057). A StatefulSet's claim template (with a
+name) carries the two selector labels only: the API server refuses any change of a StatefulSet's claim templates, so a
+label that the values can change (commonLabels) would fail every upgrade that changes it, and the selector labels are
+frozen (ADR-0058, ADR-0071). accessMode defaults to ReadWriteOnce; every string is quoted.
 Usage: include "chart-base.claimTemplate" (dict "ctx" $ "volume" $entry ["name" <volume name>]) | nindent <n>
 */}}
 {{- define "chart-base.claimTemplate" -}}
@@ -93,8 +94,10 @@ metadata:
   {{- end }}
   labels:
     {{- include "chart-base.selectorLabels" .ctx | nindent 4 }}
+    {{- if not .name }}
     {{- with include "chart-base.overCommon" (dict "common" .ctx.Values.commonLabels) }}
     {{- . | nindent 4 }}
+    {{- end }}
     {{- end }}
 spec:
   accessModes:

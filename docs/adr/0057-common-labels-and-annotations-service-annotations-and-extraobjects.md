@@ -1,6 +1,6 @@
 # ADR-0057: Common labels and annotations, Service annotations and `extraObjects`
 
-- **Status:** Accepted — amended by [ADR-0061](0061-reserved-metadata-keys-and-a-required-ingress-class.md) (0.12.0), [ADR-0068](0068-schema-checks-on-map-keys-report-the-right-path.md) (1.3.1)
+- **Status:** Accepted — amended by [ADR-0061](0061-reserved-metadata-keys-and-a-required-ingress-class.md) (0.12.0), [ADR-0068](0068-schema-checks-on-map-keys-report-the-right-path.md) (1.3.1) and [ADR-0071](0071-a-statefulset-workload-type-with-a-claim-per-pod.md) (1.6.0: a StatefulSet's claim templates are the one labels map `commonLabels` does not reach)
 - **Date:** 2026-11-02
 - **Since:** 0.11.0
 - **Related:** [ADR-0004](0004-env-in-configmap-secrets-through-externalsecret.md), [ADR-0007](0007-jobs-as-helm-hooks.md) (amended), [ADR-0009](0009-no-name-overrides.md), [ADR-0010](0010-chart-version-never-restarts-pods.md) (amended), [ADR-0012](0012-no-capabilities-gating.md), [ADR-0028](0028-podlabels-cannot-override-selector-labels.md), [ADR-0041](0041-job-component-networkpolicy-is-a-hook.md) (amended), [ADR-0043](0043-job-component-rbac-is-a-hook.md), [ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md), [ADR-0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md) (amended), [ADR-0053](0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md) (amended)

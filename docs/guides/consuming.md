@@ -569,9 +569,11 @@ probes, the containers, the volumes and the integrations are the Deployment's; w
 - **The rollout** is `statefulset.updateStrategy` (`RollingUpdate`, with an optional `partition`, or `OnDelete`) and
   `statefulset.podManagementPolicy` (`OrderedReady`, the default, starts the pods one after the other; `Parallel`
   starts them together). `strategy` and `progressDeadlineSeconds` are ignored.
-- **Fixed after the first install:** `podManagementPolicy`, `serviceName` (`service.enabled`) and the claim templates,
-  `commonLabels` included, because the claim templates carry them. The API server refuses such an upgrade; the
-  [upgrade guide](../upgrading.md#what-cannot-change-once-the-statefulset-exists) has the procedure.
+- **Fixed after the first install:** `podManagementPolicy`, `serviceName` (`service.enabled`) and the claim templates
+  (a `volumeClaimTemplate` entry added, removed or renamed, its size, access mode or class). The API server refuses
+  such an upgrade; the [upgrade guide](../upgrading.md#what-cannot-change-once-the-statefulset-exists) has the
+  procedure. A claim template carries the two selector labels only, never `commonLabels`, so changing `commonLabels`
+  never touches it.
 - **One pod for an existing `ReadWriteOnce` claim.** A `persistentVolumeClaim` entry declared `ReadWriteOnce` or
   `ReadWriteOncePod` needs `replicas` 0 or 1 and no HPA (or `keda.maxReplicaCount: 1`), as on a Deployment but without
   the strategy term; for a claim per pod, use a `volumeClaimTemplate` entry.
@@ -582,7 +584,8 @@ probes, the containers, the volumes and the integrations are the Deployment's; w
 
 `commonLabels` and `commonAnnotations` are per alias (`global` is not read). The common labels join every labels map the
 chart writes (every object's metadata, the pod templates, the CronJob's job template, an `ephemeral` claim template and
-the ExternalSecret's `template.metadata.labels`), never a selector; the common annotations join every object's
+the ExternalSecret's `template.metadata.labels`), never a selector and never a StatefulSet's claim template, which the
+API server never lets change ([ADR-0071](../adr/0071-a-statefulset-workload-type-with-a-claim-per-pod.md)); the common annotations join every object's
 metadata, never a template's. A per-object map wins on a shared key. `extraObjects` renders objects the chart does not
 offer ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)). What to know:
 
@@ -633,9 +636,8 @@ offer ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-
    ([ADR-0061](../adr/0061-reserved-metadata-keys-and-a-required-ingress-class.md)). The labels and annotations of a
    PrometheusRule's rules are alert fields, not metadata, and reject nothing.
 9. **Changing `commonLabels` rolls a Deployment's or a StatefulSet's pods** (the pod template changes); the next
-   CronJob run and the next Job get them. `commonAnnotations` roll nothing. On a StatefulSet with a
-   `volumeClaimTemplate` entry the claim templates carry `commonLabels` too, and the API server refuses to change
-   them: see [A StatefulSet](#a-statefulset-a-claim-per-pod).
+   CronJob run and the next Job get them. `commonAnnotations` roll nothing. A StatefulSet's claim templates carry
+   neither, so the upgrade never fails on them.
 
 The rejected kinds, each failing the render with a remedy and then `set extraObjects.<key>: null`: the built-in
 workloads, `Service`, `Endpoints`, `EndpointSlice`, `Secret`, `List`, a kind ending in `List` and any object with a
