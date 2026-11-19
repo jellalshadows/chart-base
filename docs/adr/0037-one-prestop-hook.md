@@ -1,6 +1,6 @@
 # ADR-0037: One preStop hook: `lifecycle.preStop` requires `preStopSleepSeconds: 0`
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0071](0071-a-statefulset-workload-type-with-a-claim-per-pod.md) (1.6.0)
 - **Date:** 2026-09-29
 - **Since:** 0.3.0
 - **Related:** [ADR-0036](0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md)
