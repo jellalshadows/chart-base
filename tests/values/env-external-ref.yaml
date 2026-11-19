@@ -1,0 +1,8 @@
+# A main-container variable from the component's own ExternalSecret Secret, as an umbrella's values file writes it. The
+# tests lay an override over it (set): env.PGPASSWORD: null removes it, and externalSecretKeyRef: null next to another
+# source switches its source (ADR-0070).
+env:
+  PGPASSWORD:
+    valueFrom:
+      externalSecretKeyRef:
+        key: DB_PASSWORD

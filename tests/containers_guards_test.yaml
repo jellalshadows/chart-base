@@ -389,13 +389,39 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: rejects a null inside one variable's valueFrom in an entry's env (the definition is shared with the main container)
+  - it: accepts a null optional field and a null source next to another one inside an entry's valueFrom (absent, ADR-0070)
     set:
       sidecars:
-        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, env: {TOKEN: {valueFrom: {secretKeyRef: {name: t, key: k, optional: null}}}}}
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, env: {TOKEN: {valueFrom: {secretKeyRef: {name: t, key: k, optional: null}}}, NODE: {valueFrom: {configMapKeyRef: null, fieldRef: {fieldPath: spec.nodeName}}}}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: still rejects a valueFrom whose every source is null, and valueFrom null, in an entry's env
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, env: {TOKEN: {valueFrom: {secretKeyRef: null}}}}
     asserts:
       - failedTemplate:
-          errorPattern: "at '/sidecars/proxy/env/TOKEN/valueFrom/secretKeyRef/optional': got null, want boolean"
+          errorPattern: "at '/sidecars/proxy/env/TOKEN/valueFrom': 'oneOf' failed, none matched"
+
+  - it: still rejects valueFrom null in an entry's env (a variable keeps exactly one source)
+    set:
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, env: {TOKEN: {valueFrom: null}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/sidecars/proxy/env/TOKEN/valueFrom': got null, want object"
+
+  - it: does not count a null main-container variable as one that inheritEnv gives an entry (env and config of the entry)
+    set:
+      env.POD_NAME: null
+      env.NODE_IP: null
+      sidecars:
+        proxy: {image: {repository: ghcr.io/acme/tool, tag: "1.0"}, resources: {requests: {cpu: 10m, memory: 16Mi}}, inheritEnv: true, env: {POD_NAME: {valueFrom: {fieldRef: {fieldPath: metadata.name}}}}, config: {NODE_IP: "10.0.0.1"}}
+    asserts:
+      - hasDocuments:
+          count: 0
 
   - it: accepts env null, a variable null and inheritEnv null in an entry
     set:

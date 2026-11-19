@@ -9,15 +9,19 @@
 
 {{/*
 chart-base.env: the items of a container's env from a map NAME -> {valueFrom: ...}, in key order: the one renderer of
-the env of every container (the main container's, an init container's, a sidecar's). The Kubernetes sources are copied
-as written; externalSecretKeyRef, the chart's own source, is rendered as a secretKeyRef on <fullname>-secrets, so that
-no manifest carries it and the name follows the release and the alias. A literal (not a map) is never rendered:
+the env of every container (the main container's, an init container's, a sidecar's, and what inheritEnv gives one). It
+reads the map without its nulls (chart-base.pruneNulls on a deep copy, ADR-0070): a null variable, a null source next to
+another one and a null optional field of a source are absent. The Kubernetes sources are copied as written;
+externalSecretKeyRef, the chart's own source, is rendered as a secretKeyRef on <fullname>-secrets, so that no manifest
+carries it and the name follows the release and the alias. A literal (not a map) is never rendered:
 templates/validate.yaml rejects it.
 Usage: {{- with include "chart-base.env" (dict "ctx" $ "env" <map>) | trim }} env: {{- . | nindent <n> }} {{- end }}
 */}}
 {{- define "chart-base.env" -}}
 {{- $secret := printf "%s-secrets" (include "chart-base.fullname" .ctx) -}}
-{{- range $name, $ref := .env }}
+{{- $env := deepCopy (.env | default dict) -}}
+{{- include "chart-base.pruneNulls" $env -}}
+{{- range $name, $ref := $env }}
 {{- if kindIs "map" $ref }}
 - name: {{ $name | quote }}
   valueFrom:

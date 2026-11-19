@@ -245,3 +245,160 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "env.FOO is a literal value"
+
+  # ---- A null means absent (ADR-0070): a variable, a source next to another one, an optional field of a source. The
+  # renderer (chart-base.env) and every guard read the variables without their nulls.
+  - it: renders no variable for a null env.<NAME>, and keeps the others
+    template: templates/deployment.yaml
+    set:
+      env.POD_NAME.valueFrom.fieldRef.fieldPath: metadata.name
+      env.GONE: null
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+
+  - it: renders no env and fails no guard when every variable is null (a null is not a literal value)
+    set:
+      env.GONE: null
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env
+        template: templates/deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/validate.yaml
+
+  - it: removes a variable that a values file defines with a null env.<NAME> from an override, and the Reloader no longer lists its Secret
+    template: templates/deployment.yaml
+    values:
+      - values/base.yaml
+      - values/env-refs.yaml
+    set:
+      env.DB_PASSWORD: null
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.containers[0].env
+          count: 3
+      - equal:
+          path: spec.template.spec.containers[0].env[0].name
+          value: FLAG_X
+      - equal:
+          path: spec.template.spec.containers[0].env[1].name
+          value: MEMORY_MB
+      - equal:
+          path: spec.template.spec.containers[0].env[2].name
+          value: POD_NAME
+      - equal:
+          path: metadata.annotations["secret.reloader.stakater.com/reload"]
+          value: sales-kafka-user
+
+  - it: switches the source of a variable that a values file defines by setting that source to null next to another one
+    template: templates/deployment.yaml
+    values:
+      - values/base.yaml
+      - values/env-refs.yaml
+    set:
+      env.DB_PASSWORD.valueFrom.secretKeyRef: null
+      env.DB_PASSWORD.valueFrom.configMapKeyRef: {name: db-config, key: password}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[0]
+          value:
+            name: DB_PASSWORD
+            valueFrom:
+              configMapKeyRef:
+                name: db-config
+                key: password
+      - equal:
+          path: metadata.annotations["secret.reloader.stakater.com/reload"]
+          value: sales-kafka-user
+      - equal:
+          path: metadata.annotations["configmap.reloader.stakater.com/reload"]
+          value: db-config,shared-flags
+
+  - it: renders a source without its null optional fields (optional, apiVersion, containerName, divisor)
+    template: templates/deployment.yaml
+    set:
+      env:
+        C: {valueFrom: {configMapKeyRef: {name: flags, key: c, optional: null}}}
+        F: {valueFrom: {fieldRef: {fieldPath: metadata.name, apiVersion: null}}}
+        R: {valueFrom: {resourceFieldRef: {resource: limits.cpu, containerName: null, divisor: null}}}
+        S: {valueFrom: {secretKeyRef: {name: token, key: s, optional: null}}}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: C
+              valueFrom:
+                configMapKeyRef:
+                  name: flags
+                  key: c
+            - name: F
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: R
+              valueFrom:
+                resourceFieldRef:
+                  resource: limits.cpu
+            - name: S
+              valueFrom:
+                secretKeyRef:
+                  name: token
+                  key: s
+
+  - it: still rejects valueFrom null (a variable keeps exactly one source)
+    template: templates/validate.yaml
+    set:
+      env.A.valueFrom: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/env/A/valueFrom': got null, want object"
+
+  - it: rejects a valueFrom whose every source is null (no source left)
+    template: templates/validate.yaml
+    set:
+      env.A.valueFrom.secretKeyRef: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/env/A/valueFrom': 'oneOf' failed, none matched"
+
+  - it: still rejects a null required field of a source (secretKeyRef.key)
+    template: templates/validate.yaml
+    set:
+      env.A.valueFrom.secretKeyRef: {name: token, key: null}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/env/A/valueFrom/secretKeyRef/key': got null, want string"
+
+  - it: does not count a null variable as a duplicate of a config key
+    template: templates/validate.yaml
+    set:
+      config.APP_MODE: api
+      env.APP_MODE: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the override that switches an externalSecretKeyRef to another source while the ExternalSecret is disabled
+    template: templates/deployment.yaml
+    values:
+      - values/base.yaml
+      - values/env-external-ref.yaml
+    set:
+      env.PGPASSWORD.valueFrom.externalSecretKeyRef: null
+      env.PGPASSWORD.valueFrom.secretKeyRef: {name: pg-local, key: password}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pg-local
+                  key: password

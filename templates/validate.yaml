@@ -376,7 +376,10 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- /* The variables the main container receives from the chart (chart-base.chartEnvNames): also read by the inheritEnv guard of init containers and sidecars. */ -}}
 {{- $chartEnv := dict -}}
 {{- include "chart-base.chartEnvNames" (dict "ctx" . "out" $chartEnv) -}}
-{{- range $name, $ref := .Values.env -}}
+{{- /* Every guard reads the main container's env without its nulls (chart-base.mainEnv, ADR-0070): a null variable is absent, never a literal or a duplicate. */ -}}
+{{- $mainEnv := dict -}}
+{{- include "chart-base.mainEnv" (dict "ctx" . "out" $mainEnv) -}}
+{{- range $name, $ref := $mainEnv.env -}}
 {{- if not (kindIs "map" $ref) -}}
 {{- include "chart-base.fail" (list $ (printf "env.%s is a literal value: literal values belong in config; env only takes valueFrom references" $name)) -}}
 {{- end -}}
@@ -412,7 +415,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- /* A reader: a container that mounts the Secret (chart-base.externalSecret: mounted), or an env variable of the main container or of an init container or sidecar with an externalSecretKeyRef, or whose secretKeyRef names <fullname>-secrets. */ -}}
 {{- $secretName := printf "%s-secrets" $fullname -}}
 {{- $read := $es.mounted -}}
-{{- $envs := list ($.Values.env | default dict) -}}
+{{- $envs := list $mainEnv.env -}}
 {{- range $c := $containers.ordered }}{{ $envs = append $envs ($c.entry.env | default dict) }}{{ end -}}
 {{- range $env := $envs -}}
 {{- range $_, $ref := $env -}}
@@ -426,11 +429,11 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- end -}}
 {{- /* env.<NAME>.valueFrom.externalSecretKeyRef (decision 14), in the main container's env and in the own env of every non-null init container and sidecar: the block is enabled (its Secret is not rendered otherwise; this check also runs while the block is disabled), and while the chart knows every key of the Secret (chart-base.externalSecret: closed) the key is one of them. */ -}}
 {{- $refs := list -}}
-{{- range $name, $ref := $.Values.env | default dict }}{{ if kindIs "map" $ref }}{{ with ($ref.valueFrom | default dict).externalSecretKeyRef }}{{ $refs = append $refs (dict "path" (printf "env.%s" $name) "key" .key "entry" false) }}{{ end }}{{ end }}{{ end -}}
-{{- range $c := $containers.ordered }}{{ if kindIs "map" $c.entry.env }}{{ range $name, $ref := $c.entry.env }}{{ if kindIs "map" $ref }}{{ with ($ref.valueFrom | default dict).externalSecretKeyRef }}{{ $refs = append $refs (dict "path" (printf "%s.%s.env.%s" $c.kind $c.name $name) "key" .key "entry" true) }}{{ end }}{{ end }}{{ end }}{{ end }}{{ end -}}
+{{- range $name, $ref := $mainEnv.env }}{{ if kindIs "map" $ref }}{{ with ($ref.valueFrom | default dict).externalSecretKeyRef }}{{ $refs = append $refs (dict "path" (printf "env.%s" $name) "key" .key) }}{{ end }}{{ end }}{{ end -}}
+{{- range $c := $containers.ordered }}{{ if kindIs "map" $c.entry.env }}{{ range $name, $ref := $c.entry.env }}{{ if kindIs "map" $ref }}{{ with ($ref.valueFrom | default dict).externalSecretKeyRef }}{{ $refs = append $refs (dict "path" (printf "%s.%s.env.%s" $c.kind $c.name $name) "key" .key) }}{{ end }}{{ end }}{{ end }}{{ end }}{{ end -}}
 {{- range $r := $refs -}}
 {{- if not $.Values.externalSecret.enabled -}}
-{{- include "chart-base.fail" (list $ (printf "%s.valueFrom.externalSecretKeyRef references the Secret of the component's ExternalSecret, and externalSecret.enabled is false, so that Secret is not rendered: set externalSecret.enabled: true, or remove %s (%s)" $r.path $r.path (ternary (printf "an overlay removes it with %s: null" $r.path) "an override file cannot remove one env entry that another values file defines: keep the entry in the values files of the environments that enable the ExternalSecret" $r.entry))) -}}
+{{- include "chart-base.fail" (list $ (printf "%s.valueFrom.externalSecretKeyRef references the Secret of the component's ExternalSecret, and externalSecret.enabled is false, so that Secret is not rendered: set externalSecret.enabled: true, or remove %s (an overlay removes it with %s: null)" $r.path $r.path $r.path)) -}}
 {{- else if and $es.closed (not (has $r.key $es.delivered)) -}}
 {{- include "chart-base.fail" (list $ (include "chart-base.notDelivered" (dict "es" $es "what" (printf "%s.valueFrom.externalSecretKeyRef.key" $r.path) "key" $r.key))) -}}
 {{- end -}}
@@ -627,7 +630,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if not (kindIs "map" $ref) -}}
 {{- include "chart-base.fail" (list $ (printf "%s.env.%s is a literal value: env takes valueFrom references only; put literals in %s.config" $path $name $path)) -}}
 {{- end -}}
-{{- if and $c.entry.inheritEnv (or (hasKey ($.Values.env | default dict) $name) (has $name $chartEnv.names)) -}}
+{{- if and $c.entry.inheritEnv (or (hasKey $mainEnv.env $name) (has $name $chartEnv.names)) -}}
 {{- include "chart-base.fail" (list $ (printf "%s.env.%s is also a variable of the main container, which inheritEnv: true already gives this container: rename it, or drop inheritEnv and reference what the container needs" $path $name)) -}}
 {{- end -}}
 {{- end -}}
@@ -637,7 +640,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if and (kindIs "map" $c.entry.env) (hasKey $c.entry.env $name) -}}
 {{- include "chart-base.fail" (list $ (printf "%s.config.%s is also in %s.env: a variable has one source; keep the literal in config or the reference in env" $path $name $path)) -}}
 {{- end -}}
-{{- if and $c.entry.inheritEnv (or (hasKey ($.Values.env | default dict) $name) (has $name $chartEnv.names)) -}}
+{{- if and $c.entry.inheritEnv (or (hasKey $mainEnv.env $name) (has $name $chartEnv.names)) -}}
 {{- include "chart-base.fail" (list $ (printf "%s.config.%s is also a variable of the main container, which inheritEnv: true already gives this container: rename it, or drop inheritEnv" $path $name)) -}}
 {{- end -}}
 {{- end -}}

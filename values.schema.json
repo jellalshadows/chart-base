@@ -37,7 +37,7 @@
       "properties": {
         "name": { "type": "string", "minLength": 1 },
         "key": { "type": "string", "minLength": 1 },
-        "optional": { "type": "boolean" }
+        "optional": { "if": { "not": { "type": "null" } }, "then": { "type": "boolean" } }
       }
     },
     "objectRef": {
@@ -537,7 +537,7 @@
       }
     },
     "envVar": {
-      "description": "One variable of env, NAME: {valueFrom: {<one source>}}: the one definition of the env of every container (the main container's, an init container's, a sidecar's). The sources: fieldRef, resourceFieldRef, secretKeyRef, configMapKeyRef (Kubernetes', copied as written) and externalSecretKeyRef (the chart's: a key of the component's own ExternalSecret Secret, rendered as a secretKeyRef on <fullname>-secrets). A literal (a string, number or boolean) passes the schema and fails in templates/validate.yaml with a remedy. Inside it a null stays an error: it is shared with the main container, whose env does not take null.",
+      "description": "One variable of env, NAME: {valueFrom: {<one source>}}: the one definition of the env of every container (the main container's, an init container's, a sidecar's). The sources: fieldRef, resourceFieldRef, secretKeyRef, configMapKeyRef (Kubernetes', copied as written) and externalSecretKeyRef (the chart's: a key of the component's own ExternalSecret Secret, rendered as a secretKeyRef on <fullname>-secrets). A literal (a string, number or boolean) passes the schema and fails in templates/validate.yaml with a remedy. A null source and a null optional field of a source are absent (ADR-0070; each oneOf branch requires its source non-null, so an override switches the source by setting the previous one to null next to the new one); valueFrom and a source's required fields stay non-null, and exactly one non-null source remains.",
       "type": ["object", "string", "number", "boolean"],
       "additionalProperties": false,
       "required": ["valueFrom"],
@@ -546,38 +546,47 @@
           "type": "object",
           "additionalProperties": false,
           "oneOf": [
-            { "required": ["fieldRef"] },
-            { "required": ["resourceFieldRef"] },
-            { "required": ["secretKeyRef"] },
-            { "required": ["configMapKeyRef"] },
-            { "required": ["externalSecretKeyRef"] }
+            { "required": ["fieldRef"], "properties": { "fieldRef": { "not": { "type": "null" } } } },
+            { "required": ["resourceFieldRef"], "properties": { "resourceFieldRef": { "not": { "type": "null" } } } },
+            { "required": ["secretKeyRef"], "properties": { "secretKeyRef": { "not": { "type": "null" } } } },
+            { "required": ["configMapKeyRef"], "properties": { "configMapKeyRef": { "not": { "type": "null" } } } },
+            { "required": ["externalSecretKeyRef"], "properties": { "externalSecretKeyRef": { "not": { "type": "null" } } } }
           ],
           "properties": {
             "fieldRef": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["fieldPath"],
-              "properties": {
-                "fieldPath": { "type": "string", "minLength": 1 },
-                "apiVersion": { "type": "string" }
+              "if": { "not": { "type": "null" } },
+              "then": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["fieldPath"],
+                "properties": {
+                  "fieldPath": { "type": "string", "minLength": 1 },
+                  "apiVersion": { "if": { "not": { "type": "null" } }, "then": { "type": "string" } }
+                }
               }
             },
             "resourceFieldRef": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["resource"],
-              "properties": {
-                "resource": { "type": "string", "minLength": 1 },
-                "containerName": { "type": "string" },
-                "divisor": { "type": ["string", "number"] }
+              "if": { "not": { "type": "null" } },
+              "then": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["resource"],
+                "properties": {
+                  "resource": { "type": "string", "minLength": 1 },
+                  "containerName": { "if": { "not": { "type": "null" } }, "then": { "type": "string" } },
+                  "divisor": { "if": { "not": { "type": "null" } }, "then": { "type": ["string", "number"] } }
+                }
               }
             },
-            "secretKeyRef": { "$ref": "#/definitions/keyRef" },
-            "configMapKeyRef": { "$ref": "#/definitions/keyRef" },
+            "secretKeyRef": { "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/keyRef" } },
+            "configMapKeyRef": { "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/keyRef" } },
             "externalSecretKeyRef": {
               "description": "A key of the component's own ExternalSecret Secret: the chart resolves its name (<fullname>-secrets). No name and no optional (a missing key must stop the container, not unset the variable).",
-              "type": "object", "additionalProperties": false, "required": ["key"],
-              "properties": { "key": { "type": "string", "minLength": 1, "maxLength": 253, "pattern": "^[-._a-zA-Z0-9]+$" } }
+              "if": { "not": { "type": "null" } },
+              "then": {
+                "type": "object", "additionalProperties": false, "required": ["key"],
+                "properties": { "key": { "type": "string", "minLength": 1, "maxLength": 253, "pattern": "^[-._a-zA-Z0-9]+$" } }
+              }
             }
           }
         }
@@ -910,8 +919,8 @@
     "reloadOnChange": { "type": "boolean" },
     "env": {
       "type": ["object", "array"],
-      "description": "References only: literal values belong in `config`. A NAME matches ^[A-Za-z_][A-Za-z0-9_]*$ (an environment variable name); another name fails at the map's path.",
-      "patternProperties": { "^[A-Za-z_][A-Za-z0-9_]*$": { "$ref": "#/definitions/envVar" } },
+      "description": "References only: literal values belong in `config`. A NAME matches ^[A-Za-z_][A-Za-z0-9_]*$ (an environment variable name); another name fails at the map's path. NAME: null is absent (ADR-0070), as in an entry's env (definitions.containerEnv).",
+      "patternProperties": { "^[A-Za-z_][A-Za-z0-9_]*$": { "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/envVar" } } },
       "additionalProperties": false
     },
     "envFrom": {
