@@ -1282,3 +1282,12 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: reads a null maxSurge as not set in the single-pod claim rule (the Kubernetes default adds a pod, ADR-0070)
+    set:
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: null, maxUnavailable: 1}}
+      volumes:
+        data: {type: persistentVolumeClaim, claimName: data, mountPath: /data}
+    asserts:
+      - failedTemplate:
+          errorPattern: "strategy.rollingUpdate.maxSurge is not set, and the Kubernetes default \\(25%\\) adds a pod"

@@ -55,22 +55,26 @@
       "pattern": "^[0-9]+%$"
     },
     "lifecycleHandler": {
+      "description": "A lifecycle hook of the main container: exactly one handler. A handler set to null is absent (ADR-0070; each oneOf branch requires its handler non-null), so an override switches the handler by setting the previous one to null next to the new one.",
       "type": "object",
       "additionalProperties": false,
       "oneOf": [
-        { "required": ["exec"] },
-        { "required": ["httpGet"] },
-        { "required": ["sleep"] }
+        { "required": ["exec"], "properties": { "exec": { "not": { "type": "null" } } } },
+        { "required": ["httpGet"], "properties": { "httpGet": { "not": { "type": "null" } } } },
+        { "required": ["sleep"], "properties": { "sleep": { "not": { "type": "null" } } } }
       ],
       "properties": {
-        "exec": { "$ref": "#/definitions/execHandler" },
-        "httpGet": { "$ref": "#/definitions/httpGetHandler" },
+        "exec": { "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/execHandler" } },
+        "httpGet": { "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/httpGetHandler" } },
         "sleep": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["seconds"],
-          "properties": {
-            "seconds": { "type": "integer", "minimum": 1 }
+          "if": { "not": { "type": "null" } },
+          "then": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["seconds"],
+            "properties": {
+              "seconds": { "type": "integer", "minimum": 1 }
+            }
           }
         }
       }
@@ -85,19 +89,19 @@
       }
     },
     "httpGetHandler": {
-      "description": "The httpGet handler of a lifecycle hook; no host (Pod Security baseline rejects it from policy v1.34). Inside it a null stays an error. A probe's is definitions.probeHttpGetHandler, the same fields with a null optional field absent.",
+      "description": "The httpGet handler of a lifecycle hook; no host (Pod Security baseline rejects it from policy v1.34). A null optional field (path, scheme, httpHeaders) is absent (ADR-0070; the hooks render pruned); port stays required. A probe's is definitions.probeHttpGetHandler, the same fields.",
       "type": "object",
       "additionalProperties": false,
       "required": ["port"],
       "properties": {
-        "path": { "type": "string" },
+        "path": { "if": { "not": { "type": "null" } }, "then": { "type": "string" } },
         "port": { "type": ["integer", "string"] },
-        "scheme": { "enum": ["HTTP", "HTTPS"] },
-        "httpHeaders": { "type": "array", "items": { "$ref": "#/definitions/httpHeader" } }
+        "scheme": { "if": { "not": { "type": "null" } }, "then": { "enum": ["HTTP", "HTTPS"] } },
+        "httpHeaders": { "if": { "not": { "type": "null" } }, "then": { "type": "array", "items": { "$ref": "#/definitions/httpHeader" } } }
       }
     },
     "probeHttpGetHandler": {
-      "description": "The httpGet handler of a probe of any container: definitions.httpGetHandler whose optional fields (path, scheme, httpHeaders) also take null, which is absent (the probes render pruned; the API server defaults path to / and scheme to HTTP). A lifecycle hook keeps definitions.httpGetHandler.",
+      "description": "The httpGet handler of a probe of any container: the fields of definitions.httpGetHandler, whose optional fields (path, scheme, httpHeaders) take null, which is absent (the probes render pruned; the API server defaults path to / and scheme to HTTP).",
       "type": "object",
       "additionalProperties": false,
       "required": ["port"],
@@ -192,27 +196,30 @@
       }
     },
     "hpaBehavior": {
-      "description": "An HPA's spec.behavior (autoscaling.behavior, keda.behavior), Kubernetes' shape without tolerance; null = not rendered. Not converted: a null inside is an error wherever it reaches the chart (Helm 4.3 drops one written in an umbrella's own values while nothing is passed for the alias).",
+      "description": "An HPA's spec.behavior (autoscaling.behavior, keda.behavior), Kubernetes' shape without tolerance; null = not rendered. A null direction or a null field of a direction is absent (ADR-0070; rendered pruned): a behavior whose every direction is null is not rendered, and a direction whose every field is null renders {}, which the API server fills with its defaults, as an absent direction. An item of policies is taken as written.",
       "type": ["object", "null"], "additionalProperties": false, "minProperties": 1,
       "properties": {
-        "scaleUp": { "$ref": "#/definitions/hpaScalingRules" },
-        "scaleDown": { "$ref": "#/definitions/hpaScalingRules" }
+        "scaleUp": { "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/hpaScalingRules" } },
+        "scaleDown": { "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/hpaScalingRules" } }
       }
     },
     "hpaScalingRules": {
       "description": "One direction of an HPA's behavior: at least one field; policies, when present, has at least one policy.",
       "minProperties": 1, "type": "object", "additionalProperties": false,
       "properties": {
-        "stabilizationWindowSeconds": { "type": "integer", "minimum": 0, "maximum": 3600 },
-        "selectPolicy": { "enum": ["Max", "Min", "Disabled"] },
+        "stabilizationWindowSeconds": { "if": { "not": { "type": "null" } }, "then": { "type": "integer", "minimum": 0, "maximum": 3600 } },
+        "selectPolicy": { "if": { "not": { "type": "null" } }, "then": { "enum": ["Max", "Min", "Disabled"] } },
         "policies": {
-          "type": "array", "minItems": 1,
-          "items": {
-            "required": ["type", "value", "periodSeconds"], "type": "object", "additionalProperties": false,
-            "properties": {
-              "type": { "enum": ["Pods", "Percent"] },
-              "value": { "type": "integer", "minimum": 1 },
-              "periodSeconds": { "type": "integer", "minimum": 1, "maximum": 1800 }
+          "if": { "not": { "type": "null" } },
+          "then": {
+            "type": "array", "minItems": 1,
+            "items": {
+              "required": ["type", "value", "periodSeconds"], "type": "object", "additionalProperties": false,
+              "properties": {
+                "type": { "enum": ["Pods", "Percent"] },
+                "value": { "type": "integer", "minimum": 1 },
+                "periodSeconds": { "type": "integer", "minimum": 1, "maximum": 1800 }
+              }
             }
           }
         }
@@ -818,7 +825,7 @@
         "properties": {
           "name": { "type": "string", "pattern": "^[a-z]([-a-z0-9]*[a-z0-9])?$", "maxLength": 15 },
           "containerPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
-          "servicePort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+          "servicePort": { "description": "The Service port; absent or null: containerPort (ADR-0070).", "if": { "not": { "type": "null" } }, "then": { "type": "integer", "minimum": 1, "maximum": 65535 } },
           "appProtocol": { "description": "The application protocol of the Service port (since 1.4.0), written on the Service port only: an IANA service name, kubernetes.io/h2c, kubernetes.io/ws, kubernetes.io/wss or a domain-prefixed name, which the API server checks. null or absent writes none.", "type": ["string", "null"], "minLength": 1 }
         }
       }
@@ -948,14 +955,17 @@
       "properties": {
         "type": { "enum": ["RollingUpdate", "Recreate"] },
         "rollingUpdate": {
-          "description": "null means absent (never rendered); a rollingUpdate next to Recreate is rejected by templates/validate.yaml.",
+          "description": "null means absent (never rendered), and so does a null maxSurge or maxUnavailable (ADR-0070); a rollingUpdate next to Recreate is rejected by templates/validate.yaml, also one left empty by its nulls.",
           "type": ["object", "null"], "additionalProperties": false,
           "properties": {
-            "maxSurge": { "$ref": "#/definitions/intOrPercent" },
+            "maxSurge": { "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/intOrPercent" } },
             "maxUnavailable": {
               "description": "Kubernetes rejects a percentage above 100% (maxSurge has no such cap).",
-              "allOf": [{ "$ref": "#/definitions/intOrPercent" }],
-              "pattern": "^0*([0-9]{1,2}|100)%$"
+              "if": { "not": { "type": "null" } },
+              "then": {
+                "allOf": [{ "$ref": "#/definitions/intOrPercent" }],
+                "pattern": "^0*([0-9]{1,2}|100)%$"
+              }
             }
           }
         }
@@ -1048,11 +1058,12 @@
     "preStopSleepSeconds": { "type": "integer", "minimum": 0 },
     "terminationGracePeriodSeconds": { "type": "integer", "minimum": 0 },
     "lifecycle": {
+      "description": "The main container's hooks (definitions.lifecycleHandler); a hook set to null is absent (ADR-0070).",
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "postStart": { "$ref": "#/definitions/lifecycleHandler" },
-        "preStop": { "$ref": "#/definitions/lifecycleHandler" }
+        "postStart": { "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/lifecycleHandler" } },
+        "preStop": { "if": { "not": { "type": "null" } }, "then": { "$ref": "#/definitions/lifecycleHandler" } }
       }
     },
     "httpRoute": {
@@ -1308,20 +1319,24 @@
     "priorityClassName": { "type": ["string", "null"], "minLength": 1 },
     "runtimeClassName": { "type": ["string", "null"], "minLength": 1 },
     "dnsConfig": {
+      "description": "The pod's dnsConfig; a null field is absent (ADR-0070), and a dnsConfig left empty is not rendered. An item of options is taken as written.",
       "type": ["object", "null"],
       "additionalProperties": false,
       "properties": {
-        "nameservers": { "type": "array", "maxItems": 3, "items": { "type": "string" } },
-        "searches": { "type": "array", "maxItems": 32, "items": { "type": "string" } },
+        "nameservers": { "if": { "not": { "type": "null" } }, "then": { "type": "array", "maxItems": 3, "items": { "type": "string" } } },
+        "searches": { "if": { "not": { "type": "null" } }, "then": { "type": "array", "maxItems": 32, "items": { "type": "string" } } },
         "options": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["name"],
-            "properties": {
-              "name": { "type": "string" },
-              "value": { "type": "string" }
+          "if": { "not": { "type": "null" } },
+          "then": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name"],
+              "properties": {
+                "name": { "type": "string" },
+                "value": { "type": "string" }
+              }
             }
           }
         }

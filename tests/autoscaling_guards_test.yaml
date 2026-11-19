@@ -166,23 +166,31 @@ tests:
       - failedTemplate:
           errorPattern: "/autoscaling/behavior/scaleDown/policies/0': additional properties 'periodsecond' not allowed"
 
-  - it: rejects scaleUp null (behavior is not a converted map, so a null inside is an error)
+  - it: accepts scaleUp null (a null direction is absent, ADR-0070)
     set:
       autoscaling.behavior:
         scaleUp: null
         scaleDown: {selectPolicy: Max}
     asserts:
-      - failedTemplate:
-          errorPattern: "/autoscaling/behavior/scaleUp': got null, want object"
+      - hasDocuments:
+          count: 0
 
-  - it: rejects policies null
+  - it: accepts policies null, selectPolicy null and stabilizationWindowSeconds null (absent, ADR-0070)
     set:
       autoscaling.behavior.scaleDown:
-        selectPolicy: Max
+        selectPolicy: null
+        stabilizationWindowSeconds: null
         policies: null
     asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: still rejects a null field of a policy (an item of a list is taken as written)
+    set:
+      autoscaling.behavior.scaleDown.policies: [{type: Pods, value: null, periodSeconds: 60}]
+    asserts:
       - failedTemplate:
-          errorPattern: "/autoscaling/behavior/scaleDown/policies': got null, want array"
+          errorPattern: "/autoscaling/behavior/scaleDown/policies/0/value': got null, want integer"
 
   - it: accepts selectPolicy Disabled without policies
     set:

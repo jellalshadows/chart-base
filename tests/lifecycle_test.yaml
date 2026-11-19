@@ -82,3 +82,38 @@ tests:
             preStop:
               sleep:
                 seconds: 5
+
+  # ---- A null hook, a null handler next to another one and a null optional httpGet field are absent (ADR-0070)
+  - it: renders the built-in preStop sleep alone for lifecycle.preStop and postStart null on a Deployment
+    template: templates/deployment.yaml
+    set:
+      lifecycle: {postStart: null, preStop: null}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].lifecycle
+          value:
+            preStop:
+              sleep:
+                seconds: 5
+
+  - it: renders no lifecycle on a CronJob whose every hook is null
+    template: templates/cronjob.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "*/5 * * * *"
+      lifecycle: {postStart: null}
+    asserts:
+      - notExists:
+          path: spec.jobTemplate.spec.template.spec.containers[0].lifecycle
+
+  - it: switches a hook's handler with the previous one set to null, and leaves null httpGet fields out
+    template: templates/deployment.yaml
+    set:
+      lifecycle:
+        postStart: {exec: null, httpGet: {path: null, port: 8080, scheme: null, httpHeaders: null}}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].lifecycle.postStart
+          value:
+            httpGet:
+              port: 8080

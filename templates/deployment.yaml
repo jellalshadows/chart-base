@@ -22,12 +22,12 @@ spec:
   {{- if not (kindIs "invalid" .Values.revisionHistoryLimit) }}
   revisionHistoryLimit: {{ .Values.revisionHistoryLimit | int64 }}
   {{- end }}
-  {{- with .Values.strategy }}
-  {{- /* strategy.rollingUpdate: null means absent: it is never rendered. */}}
-  {{- $strategy := . }}
-  {{- if and (hasKey . "rollingUpdate") (kindIs "invalid" .rollingUpdate) }}{{ $strategy = omit . "rollingUpdate" }}{{ end }}
+  {{- /* strategy without its nulls: rollingUpdate: null, maxSurge: null and maxUnavailable: null are absent, never rendered (ADR-0070). */}}
+  {{- $strategy := deepCopy (.Values.strategy | default dict) }}
+  {{- include "chart-base.pruneNulls" $strategy }}
+  {{- with $strategy }}
   strategy:
-    {{- toYaml $strategy | nindent 4 }}
+    {{- toYaml . | nindent 4 }}
   {{- end }}
   selector:
     matchLabels:

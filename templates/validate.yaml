@@ -130,12 +130,15 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if and (eq .Values.workload.type "deployment") (ge (int .Values.preStopSleepSeconds) (int .Values.terminationGracePeriodSeconds)) (gt (int .Values.preStopSleepSeconds) 0) -}}
 {{- include "chart-base.fail" (list . "preStopSleepSeconds must be lower than terminationGracePeriodSeconds") -}}
 {{- end -}}
-{{- if and (eq .Values.workload.type "deployment") (.Values.lifecycle | default dict).preStop (gt (int .Values.preStopSleepSeconds) 0) -}}
+{{- /* The hooks without their nulls (ADR-0070), as templates/_pod.tpl renders them: a null hook or handler is absent. */ -}}
+{{- $lifecycle := deepCopy (.Values.lifecycle | default dict) -}}
+{{- include "chart-base.pruneNulls" $lifecycle -}}
+{{- if and (eq .Values.workload.type "deployment") $lifecycle.preStop (gt (int .Values.preStopSleepSeconds) 0) -}}
 {{- include "chart-base.fail" (list . "lifecycle.preStop replaces the built-in preStop sleep: set preStopSleepSeconds: 0 (a container has one preStop hook)") -}}
 {{- end -}}
 {{- /* Same bound as the API server (validateSleepAction): a lifecycle sleep may last the whole grace period, not longer. */ -}}
 {{- range $hook := list "postStart" "preStop" -}}
-{{- with (get ($.Values.lifecycle | default dict) $hook) -}}
+{{- with (get $lifecycle $hook) -}}
 {{- if and .sleep (gt (int64 .sleep.seconds) (int64 $.Values.terminationGracePeriodSeconds)) -}}
 {{- include "chart-base.fail" (list $ (printf "lifecycle.%s.sleep.seconds (%d) must not be greater than terminationGracePeriodSeconds (%d)" $hook (int64 .sleep.seconds) (int64 $.Values.terminationGracePeriodSeconds))) -}}
 {{- end -}}
@@ -144,12 +147,13 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if and (eq .Values.workload.type "deployment") (not (kindIs "invalid" .Values.minReadySeconds)) (ge (int64 .Values.minReadySeconds) (int64 .Values.progressDeadlineSeconds)) -}}
 {{- include "chart-base.fail" (list . "minReadySeconds must be lower than progressDeadlineSeconds") -}}
 {{- end -}}
-{{- /* Kubernetes rejects any rollingUpdate next to Recreate, an empty one included; rollingUpdate: null is absent. */ -}}
-{{- $strategy := .Values.strategy | default dict -}}
+{{- /* Kubernetes rejects any rollingUpdate next to Recreate, an empty one included (also one left empty by its nulls); rollingUpdate: null is absent. Every strategy guard reads it without its nulls (ADR-0070), as templates/deployment.yaml renders it. */ -}}
+{{- $strategy := deepCopy (.Values.strategy | default dict) -}}
+{{- include "chart-base.pruneNulls" $strategy -}}
 {{- if and (eq ($strategy.type | default "") "Recreate") (not (kindIs "invalid" $strategy.rollingUpdate)) -}}
 {{- include "chart-base.fail" (list . "strategy.rollingUpdate is set and strategy.type is Recreate, which Kubernetes rejects (an empty rollingUpdate too): remove strategy.rollingUpdate (from an override file over values that set it, write strategy: {type: Recreate, rollingUpdate: null}), or set strategy.type: RollingUpdate") -}}
 {{- end -}}
-{{- $rollingUpdate := (.Values.strategy | default dict).rollingUpdate | default dict -}}
+{{- $rollingUpdate := $strategy.rollingUpdate | default dict -}}
 {{- if and (eq .Values.workload.type "deployment") (hasKey $rollingUpdate "maxSurge") (hasKey $rollingUpdate "maxUnavailable") -}}
 {{- /* Kubernetes rejects a rolling update that can neither add nor remove a pod; "0%" counts as 0. */ -}}
 {{- $surge := $rollingUpdate.maxSurge -}}
@@ -250,7 +254,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- range (.Values.ports | default list) }}{{ $mainPortNames = append $mainPortNames .name }}{{ end -}}
 {{- include "chart-base.validateProbePorts" (dict "ctx" . "path" "probes" "probes" .Values.probes "portNames" $mainPortNames "portsPath" "ports" "declared" $sidecarPortPaths) -}}
 {{- /* A lifecycle hook's httpGet port given by NAME, the same rule (ADR-0060): the kubelet resolves it among the main container's ports, and otherwise only records a FailedPostStartHook or FailedPreStopHook event. */ -}}
-{{- include "chart-base.validateProbePorts" (dict "ctx" . "path" "lifecycle" "probes" .Values.lifecycle "portNames" $mainPortNames "portsPath" "ports" "declared" $sidecarPortPaths "kinds" (list "postStart" "preStop") "subject" "hook") -}}
+{{- include "chart-base.validateProbePorts" (dict "ctx" . "path" "lifecycle" "probes" $lifecycle "portNames" $mainPortNames "portsPath" "ports" "declared" $sidecarPortPaths "kinds" (list "postStart" "preStop") "subject" "hook") -}}
 {{- /* UID 0 with runAsNonRoot on the main container (chart-base.validateRunAsRoot, the rule of every container, ADR-0060). */ -}}
 {{- include "chart-base.validateRunAsRoot" (dict "ctx" . "who" "the main container" "securityContext" .Values.securityContext) -}}
 {{- if .Values.networkPolicy.enabled -}}
@@ -563,7 +567,7 @@ Every message is prefixed with "chart-base[<component>]:".
 
 {{- /* volumes: an existing claim declared ReadWriteOnce or ReadWriteOncePod is attached for one pod at a time, so a Deployment that mounts it must never run two pods. Only persistentVolumeClaim entries: an ephemeral volume has a claim per pod. This is the Deployment branch: its remedies are a Deployment's (another workload type gets a branch of its own). */ -}}
 {{- if eq .Values.workload.type "deployment" -}}
-{{- $claimStrategy := .Values.strategy | default dict -}}
+{{- $claimStrategy := $strategy -}}
 {{- $claimRollingUpdate := $claimStrategy.rollingUpdate | default dict -}}
 {{- $surges := ne ($claimStrategy.type | default "") "Recreate" -}}
 {{- if hasKey $claimRollingUpdate "maxSurge" -}}
@@ -583,8 +587,8 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if gt (int64 $keda.minReplicaCount) 1 }}{{ $onePod = printf "%s, keda.minReplicaCount: 1" $onePod }}{{ end -}}
 {{- with $keda.fallback }}{{ if gt (int64 .replicas) 1 }}{{ $onePod = printf "%s, keda.fallback.replicas: 1 or less" $onePod }}{{ end }}{{ end -}}
 {{- end -}}
-{{- if and $surges (not .Values.strategy) }}{{ $twoPods = append $twoPods "strategy is not set, and the Kubernetes default (RollingUpdate, maxSurge 25%) adds a pod" }}{{ end -}}
-{{- if and $surges .Values.strategy (not (hasKey $claimRollingUpdate "maxSurge")) }}{{ $twoPods = append $twoPods "strategy.rollingUpdate.maxSurge is not set, and the Kubernetes default (25%) adds a pod" }}{{ end -}}
+{{- if and $surges (not $claimStrategy) }}{{ $twoPods = append $twoPods "strategy is not set, and the Kubernetes default (RollingUpdate, maxSurge 25%) adds a pod" }}{{ end -}}
+{{- if and $surges $claimStrategy (not (hasKey $claimRollingUpdate "maxSurge")) }}{{ $twoPods = append $twoPods "strategy.rollingUpdate.maxSurge is not set, and the Kubernetes default (25%) adds a pod" }}{{ end -}}
 {{- if and $surges (hasKey $claimRollingUpdate "maxSurge") }}{{ $twoPods = append $twoPods (printf "strategy.rollingUpdate.maxSurge is %v, which adds a pod" $claimRollingUpdate.maxSurge) }}{{ end -}}
 {{- range $name, $v := $volumes -}}
 {{- $declared := $v.claimAccessMode | default "ReadWriteOnce" -}}

@@ -31,8 +31,10 @@ spec:
     {{- include "chart-base.utilizationMetric" (dict "name" "memory" "percent" . "container" $container) | nindent 4 }}
     {{- end }}
   {{- end }}
-  {{- /* spec.behavior as written (the schema closes it at every level and rejects a null inside); null renders nothing and the API server's defaults apply. */}}
-  {{- with .Values.autoscaling.behavior }}
+  {{- /* spec.behavior as written without its nulls (the schema closes it at every level; a null direction or field is absent, ADR-0070); null, or every direction null, renders nothing and the API server's defaults apply. */}}
+  {{- $behavior := deepCopy (.Values.autoscaling.behavior | default dict) }}
+  {{- include "chart-base.pruneNulls" $behavior }}
+  {{- with $behavior }}
   behavior:
     {{- toYaml . | nindent 4 }}
   {{- end }}

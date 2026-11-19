@@ -274,14 +274,14 @@ tests:
       - failedTemplate:
           errorPattern: "/keda/behavior/scaleUp': additional properties 'tolerance' not allowed"
 
-  - it: rejects keda.behavior.scaleUp null
+  - it: accepts keda.behavior.scaleUp null (a null direction is absent, ADR-0070)
     set:
       keda.behavior:
         scaleUp: null
         scaleDown: {selectPolicy: Max}
     asserts:
-      - failedTemplate:
-          errorPattern: "/keda/behavior/scaleUp': got null, want object"
+      - hasDocuments:
+          count: 0
 
   - it: fails when autoscaling and keda are both enabled, naming the values layer that enables keda
     set:

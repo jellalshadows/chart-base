@@ -659,3 +659,15 @@ tests:
       - equal:
           path: spec.replicas
           value: 3
+
+  - it: renders strategy without a null maxSurge or maxUnavailable (ADR-0070)
+    template: templates/deployment.yaml
+    set:
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: null, maxUnavailable: 1}}
+    asserts:
+      - equal:
+          path: spec.strategy
+          value:
+            type: RollingUpdate
+            rollingUpdate:
+              maxUnavailable: 1

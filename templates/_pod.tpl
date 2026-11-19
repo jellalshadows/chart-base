@@ -149,7 +149,9 @@ containers:
     readinessProbe:
       {{- toYaml . | nindent 6 }}
     {{- end }}
-    {{- $lifecycle := $.Values.lifecycle | default dict }}
+    {{- /* A null hook, a null handler and a null optional httpGet field are absent (ADR-0070). */}}
+    {{- $lifecycle := deepCopy ($.Values.lifecycle | default dict) }}
+    {{- include "chart-base.pruneNulls" $lifecycle }}
     {{- $preStopSleep := and $isDeployment (gt (int $.Values.preStopSleepSeconds) 0) }}
     {{- if or $lifecycle $preStopSleep }}
     lifecycle:
@@ -242,7 +244,10 @@ priorityClassName: {{ . | quote }}
 {{- with $.Values.runtimeClassName }}
 runtimeClassName: {{ . | quote }}
 {{- end }}
-{{- with $.Values.dnsConfig }}
+{{- /* A null field of dnsConfig is absent (ADR-0070); one left empty is not rendered. */}}
+{{- $dnsConfig := deepCopy ($.Values.dnsConfig | default dict) }}
+{{- include "chart-base.pruneNulls" $dnsConfig }}
+{{- with $dnsConfig }}
 dnsConfig:
   {{- toYaml . | nindent 2 }}
 {{- end }}

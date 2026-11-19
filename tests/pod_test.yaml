@@ -318,3 +318,21 @@ tests:
     asserts:
       - notExists:
           path: spec.template.spec.nodeSelector
+
+  - it: leaves null dnsConfig fields out, and renders no dnsConfig when every field is null (ADR-0070)
+    template: templates/deployment.yaml
+    set:
+      dnsConfig: {nameservers: [1.1.1.1], searches: null, options: null}
+    asserts:
+      - equal:
+          path: spec.template.spec.dnsConfig
+          value:
+            nameservers: [1.1.1.1]
+
+  - it: renders no dnsConfig when every field is null
+    template: templates/deployment.yaml
+    set:
+      dnsConfig: {nameservers: null}
+    asserts:
+      - notExists:
+          path: spec.template.spec.dnsConfig

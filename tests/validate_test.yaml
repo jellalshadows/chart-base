@@ -1382,3 +1382,27 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: does not count lifecycle.preStop null as a preStop next to the built-in sleep (ADR-0070)
+    template: templates/validate.yaml
+    set:
+      lifecycle.preStop: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: does not count a null maxSurge or maxUnavailable as set in the both-zero rule (ADR-0070)
+    template: templates/validate.yaml
+    set:
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: null}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: still rejects a rollingUpdate left empty by its nulls next to Recreate (Kubernetes rejects an empty one)
+    template: templates/validate.yaml
+    set:
+      strategy: {type: Recreate, rollingUpdate: {maxSurge: null}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "strategy.rollingUpdate is set and strategy.type is Recreate"

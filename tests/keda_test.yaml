@@ -253,3 +253,26 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: renders keda.behavior without its null directions and null fields (ADR-0070)
+    set:
+      keda.enabled: true
+      keda.behavior: {scaleUp: null, scaleDown: {selectPolicy: Min, stabilizationWindowSeconds: null}}
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - equal:
+          path: spec.advanced
+          value:
+            horizontalPodAutoscalerConfig:
+              behavior:
+                scaleDown:
+                  selectPolicy: Min
+
+  - it: renders no advanced when every direction of keda.behavior is null
+    set:
+      keda.enabled: true
+      keda.behavior: {scaleUp: null}
+      keda.triggers.window: {type: cron, metadata: {timezone: Etc/UTC, start: "0 0 1 1 *", end: "1 0 1 1 *", desiredReplicas: "1"}}
+    asserts:
+      - notExists:
+          path: spec.advanced
