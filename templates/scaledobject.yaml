@@ -1,6 +1,6 @@
 {{- $k := dict }}
 {{- include "chart-base.keda" (dict "ctx" . "out" $k) }}
-{{- if and (eq .Values.workload.type "deployment") $k.keda.enabled }}
+{{- if and (include "chart-base.longRunning" .) $k.keda.enabled }}
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:

@@ -4,6 +4,15 @@ templates:
   - templates/configmap-env.yaml
   - templates/configmap-files.yaml
   - templates/validate.yaml
+  - templates/service.yaml
+  - templates/hpa.yaml
+  - templates/scaledobject.yaml
+  - templates/pdb.yaml
+  - templates/servicemonitor.yaml
+  - templates/podmonitor.yaml
+  - templates/httproute.yaml
+  - templates/grpcroute.yaml
+  - templates/ingress.yaml
 release:
   name: vending
   namespace: vending
@@ -733,3 +742,282 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].volumeMounts[1]
           value: {name: data, mountPath: /data}
+
+  # As the Deployment: the autoscalers (scaleTargetRef names the StatefulSet), the PodDisruptionBudget and its floor
+  # guard, the monitors, the routes, the built-in preStop sleep and its guards, the default topology spread.
+  - it: renders the HPA of a statefulset, pointed at the StatefulSet, with the handover annotation when asked
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.kedaHandover: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.scaleTargetRef
+          value: {apiVersion: apps/v1, kind: StatefulSet, name: vending-chart-base}
+      - equal:
+          path: metadata.annotations["validations.keda.sh/hpa-ownership"]
+          value: "false"
+      - equal:
+          path: spec.minReplicas
+          value: 2
+
+  - it: renders the ScaledObject of a statefulset, pointed at the StatefulSet
+    template: templates/scaledobject.yaml
+    set:
+      keda.enabled: true
+      keda.triggers.queue: {type: rabbitmq, metadata: {queueName: orders, mode: QueueLength, value: "10"}}
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.scaleTargetRef
+          value: {apiVersion: apps/v1, kind: StatefulSet, name: vending-chart-base}
+
+  - it: renders the PodDisruptionBudget of a statefulset by default
+    template: templates/pdb.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec
+          value:
+            selector:
+              matchLabels: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+            maxUnavailable: 1
+            unhealthyPodEvictionPolicy: AlwaysAllow
+
+  - it: rejects a PodDisruptionBudget of a statefulset that allows no eviction at the replica floor
+    template: templates/validate.yaml
+    set:
+      replicas: 3
+      pdb.minAvailable: 3
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: pdb.minAvailable is 3 and the replica floor is 3 \(replicas\): the PodDisruptionBudget allows no eviction at the floor'
+
+  - it: renders a ServiceMonitor for a statefulset with a Service
+    template: templates/servicemonitor.yaml
+    set:
+      metrics.enabled: true
+      metrics.port: http
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.endpoints[0].port
+          value: http
+
+  - it: renders a PodMonitor for a statefulset without a Service
+    template: templates/podmonitor.yaml
+    set:
+      service.enabled: false
+      metrics.enabled: true
+      metrics.port: http
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.podMetricsEndpoints[0].port
+          value: http
+
+  - it: renders the HTTPRoute, the GRPCRoute and the Ingress of a statefulset, sent to its Service
+    set:
+      httpRoute: {enabled: true, parentRefs: [{name: gw}]}
+      grpcRoute: {enabled: true, parentRefs: [{name: gw}]}
+      ingress: {enabled: true, className: nginx, hosts: [{host: db.example.com, paths: [{path: /, pathType: Prefix}]}]}
+    asserts:
+      - equal:
+          path: spec.rules[0].backendRefs[0]
+          value: {name: vending-chart-base, port: 8080}
+        template: templates/httproute.yaml
+      - equal:
+          path: spec.rules[0].backendRefs[0]
+          value: {name: vending-chart-base, port: 8080}
+        template: templates/grpcroute.yaml
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service
+          value: {name: vending-chart-base, port: {name: http}}
+        template: templates/ingress.yaml
+
+  - it: adds the built-in preStop sleep to the main container of a statefulset
+    template: templates/statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].lifecycle
+          value: {preStop: {sleep: {seconds: 5}}}
+
+  - it: rejects preStopSleepSeconds >= terminationGracePeriodSeconds on a statefulset
+    template: templates/validate.yaml
+    set:
+      preStopSleepSeconds: 30
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: preStopSleepSeconds must be lower than terminationGracePeriodSeconds"
+
+  - it: rejects lifecycle.preStop next to the built-in sleep on a statefulset
+    template: templates/validate.yaml
+    set:
+      lifecycle.preStop: {exec: {command: [/bin/drain]}}
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: lifecycle.preStop replaces the built-in preStop sleep: set preStopSleepSeconds: 0 (a container has one preStop hook)"
+
+  - it: spreads the pods of a statefulset across zones and hosts by default, per revision (controller-revision-hash)
+    template: templates/statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints
+          value:
+            - maxSkew: 1
+              topologyKey: topology.kubernetes.io/zone
+              whenUnsatisfiable: ScheduleAnyway
+              labelSelector:
+                matchLabels: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+              matchLabelKeys: [controller-revision-hash]
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: ScheduleAnyway
+              labelSelector:
+                matchLabels: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+              matchLabelKeys: [controller-revision-hash]
+
+  - it: renders no topology spread for an empty list on a statefulset, and a custom one verbatim
+    template: templates/statefulset.yaml
+    set:
+      topologySpreadConstraints: [{maxSkew: 2, topologyKey: kubernetes.io/hostname, whenUnsatisfiable: DoNotSchedule}]
+    asserts:
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints
+          value: [{maxSkew: 2, topologyKey: kubernetes.io/hostname, whenUnsatisfiable: DoNotSchedule}]
+
+  - it: renders no topology spread for topologySpreadConstraints [] on a statefulset
+    template: templates/statefulset.yaml
+    set:
+      topologySpreadConstraints: []
+    asserts:
+      - notExists:
+          path: spec.template.spec.topologySpreadConstraints
+
+  - it: names the StatefulSet in the message of an HPA next to KEDA
+    template: templates/validate.yaml
+    set:
+      autoscaling.enabled: true
+      keda.enabled: true
+      keda.triggers.queue: {type: rabbitmq, metadata: {queueName: orders, mode: QueueLength, value: "10"}}
+    asserts:
+      - failedTemplate:
+          errorMessage: 'chart-base[chart-base]: autoscaling.enabled and keda.enabled are both true, and a StatefulSet can have one autoscaler: set autoscaling.enabled: false in the values layer that enables keda (for an existing HPA, see "Switching to KEDA" in docs/upgrading.md: delete the HPA first or the upgrade fails at KEDA''s admission webhook), or set keda.enabled: false'
+
+  - it: names the StatefulSet in the message of metricsFromNamespaces without metrics
+    template: templates/validate.yaml
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.ingress.metricsFromNamespaces: [monitoring]
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: networkPolicy.ingress.metricsFromNamespaces opens metrics.port, but metrics.enabled is false (metrics is for Deployments and StatefulSets only): remove it, or enable metrics"
+
+  # The name limit: the StatefulSet controller writes controller-revision-hash: <name>-<hash of up to 10 characters> on
+  # every pod, and a label value is at most 63 characters (ADR-0071).
+  - it: rejects a 53-character resource name on a statefulset (52 max)
+    template: templates/validate.yaml
+    release:
+      name: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    asserts:
+      - failedTemplate:
+          errorMessage: 'chart-base[chart-base]: resource name "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-chart-base" is 53 chars, max is 52 for workload.type statefulset'
+
+  - it: accepts a 52-character resource name on a statefulset
+    template: templates/validate.yaml
+    release:
+      name: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # An existing claim declared ReadWriteOnce or ReadWriteOncePod (ADR-0050), the statefulset branch: one pod at a time,
+  # with no surge term (a StatefulSet's rolling update deletes a pod before it creates its replacement).
+  - it: rejects an existing ReadWriteOnce claim on a statefulset of two replicas
+    template: templates/validate.yaml
+    set:
+      replicas: 2
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - failedTemplate:
+          errorMessage: 'chart-base[chart-base]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOnce (claimAccessMode, the default): a node attaches such a claim for one pod at a time, and this StatefulSet can run a second pod (replicas is 2); on another node that pod waits for the volume and never starts. Run one pod: replicas 0 or 1, autoscaling.enabled: false. For a claim per pod, use a volumeClaimTemplate entry instead; or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.data.claimAccessMode'
+
+  - it: rejects an existing ReadWriteOncePod claim on a statefulset with an HPA
+    template: templates/validate.yaml
+    set:
+      autoscaling.enabled: true
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data, claimAccessMode: ReadWriteOncePod}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOncePod \(claimAccessMode\): a node attaches such a claim for one pod at a time, and this StatefulSet can run a second pod \(autoscaling.enabled is true\)'
+
+  - it: rejects an existing ReadWriteOnce claim on a statefulset whose KEDA maximum is above 1, naming KEDA's remedy
+    template: templates/validate.yaml
+    set:
+      keda.enabled: true
+      keda.minReplicaCount: 2
+      keda.maxReplicaCount: 4
+      keda.triggers.queue: {type: rabbitmq, metadata: {queueName: orders, mode: QueueLength, value: "10"}}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'this StatefulSet can run a second pod \(keda.maxReplicaCount is 4\); on another node that pod waits for the volume and never starts. Run one pod: keda.maxReplicaCount: 1, keda.minReplicaCount: 1\. For a claim per pod'
+
+  - it: accepts an existing ReadWriteOnce claim on a statefulset of one replica, whatever the strategy (no surge)
+    template: templates/validate.yaml
+    set:
+      replicas: 1
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 1, maxUnavailable: 0}}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts an existing ReadWriteOnce claim on a statefulset of zero replicas
+    template: templates/validate.yaml
+    set:
+      replicas: 0
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts an existing ReadWriteMany claim on a statefulset of three replicas
+    template: templates/validate.yaml
+    set:
+      replicas: 3
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data, claimAccessMode: ReadWriteMany}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a claim template on a statefulset of three replicas (a claim per pod)
+    template: templates/validate.yaml
+    set:
+      replicas: 3
+      volumes:
+        data: {type: volumeClaimTemplate, mountPath: /data, size: 1Gi}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: ignores strategy guards on a statefulset that has no strategy (maxSurge and maxUnavailable both 0 are not checked)
+    template: templates/validate.yaml
+    set:
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 0}}
+      minReadySeconds: 600
+    asserts:
+      - hasDocuments:
+          count: 0

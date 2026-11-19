@@ -1,4 +1,4 @@
-{{- if and (eq .Values.workload.type "deployment") .Values.httpRoute.enabled }}
+{{- if and (include "chart-base.longRunning" .) .Values.httpRoute.enabled }}
 {{- $fullname := include "chart-base.fullname" . }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute

@@ -495,3 +495,20 @@ tests:
     asserts:
       - notExists:
           path: spec.behavior
+
+  - it: keeps the HPA of a deployment pointed at the Deployment
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+    asserts:
+      - equal:
+          path: spec.scaleTargetRef
+          value: {apiVersion: apps/v1, kind: Deployment, name: vending-chart-base}
+
+  - it: renders no PDB for a job
+    template: templates/pdb.yaml
+    set:
+      workload.type: job
+    asserts:
+      - hasDocuments:
+          count: 0

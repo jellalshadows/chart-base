@@ -1,4 +1,4 @@
-{{- if and (eq .Values.workload.type "deployment") .Values.metrics.enabled .Values.service.enabled }}
+{{- if and (include "chart-base.longRunning" .) .Values.metrics.enabled .Values.service.enabled }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:

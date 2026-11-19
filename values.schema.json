@@ -1044,7 +1044,7 @@
       }
     },
     "keda": {
-      "description": "A KEDA ScaledObject for the Deployment (keda.sh/v1alpha1); null or absent = KEDA off. Bounds from KEDA chart 2.21.0's CRD.",
+      "description": "A KEDA ScaledObject for the Deployment or the StatefulSet (keda.sh/v1alpha1); null or absent = KEDA off. Bounds from KEDA chart 2.21.0's CRD.",
       "type": ["object", "null"],
       "additionalProperties": false,
       "required": ["enabled", "minReplicaCount", "maxReplicaCount"],
@@ -1340,7 +1340,7 @@
     "commonLabels": { "$ref": "#/definitions/extraLabels" },
     "extraObjects": { "type": ["object", "null"], "additionalProperties": { "$ref": "#/definitions/extraObject" } },
     "commonAnnotations": {
-      "description": "The reserved keys of definitions.extraAnnotations, repeated (one schema: an allOf would add a line to its errors), and the two Reloader keys the chart computes on the Deployment (a common one would render the key twice). A key set to null is absent (ADR-0070).",
+      "description": "The reserved keys of definitions.extraAnnotations, repeated (one schema: an allOf would add a line to its errors), and the two Reloader keys the chart computes on the Deployment or the StatefulSet (a common one would render the key twice). A key set to null is absent (ADR-0070).",
       "type": "object", "additionalProperties": { "if": { "not": { "type": "null" } }, "then": { "type": "string" } },
       "patternProperties": { "^helm\\.sh/hook": false, "^meta\\.helm\\.sh/": false },
       "properties": { "checksum/config-env": false, "checksum/config-files": false, "secret.reloader.stakater.com/reload": false, "configmap.reloader.stakater.com/reload": false }

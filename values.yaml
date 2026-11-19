@@ -125,10 +125,11 @@ configFiles:
 # `persistentVolumeClaim` entries must not name one claim. A `persistentVolumeClaim` entry DECLARES the claim's access
 # mode in `claimAccessMode`: `ReadWriteOnce` (the default), `ReadWriteOncePod`, `ReadWriteMany` or `ReadOnlyMany`.
 # chart-base cannot read the claim, so a false declaration goes unnoticed. Two rules read it: `ReadOnlyMany` renders the
-# volume and its mount read-only, and on a Deployment a `ReadWriteOnce` or `ReadWriteOncePod` claim requires `replicas`
-# 0 or 1 and `autoscaling.enabled: false` (with `keda.enabled`, `keda.maxReplicaCount: 1`), and a strategy that adds
-# no pod (`{type: Recreate}`, or `{type: RollingUpdate,
-# rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}` for a Deployment that already exists; see `strategy`).
+# volume and its mount read-only, and on a Deployment or a StatefulSet a `ReadWriteOnce` or `ReadWriteOncePod` claim
+# requires `replicas` 0 or 1 and `autoscaling.enabled: false` (with `keda.enabled`, `keda.maxReplicaCount: 1`), and on
+# a Deployment a strategy that adds no pod (`{type: Recreate}`, or `{type: RollingUpdate,
+# rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}` for a Deployment that already exists; see `strategy`). For a claim
+# per pod on a StatefulSet, use a `volumeClaimTemplate` entry.
 volumes: {}
 
 # -- Init containers, a map keyed by the container name. Each entry: `image` (`repository`; `tag` or `digest`, the
@@ -306,7 +307,7 @@ externalSecret:
   # mount of the Secret.
   defaultMode: null
 
-# -- Restart Deployments (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is
+# -- Restart Deployments and StatefulSets (Stakater Reloader annotations) when something that changes OUTSIDE the deploy is
 # updated: the ExternalSecret's Secret and every Secret/ConfigMap referenced in `env`/`envFrom` (and in the `env` of an
 # init container or a sidecar) or mounted by a `configMap` or `secret` entry of `volumes`. The chart's own ConfigMaps
 # roll pods through checksum annotations instead.
@@ -398,7 +399,8 @@ probes:
   readiness: {}
 
 autoscaling:
-  # -- Render a HorizontalPodAutoscaler (autoscaling/v2). Deployments only.
+  # -- Render a HorizontalPodAutoscaler (autoscaling/v2) that scales the Deployment or the StatefulSet. Deployments and
+  # StatefulSets only.
   enabled: false
   # -- Prepare the switch from this HPA to KEDA (`keda`) in one upgrade: `true` puts
   # `validations.keda.sh/hpa-ownership: "false"` on the HPA, so KEDA's admission webhook no longer counts it as the
@@ -451,10 +453,10 @@ autoscaling:
   # metric is read). A list: an override file replaces it whole, and a `null` item or field fails the schema.
   metrics: []
 
-# KEDA (a `keda.sh/v1alpha1` ScaledObject for the Deployment): an event-driven autoscaler in place of the HPA of
+# KEDA (a `keda.sh/v1alpha1` ScaledObject for the Deployment or the StatefulSet): an event-driven autoscaler in place of the HPA of
 # `autoscaling`. Off unless `keda.enabled`; `keda: null` from any values layer, or no `keda` key at all, means off.
 keda:
-  # -- Render a ScaledObject named `<fullname>` (deployments only); KEDA then creates and owns the HPA
+  # -- Render a ScaledObject named `<fullname>` (deployments and statefulsets only); KEDA then creates and owns the HPA
   # `keda-hpa-<fullname>`, so with `keda.enabled` the resource name is at most 54 characters. Exclusive with
   # `autoscaling.enabled` (the render fails with both): switching an existing release between the two is documented in
   # docs/upgrading.md. The cluster needs KEDA's CRDs, or the whole release fails at install.
@@ -506,7 +508,7 @@ keda:
   triggers: {}
 
 pdb:
-  # -- Render a PodDisruptionBudget (policy/v1). Deployments only.
+  # -- Render a PodDisruptionBudget (policy/v1). Deployments and StatefulSets only.
   enabled: true
   # -- (int or string) Max unavailable pods. When neither this nor `minAvailable` is set, `1` is used. `0` and `"0%"`
   # fail the render: the budget would allow no eviction and stall every node drain.
@@ -519,10 +521,12 @@ pdb:
   # -- `IfHealthyBudget` or `AlwaysAllow` (lets drains evict pods that are not Ready).
   unhealthyPodEvictionPolicy: AlwaysAllow
 
-# -- (list) `null` = chart defaults (zone + hostname spread, ScheduleAnyway); `[]` = none; a list = used verbatim.
+# -- (list) `null` = chart defaults (zone + hostname spread, ScheduleAnyway, counting the pods of the current revision:
+# `matchLabelKeys` `pod-template-hash` on a Deployment, `controller-revision-hash` on a StatefulSet); `[]` = none; a
+# list = used verbatim. Deployments and StatefulSets only.
 topologySpreadConstraints: null
 
-# -- Seconds to sleep in preStop so endpoints drain before SIGTERM. `0` disables it (required with `lifecycle.preStop`). Deployments only.
+# -- Seconds to sleep in preStop so endpoints drain before SIGTERM. `0` disables it (required with `lifecycle.preStop`). Deployments and StatefulSets only.
 preStopSleepSeconds: 5
 
 # -- Pod termination grace period. Must be greater than `preStopSleepSeconds`; a `lifecycle` sleep must not exceed it.
@@ -530,7 +534,7 @@ terminationGracePeriodSeconds: 30
 
 # -- Container lifecycle hooks `postStart` and `preStop`, each with exactly one of `exec`, `httpGet` or `sleep`
 # (Kubernetes does not support `tcpSocket` here), e.g. `{preStop: {exec: {command: ["/app/drain"]}}}`.
-# On Deployments, `lifecycle.preStop` replaces the built-in preStop sleep and requires `preStopSleepSeconds: 0`.
+# On Deployments and StatefulSets, `lifecycle.preStop` replaces the built-in preStop sleep and requires `preStopSleepSeconds: 0`.
 # An `httpGet.port` given by name must be the name of an entry in `ports`, as a probe's: the kubelet resolves it among
 # the main container's `ports` only, and on a name that `ports` does not declare a `preStop` hook fails with nothing
 # but a `FailedPreStopHook` event while termination goes on, and a `postStart` hook kills the container (kubelet
@@ -563,7 +567,7 @@ httpRoute:
 
 grpcRoute:
   # -- Render a Gateway API GRPCRoute (gateway.networking.k8s.io/v1, since 1.4.0) to this component's Service, alone
-  # or next to `httpRoute`. Requires `service.enabled` and a Deployment. With `networkPolicy` on, its traffic needs a
+  # or next to `httpRoute`. Requires `service.enabled` and a Deployment or a StatefulSet. With `networkPolicy` on, its traffic needs a
   # source, as an HTTPRoute's (`networkPolicy.ingress.fromNamespaces`).
   enabled: false
   # -- Gateways to attach to (required when enabled), with the fields of `httpRoute.parentRefs`, e.g.
@@ -597,7 +601,7 @@ ingress:
 
 metrics:
   # -- Render a Prometheus Operator monitor (`monitoring.coreos.com/v1`): a ServiceMonitor that scrapes the component's
-  # Service or, for a worker without a Service, a PodMonitor that scrapes its pods. Deployments only. The CRDs must be
+  # Service or, for a worker without a Service, a PodMonitor that scrapes its pods. Deployments and StatefulSets only. The CRDs must be
   # installed: without them the release fails.
   enabled: false
   # -- Name of the entry of `ports` that serves the metrics: the Service port of that name (ServiceMonitor) or the
@@ -746,7 +750,7 @@ serviceAccount:
   # annotation can reject pods that reference the `externalSecret` Secret. A `pre-deploy` Job runs before the
   # release's other objects exist: it must not name a ServiceAccount that a sibling component creates. To keep the
   # chart's own ServiceAccount under its name (`<fullname>`, e.g. for a cloud identity's trust policy) on a
-  # `deployment` or `cronjob`, hand it over in two deploys: first with `create: true` and
+  # `deployment`, `statefulset` or `cronjob`, hand it over in two deploys: first with `create: true` and
   # `annotations: {helm.sh/resource-policy: keep}`, then with `create: false`, `name: <fullname>` and the annotations
   # removed from the values. In one step Helm deletes it, and the pods, which do not roll (the pod template does not
   # change), lose it. A `job`'s ServiceAccount is a hook, which Helm deletes once the Job's phase succeeds, `keep` or
@@ -807,13 +811,16 @@ rbac:
 # `version`, `managed-by`, `helm.sh/chart`) fail the schema with
 # `false schema` at the key's own path. `app.kubernetes.io/component` is yours: the chart does not write it, so set it here (or in
 # `podLabels`) for its Kubernetes meaning, the component within the architecture (e.g. `database`). A change changes
-# the pod template: it rolls a Deployment's pods, and the next CronJob run and the next Job get it. A key set to `null`
+# the pod template: it rolls a Deployment's or a StatefulSet's pods, and the next CronJob run and the next Job get it.
+# On a `statefulset` with a `volumeClaimTemplate` entry, the claim templates carry these labels too, and the API
+# server refuses any change of a claim template: a change of `commonLabels` then fails the upgrade (see
+# docs/upgrading.md). A key set to `null`
 # is absent, here and in a per-object map (where the common value then applies). Per alias (`global` is not read).
 commonLabels: {}
 
 # -- Annotations added to the metadata of every object the chart renders for this component (`extraObjects` included),
 # e.g. `{example.com/owner: team-payments}`. Never to a template's metadata: not the pod templates (that is
-# `podAnnotations`), the CronJob's job template, an `ephemeral` claim template, or the ExternalSecret's
+# `podAnnotations`), the CronJob's job template, an `ephemeral` or `volumeClaimTemplate` claim template, or the ExternalSecret's
 # `template.metadata` (External Secrets executes those values as templates). A per-object map wins on a shared key:
 # `ingress.annotations`, `serviceAccount.annotations`, `service.annotations`, an extra object's `metadata.annotations`.
 # Values are strings. The keys Helm or the chart writes fail the schema (`false schema`, at the
@@ -828,13 +835,13 @@ commonAnnotations: {}
 # -- Extra pod annotations, e.g. `{resource.opentelemetry.io/service.name: sales}`. Values are strings. Helm's and the
 # chart's keys fail the schema (`false schema`, at the key's own path): `helm.sh/hook*`,
 # `meta.helm.sh/*`, `checksum/config-env` and `checksum/config-files` (the pod template carries the two checksums). A
-# change rolls a Deployment's pods. A key set to `null` is absent.
+# change rolls a Deployment's or a StatefulSet's pods. A key set to `null` is absent.
 podAnnotations: {}
 
 # -- Extra pod labels, winning over `commonLabels` on a shared key. Values are strings. The chart's own keys
 # (`app.kubernetes.io/name`, `instance`, `part-of`, `version`, `managed-by`, `helm.sh/chart`) fail the schema with
 # `false schema` at the key's own path; `app.kubernetes.io/component` is yours. Never a
-# selector. A change rolls a Deployment's pods. A key set to `null` is absent (a `commonLabels` value for it then
+# selector. A change rolls a Deployment's or a StatefulSet's pods. A key set to `null` is absent (a `commonLabels` value for it then
 # applies).
 podLabels: {}
 
@@ -905,7 +912,7 @@ enableServiceLinks: false
 # `externalSecret`). Rejected by the render, with a remedy: the built-in workloads, `Service`, `Endpoints`,
 # `EndpointSlice`, `Secret`, `List`, a kind ending in `List` and any object with a top-level `items` field, a
 # `RoleBinding` keyed like an entry of `rbac.clusterRoles`, and the cluster-scoped built-in kinds. Not detected: a
-# cluster-scoped custom kind, a custom workload kind, and an extra autoscaler on the component's Deployment, which
+# cluster-scoped custom kind, a custom workload kind, and an extra autoscaler on the component's Deployment or StatefulSet, which
 # fights the chart (with `autoscaling` and `keda` off the chart renders `spec.replicas`): use `autoscaling` or `keda`.
 # A controller that copies the name into a label value or a DNS label may refuse its `.` or its length (up to 127
 # characters) at reconcile, not at install. On a `job` component every extra object is a hook of the Job's phase. A

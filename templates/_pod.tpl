@@ -69,14 +69,17 @@ Usage: {{- with include "chart-base.envFrom" $ | trim }} envFrom: {{- . | ninden
 {{- end -}}
 
 {{/*
-Pod spec shared by Deployment, CronJob and Job.
+Pod spec shared by Deployment, StatefulSet, CronJob and Job.
 Usage: include "chart-base.podSpec" (dict "ctx" $ "restartPolicy" "Never")
-Deployment-only parts (the built-in preStop sleep, topology spread) are rendered only for deployments.
+The parts of a long-running workload (the built-in preStop sleep, topology spread) are rendered only for deployments and
+statefulsets (chart-base.longRunning). The default spread counts the pods of one revision: matchLabelKeys names the
+label each controller writes on its pods, pod-template-hash (a Deployment's ReplicaSet) or controller-revision-hash
+(a StatefulSet's ControllerRevision, ADR-0071).
 */}}
 {{- define "chart-base.podSpec" -}}
 {{- $ := .ctx -}}
 {{- $fullname := include "chart-base.fullname" $ -}}
-{{- $isDeployment := eq $.Values.workload.type "deployment" -}}
+{{- $longRunning := include "chart-base.longRunning" $ -}}
 {{- $volumes := dict -}}
 {{- include "chart-base.volumes" (dict "ctx" $ "out" $volumes) -}}
 {{- $containers := dict -}}
@@ -152,7 +155,7 @@ containers:
     {{- /* A null hook, a null handler and a null optional httpGet field are absent (ADR-0070). */}}
     {{- $lifecycle := deepCopy ($.Values.lifecycle | default dict) }}
     {{- include "chart-base.pruneNulls" $lifecycle }}
-    {{- $preStopSleep := and $isDeployment (gt (int $.Values.preStopSleepSeconds) 0) }}
+    {{- $preStopSleep := and $longRunning (gt (int $.Values.preStopSleepSeconds) 0) }}
     {{- if or $lifecycle $preStopSleep }}
     lifecycle:
       {{- with $lifecycle.postStart }}
@@ -258,7 +261,7 @@ dnsConfig:
 hostAliases:
   {{- toYaml . | nindent 2 }}
 {{- end }}
-{{- if $isDeployment }}
+{{- if $longRunning }}
 {{- if kindIs "invalid" $.Values.topologySpreadConstraints }}
 topologySpreadConstraints:
   {{- range list "topology.kubernetes.io/zone" "kubernetes.io/hostname" }}
@@ -269,7 +272,7 @@ topologySpreadConstraints:
       matchLabels:
         {{- include "chart-base.selectorLabels" $ | nindent 8 }}
     matchLabelKeys:
-      - pod-template-hash
+      - {{ ternary "controller-revision-hash" "pod-template-hash" (eq $.Values.workload.type "statefulset") }}
   {{- end }}
 {{- else if $.Values.topologySpreadConstraints }}
 topologySpreadConstraints:
