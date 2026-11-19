@@ -1,0 +1,29 @@
+# A StatefulSet (1.6.0, ADR-0071): a headless Service, two pods and a claim per pod (lint/kubeconform/snapshot + kind
+# e2e). The volumeClaimTemplate entry data gives each pod its own claim, data-statefulset-chart-base-<ordinal>, on
+# kind's default class (local-path, WaitForFirstConsumer). The kind e2e checks the headless Service, one Bound claim
+# per pod, the Ready pods, and that a pod's claim outlives the pod.
+workload:
+  type: statefulset
+image:
+  repository: registry.k8s.io/e2e-test-images/agnhost
+  tag: "2.66.1"
+args: ["netexec", "--http-port=8080"]
+replicas: 2
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 64Mi
+probes:
+  readiness:
+    httpGet:
+      path: /healthz
+      port: http
+volumes:
+  data: {type: volumeClaimTemplate, mountPath: /data, size: 64Mi}
+statefulset:
+  # The two pods start together (the default, OrderedReady, starts one after the other).
+  podManagementPolicy: Parallel
+  # The Kubernetes default, written out: the claims stay when the StatefulSet is deleted or scaled down.
+  persistentVolumeClaimRetentionPolicy: {whenDeleted: Retain, whenScaled: Retain}

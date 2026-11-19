@@ -18,7 +18,9 @@
 # switch back to the chart's HPA at zero, and the switch to KEDA again in one upgrade after autoscaling.kedaHandover), the full scenario the HPA's behavior, and metrics-server the usage of the full
 # scenario's native sidecar. The full scenario also checks commonLabels and commonAnnotations on every object of its
 # release in the cluster, the Service's own annotation, the common label on its pods and on the Secret that External
-# Secrets writes, and an extra object (the ConfigMap full-chart-base.settings).
+# Secrets writes, and an extra object (the ConfigMap full-chart-base.settings). The statefulset scenario checks the
+# headless Service, one Bound claim per pod from its volumeClaimTemplate entry, the Ready pods, and that a pod's claim
+# outlives the pod.
 # Usage: e2e.sh <chart-dir>     Requires: kubectl, helm, yq (mikefarah v4)
 # Env: GATEWAY_API_VERSION (e.g. v1.6.2), ESO_CHART_VERSION (e.g. 2.11.0),
 #      PROMETHEUS_OPERATOR_VERSION (e.g. v0.94.1), KEDA_CHART_VERSION (e.g. 2.21.0),
@@ -58,6 +60,7 @@ fail() {
     # sidecar that never starts.
     kubectl logs -n "$ns" deploy/deployment-chart-base --all-containers --prefix --tail=50 >&2 || true
     kubectl logs -n "$ns" job/job-chart-base --all-containers --prefix --tail=50 >&2 || true
+    kubectl logs -n "$ns" statefulset/statefulset-chart-base --all-containers --prefix --tail=50 >&2 || true
     for run in cronjob-manual-run cronjob-manual-run-2; do kubectl logs -n "$ns" "job/$run" --tail=50 >&2 || true; done
   fi
   if [ "$ns" = netpol ]; then
@@ -568,6 +571,35 @@ ing="$(kubectl get ingress -n "$ns" port-names-chart-base -o jsonpath='{.spec.ru
 smp="$(kubectl get servicemonitor -n "$ns" port-names-chart-base -o jsonpath='{.spec.endpoints[0].port}' || true)"
 [ "$smp" = "on" ] || fail "the ServiceMonitor endpoint must target the Service port 'on', got '$smp'"
 pass "port names that YAML 1.1 reads as booleans reach the API server as strings: Service, container, Ingress backend, ServiceMonitor"
+
+echo "== statefulset"
+# Two pods started together (Parallel), a headless Service, and a claim per pod from the volumeClaimTemplate entry data:
+# the StatefulSet controller creates data-statefulset-chart-base-<ordinal> on kind's default class (local-path,
+# WaitForFirstConsumer) and labels it with the StatefulSet's selector.
+install statefulset || fail "statefulset scenario failed to install"
+kubectl rollout status -n "$ns" statefulset/statefulset-chart-base --timeout=180s > /dev/null \
+  || fail "the StatefulSet statefulset-chart-base never became Ready"
+sts="$(kubectl get statefulset -n "$ns" statefulset-chart-base -o jsonpath='{.status.readyReplicas} {.spec.serviceName}' || true)"
+[ "$sts" = "2 statefulset-chart-base" ] || fail "the StatefulSet must have 2 Ready pods and name its Service in serviceName, got '$sts' (ready serviceName)"
+svc="$(kubectl get service -n "$ns" statefulset-chart-base -o jsonpath='{.spec.type} {.spec.clusterIP}' || true)"
+[ "$svc" = "ClusterIP None" ] || fail "the Service of a statefulset must be headless (type ClusterIP, clusterIP None), got '$svc'"
+claims="$(kubectl get persistentvolumeclaims -n "$ns" -l app.kubernetes.io/instance=statefulset \
+  -o jsonpath='{range .items[*]}{.metadata.name}={.status.phase} {end}' || true)"
+[ "$claims" = "data-statefulset-chart-base-0=Bound data-statefulset-chart-base-1=Bound " ] \
+  || fail "the StatefulSet must have one Bound claim per pod, data-statefulset-chart-base-0 and -1, got '$claims'"
+mounted="$(kubectl get pod -n "$ns" statefulset-chart-base-1 -o jsonpath='{.spec.volumes[?(@.name=="data")].persistentVolumeClaim.claimName}' || true)"
+[ "$mounted" = data-statefulset-chart-base-1 ] || fail "the pod statefulset-chart-base-1 must mount its own claim data-statefulset-chart-base-1, got '$mounted'"
+# A pod's claim outlives the pod: a marker written on pod 0 is read by the pod that replaces it.
+token="claim-kept-$(date +%s)"
+kubectl exec -n "$ns" statefulset-chart-base-0 -c chart-base -- sh -c "echo $token > /data/marker" \
+  || fail "the pod statefulset-chart-base-0 could not write to its claim at /data"
+kubectl delete pod -n "$ns" statefulset-chart-base-0 --timeout=120s > /dev/null || fail "could not delete the pod statefulset-chart-base-0"
+kubectl rollout status -n "$ns" statefulset/statefulset-chart-base --timeout=180s > /dev/null \
+  || fail "the StatefulSet never replaced the pod statefulset-chart-base-0"
+marker="$(kubectl exec -n "$ns" statefulset-chart-base-0 -c chart-base -- cat /data/marker || true)"
+[ "$marker" = "$token" ] \
+  || fail "the replacement of statefulset-chart-base-0 must read the marker its predecessor wrote on its claim ($token), got '$marker'"
+pass "statefulset: 2 Ready pods behind a headless Service, one Bound claim per pod, and a pod's claim outlives the pod"
 
 echo "== networkpolicy (an umbrella of three components under a namespace default-deny)"
 # kindnet enforces NetworkPolicy, but it fails open, and skips enforcement with only a log line when
