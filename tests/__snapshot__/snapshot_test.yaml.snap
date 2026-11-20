@@ -1876,6 +1876,7 @@ statefulset scenario:
               name: tmp
       updateStrategy:
         rollingUpdate:
+          maxUnavailable: 1
           partition: 0
         type: RollingUpdate
       volumeClaimTemplates:

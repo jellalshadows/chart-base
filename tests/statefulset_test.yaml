@@ -163,7 +163,7 @@ tests:
           path: spec.progressDeadlineSeconds
       - equal:
           path: spec.updateStrategy
-          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0, maxUnavailable: 1}}
       - notExists:
           path: spec.podManagementPolicy
       - notExists:
@@ -194,7 +194,7 @@ tests:
           path: spec.progressDeadlineSeconds
       - equal:
           path: spec.updateStrategy
-          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0, maxUnavailable: 1}}
 
   # The pod template: the Deployment's (chart-base.podSpec), its checksums and the Reloader annotations.
   - it: renders the shared pod spec (main container, ServiceAccount, security context, /tmp)
@@ -286,8 +286,9 @@ tests:
 
   # The statefulset block: each member rendered as written without its nulls (ADR-0070); absent, null or left empty by
   # its nulls, nothing is rendered and Kubernetes' default applies. updateStrategy is the exception: it is always
-  # rendered, the Kubernetes defaults written out, so that Helm owns its keys from the first install and a later switch
-  # to OnDelete removes rollingUpdate in one upgrade (ADR-0071).
+  # rendered, the Kubernetes defaults written out (partition 0, and maxUnavailable 1, the default where the
+  # MaxUnavailableStatefulSet gate is on), so that Helm owns its keys from the first install and a later switch to
+  # OnDelete removes rollingUpdate in one upgrade (ADR-0071).
   - it: renders podManagementPolicy as written
     template: templates/statefulset.yaml
     set:
@@ -313,7 +314,7 @@ tests:
     asserts:
       - equal:
           path: spec.updateStrategy
-          value: {type: RollingUpdate, rollingUpdate: {partition: 2}}
+          value: {type: RollingUpdate, rollingUpdate: {partition: 2, maxUnavailable: 1}}
 
   - it: renders a partition without type as a RollingUpdate with that partition
     template: templates/statefulset.yaml
@@ -322,7 +323,7 @@ tests:
     asserts:
       - equal:
           path: spec.updateStrategy
-          value: {type: RollingUpdate, rollingUpdate: {partition: 3}}
+          value: {type: RollingUpdate, rollingUpdate: {partition: 3, maxUnavailable: 1}}
 
   - it: renders a partition 0 without type as a RollingUpdate with partition 0
     template: templates/statefulset.yaml
@@ -331,7 +332,7 @@ tests:
     asserts:
       - equal:
           path: spec.updateStrategy
-          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0, maxUnavailable: 1}}
 
   - it: renders updateStrategy {} as the Kubernetes defaults, written out
     template: templates/statefulset.yaml
@@ -340,7 +341,7 @@ tests:
     asserts:
       - equal:
           path: spec.updateStrategy
-          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0, maxUnavailable: 1}}
 
   - it: renders type RollingUpdate without partition with partition 0
     template: templates/statefulset.yaml
@@ -349,7 +350,7 @@ tests:
     asserts:
       - equal:
           path: spec.updateStrategy
-          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0, maxUnavailable: 1}}
 
   - it: renders type RollingUpdate with an empty rollingUpdate with partition 0
     template: templates/statefulset.yaml
@@ -358,7 +359,7 @@ tests:
     asserts:
       - equal:
           path: spec.updateStrategy
-          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0, maxUnavailable: 1}}
 
   - it: keeps a large partition an integer
     template: templates/statefulset.yaml
@@ -368,6 +369,15 @@ tests:
       - equal:
           path: spec.updateStrategy.rollingUpdate.partition
           value: 2000000000
+
+  - it: writes maxUnavailable as the integer 1 next to a set partition (a constant of the chart, not a value)
+    template: templates/statefulset.yaml
+    set:
+      statefulset.updateStrategy: {rollingUpdate: {partition: 2}}
+    asserts:
+      - equal:
+          path: spec.updateStrategy.rollingUpdate.maxUnavailable
+          value: 1
 
   - it: renders persistentVolumeClaimRetentionPolicy as written
     template: templates/statefulset.yaml
@@ -389,7 +399,7 @@ tests:
           path: spec.podManagementPolicy
       - equal:
           path: spec.updateStrategy
-          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0, maxUnavailable: 1}}
       - notExists:
           path: spec.persistentVolumeClaimRetentionPolicy
 
@@ -402,7 +412,7 @@ tests:
           path: spec.podManagementPolicy
       - equal:
           path: spec.updateStrategy
-          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0, maxUnavailable: 1}}
       - notExists:
           path: spec.persistentVolumeClaimRetentionPolicy
 
@@ -427,7 +437,7 @@ tests:
     asserts:
       - equal:
           path: spec.updateStrategy
-          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0, maxUnavailable: 1}}
       - notExists:
           path: spec.persistentVolumeClaimRetentionPolicy
 
@@ -438,7 +448,7 @@ tests:
     asserts:
       - equal:
           path: spec.updateStrategy
-          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0, maxUnavailable: 1}}
 
   # Guards (templates/validate.yaml).
   - it: rejects a rollingUpdate next to OnDelete, which Kubernetes rejects
@@ -583,7 +593,7 @@ tests:
       - failedTemplate:
           errorPattern: "/statefulset/updateStrategy/rollingUpdate/partition'"
 
-  - it: rejects maxUnavailable in rollingUpdate (alpha, not offered)
+  - it: rejects maxUnavailable in rollingUpdate (not offered, the chart writes its default 1)
     template: templates/validate.yaml
     set:
       statefulset.updateStrategy: {rollingUpdate: {maxUnavailable: 1}}

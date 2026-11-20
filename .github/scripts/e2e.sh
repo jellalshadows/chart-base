@@ -582,9 +582,14 @@ kubectl rollout status -n "$ns" statefulset/statefulset-chart-base --timeout=180
 sts="$(kubectl get statefulset -n "$ns" statefulset-chart-base -o jsonpath='{.status.readyReplicas} {.spec.serviceName}' || true)"
 [ "$sts" = "2 statefulset-chart-base" ] || fail "the StatefulSet must have 2 Ready pods and name its Service in serviceName, got '$sts' (ready serviceName)"
 # The chart writes the default updateStrategy out (ADR-0071), so that Helm owns rollingUpdate from the first install.
-strategy="$(kubectl get statefulset -n "$ns" statefulset-chart-base -o jsonpath='{.spec.updateStrategy}' || true)"
-[ "$strategy" = '{"rollingUpdate":{"partition":0},"type":"RollingUpdate"}' ] \
-  || fail "the StatefulSet installed without statefulset.updateStrategy must store the defaults the chart writes (ADR-0071), RollingUpdate with partition 0, got '$strategy'"
+# Each key is read on its own: the chart also writes maxUnavailable 1, which the API server keeps only where the
+# MaxUnavailableStatefulSet gate is on (on by default from Kubernetes 1.37), so the stored object differs by version.
+strategy="$(kubectl get statefulset -n "$ns" statefulset-chart-base -o jsonpath='{.spec.updateStrategy.type}' || true)"
+[ "$strategy" = RollingUpdate ] \
+  || fail "the StatefulSet installed without statefulset.updateStrategy must store the type the chart writes (ADR-0071), RollingUpdate, got '$strategy'"
+partition="$(kubectl get statefulset -n "$ns" statefulset-chart-base -o jsonpath='{.spec.updateStrategy.rollingUpdate.partition}' || true)"
+[ "$partition" = 0 ] \
+  || fail "the StatefulSet installed without statefulset.updateStrategy must store the partition the chart writes (ADR-0071), 0, got '$partition'"
 svc="$(kubectl get service -n "$ns" statefulset-chart-base -o jsonpath='{.spec.type} {.spec.clusterIP}' || true)"
 [ "$svc" = "ClusterIP None" ] || fail "the Service of a statefulset must be headless (type ClusterIP, clusterIP None), got '$svc'"
 claims="$(kubectl get persistentvolumeclaims -n "$ns" -l app.kubernetes.io/instance=statefulset \
@@ -613,8 +618,9 @@ marker="$(kubectl exec -n "$ns" statefulset-chart-base-0 -c chart-base -- cat /d
 [ "$marker" = "$token" ] \
   || fail "the replacement of statefulset-chart-base-0 must read the marker its predecessor wrote on its claim ($token), got '$marker'"
 pass "statefulset: 2 Ready pods behind a headless Service, one Bound claim per pod, and a pod's claim outlives the pod"
-# A switch to OnDelete in one upgrade, from the default the chart writes: Helm owns rollingUpdate, so it removes it (with
-# the API server's default left unowned, the API would refuse a rollingUpdate next to OnDelete). The values come from a
+# A switch to OnDelete in one upgrade, from the default the chart writes: Helm owns rollingUpdate (partition, and
+# maxUnavailable where the gate keeps it), so it removes it (with the API server's defaults left unowned, the API would
+# refuse a rollingUpdate next to OnDelete). The values come from a
 # file of this script: ci/statefulset-values.yaml stays as it is.
 printf '%s\n' 'statefulset: {updateStrategy: {type: OnDelete}}' > "$work/statefulset-ondelete.yaml"
 install statefulset -f "$work/statefulset-ondelete.yaml" \

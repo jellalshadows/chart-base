@@ -975,7 +975,7 @@
     "minReadySeconds": { "type": ["integer", "null"], "minimum": 0 },
     "revisionHistoryLimit": { "type": ["integer", "null"], "minimum": 0 },
     "statefulset": {
-      "description": "workload.type statefulset only (since 1.6.0, ADR-0071): every member optional (ADR-0064), null or absent = the Kubernetes default, and a null field is absent (ADR-0070); updateStrategy is always rendered, the default written out as {type: RollingUpdate, rollingUpdate: {partition: 0}} so that Helm owns its keys and a switch to OnDelete takes one upgrade. templates/validate.yaml rejects a non-null member on another workload type and a rollingUpdate next to OnDelete (template guards, not an if here: an if on a key of this block holds vacuously when a --reuse-values upgrade lacks it).",
+      "description": "workload.type statefulset only (since 1.6.0, ADR-0071): every member optional (ADR-0064), null or absent = the Kubernetes default, and a null field is absent (ADR-0070); updateStrategy is always rendered, the default written out as {type: RollingUpdate, rollingUpdate: {partition: 0, maxUnavailable: 1}} so that Helm owns its keys and a switch to OnDelete takes one upgrade (maxUnavailable is a constant of the chart, not a value; the API server drops it where the MaxUnavailableStatefulSet gate is off). templates/validate.yaml rejects a non-null member on another workload type and a rollingUpdate next to OnDelete (template guards, not an if here: an if on a key of this block holds vacuously when a --reuse-values upgrade lacks it).",
       "type": ["object", "null"],
       "additionalProperties": false,
       "properties": {

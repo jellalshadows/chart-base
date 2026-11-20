@@ -360,12 +360,13 @@ statefulset:
   podManagementPolicy: null
   # -- (object) `spec.updateStrategy`: `{type: RollingUpdate, rollingUpdate: {partition}}` or `{type: OnDelete}` (a pod
   # takes the new template only when it is deleted). Always rendered: `null`, `{}`, or `RollingUpdate` without
-  # `partition` render the Kubernetes default written out, `{type: RollingUpdate, rollingUpdate: {partition: 0}}`, so
-  # that Helm owns its keys and a later switch to `OnDelete` takes one upgrade. With `partition: N`, the pods whose
-  # ordinal is lower than N keep the old template (a staged rollout); `type` absent is `RollingUpdate`. `OnDelete`
-  # renders `{type: OnDelete}` alone. A `rollingUpdate` next to `OnDelete`, even `{}`, fails the render (Kubernetes
-  # rejects it); a `null` field is absent (`{type: OnDelete, rollingUpdate: null}` from an override file).
-  # `maxUnavailable` is not offered (alpha at Kubernetes 1.33).
+  # `partition` render the Kubernetes default written out, `{type: RollingUpdate, rollingUpdate: {partition: 0,
+  # maxUnavailable: 1}}`, so that Helm owns its keys and a later switch to `OnDelete` takes one upgrade. With
+  # `partition: N`, the pods whose ordinal is lower than N keep the old template (a staged rollout); `type` absent is
+  # `RollingUpdate`. `OnDelete` renders `{type: OnDelete}` alone. A `rollingUpdate` next to `OnDelete`, even `{}`,
+  # fails the render (Kubernetes rejects it); a `null` field is absent (`{type: OnDelete, rollingUpdate: null}` from an
+  # override file). `maxUnavailable` is not a value: the chart always writes 1, the default where the
+  # `MaxUnavailableStatefulSet` feature gate is on (from Kubernetes 1.37), and the API server drops it where it is off.
   updateStrategy: null
   # -- (object) `spec.persistentVolumeClaimRetentionPolicy`: `whenDeleted` and `whenScaled`, each `Retain` or `Delete`:
   # whether the claims of the claim templates are deleted when the StatefulSet is (`helm uninstall`) and when a scale-in

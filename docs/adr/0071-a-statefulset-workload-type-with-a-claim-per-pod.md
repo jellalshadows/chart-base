@@ -77,12 +77,16 @@ None of the four turned out false, so no alternative ruling was needed.
   key of the new block, which would hold vacuously after a `--reuse-values` upgrade from a release without it
   ([ADR-0069](0069-grpcroute-httproute-rules-and-appprotocol.md)); the schema's own rules condition on `workload.type`
   only.
-- **A StatefulSet always renders its `updateStrategy`, the Kubernetes defaults written out** (a ruling after review,
-  L29), so that Helm owns its keys from the first install:
+- **A StatefulSet always renders its `updateStrategy`, the Kubernetes defaults written out** (rulings after review,
+  L29 and L30), so that Helm owns its keys from the first install:
   - `statefulset.updateStrategy` absent, `null`, `{}` or left empty by its `null`s, or `type: RollingUpdate` without
-    `partition` (a `null` one included): `{type: RollingUpdate, rollingUpdate: {partition: 0}}`;
-  - `rollingUpdate.partition: N` without `type`: `{type: RollingUpdate, rollingUpdate: {partition: N}}`;
+    `partition` (a `null` one included): `{type: RollingUpdate, rollingUpdate: {partition: 0, maxUnavailable: 1}}`;
+  - `rollingUpdate.partition: N` without `type`: `{type: RollingUpdate, rollingUpdate: {partition: N,
+    maxUnavailable: 1}}`;
   - `type: OnDelete`: `{type: OnDelete}` alone; the guard against a `rollingUpdate` next to `OnDelete` stays.
+
+  `maxUnavailable: 1` is a constant the chart writes next to every `partition`, not a value: the schema still rejects
+  `statefulset.updateStrategy.rollingUpdate.maxUnavailable`.
 
   The reason is the trap [ADR-0050](0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md) measured
   for a Deployment's switch to `Recreate`, predicted here from the Kubernetes source (the kind e2e pins the remedy).
@@ -96,6 +100,16 @@ None of the four turned out false, so no alternative ruling was needed.
   `OnDelete` removes it in one upgrade on Helm 4 (an owned key the new manifest lacks is removed) and on Helm 3 (the
   three-way patch deletes a key the previous manifest had). The written defaults equal the stored ones, so the
   StatefulSet behaves as with nothing rendered. The type is new in 1.6.0: no existing release changes.
+
+  `maxUnavailable` follows from the same reason (L30, from the Kubernetes source). Where the `MaxUnavailableStatefulSet`
+  feature gate is on, `SetDefaults_StatefulSet` also stores `rollingUpdate.maxUnavailable: 1` (v1.37.0 `defaults.go`),
+  and the gate is on by default from 1.37 (alpha from 1.24, beta and off from 1.35, beta and on from 1.37: v1.37.0
+  `kube_features.go`). Left to the API server there, the stored object is `{rollingUpdate: {maxUnavailable: 1,
+  partition: 0}, type: RollingUpdate}`, `maxUnavailable` has no owner, and the switch to `OnDelete` fails as above.
+  Written by the chart, Helm owns it and removes it on the switch. Where the gate is off (1.33 to 1.36 by default), the
+  API server drops a `maxUnavailable` on create and update unless the stored object already uses it
+  (`dropStatefulSetDisabledFields`, v1.33.0 `pkg/registry/apps/statefulset/strategy.go`), so the written constant
+  changes nothing there.
 - **Claim templates are a new `volumes` entry type, `volumeClaimTemplate`** (the `volumes` name space,
   [ADR-0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)). It takes the fields of an
   `ephemeral` entry (`size`, required; `accessMode`, `ReadWriteOnce` by default; `storageClassName`) and its shape:
@@ -158,16 +172,18 @@ None of the four turned out false, so no alternative ruling was needed.
 - A Deployment, a CronJob and a Job render as on 1.5.0, guards and messages included (measured: every 1.5.0 `ci/`
   scenario and a probe set of the features this decision touches, on Helm 4.3.0 and 3.22.0).
 - The kind e2e installs `ci/statefulset-values.yaml` and checks the headless Service, one Bound claim per pod on
-  kind's local-path class, the Ready pods, that a pod's claim outlives the pod, and the stored `spec.updateStrategy`
-  (`{"rollingUpdate":{"partition":0},"type":"RollingUpdate"}`); it then switches the StatefulSet to `OnDelete` in one
-  upgrade and checks that `spec.updateStrategy` is exactly `{"type":"OnDelete"}`.
+  kind's local-path class, the Ready pods, that a pod's claim outlives the pod, and the stored `updateStrategy` key by
+  key (`type` `RollingUpdate`, `rollingUpdate.partition` `0`; not an exact match, since `maxUnavailable` is stored only
+  where the gate is on); it then switches the StatefulSet to `OnDelete` in one upgrade and checks that
+  `spec.updateStrategy` is exactly `{"type":"OnDelete"}`.
 - **A switch of `updateStrategy` takes one upgrade, in both directions.** `OnDelete` to `RollingUpdate` (with or
   without a `partition`) and back are ordinary upgrades, on Helm 4 and Helm 3. Every StatefulSet manifest carries an
   `updateStrategy`, also with the `statefulset` block absent.
 - **Out, recorded:** a DaemonSet (it conflicts with Pod Security `restricted`); a second Service, for example a
   ClusterIP one next to the headless one (one Service per alias, its name in the contract); guards on the immutable
-  fields (they need `lookup`); `ordinals` and `updateStrategy.rollingUpdate.maxUnavailable` (`MaxUnavailableStatefulSet`
-  is an alpha feature gate, off at the 1.33 floor); `volumeClaimTemplates` as a pass-through list.
+  fields (they need `lookup`); `ordinals`, and `updateStrategy.rollingUpdate.maxUnavailable` as a value (the
+  `MaxUnavailableStatefulSet` feature gate is off by default before 1.37, alpha at the 1.33 floor; the chart writes its
+  default, 1, as a constant); `volumeClaimTemplates` as a pass-through list.
 
 ## Alternatives considered
 
@@ -189,8 +205,15 @@ fail the upgrade of every statefulset with a claim template, until someone delet
 It keeps the rule of the other members (absent is the Kubernetes default, nothing rendered) and a shorter manifest.
 But the API server's default then has no field manager, and a later switch to `OnDelete` fails the upgrade (the
 reason above): the remedy would be two upgrades, a `partition` first so that Helm owns `rollingUpdate`, then
-`OnDelete`, as ADR-0050 documents for a Deployment that already exists. The type is new, so nothing forces that trap
+`OnDelete`, as ADR-0050 documents for a Deployment that already exists, and where the `MaxUnavailableStatefulSet`
+gate is on even that would leave the defaulted `maxUnavailable` unowned. The type is new, so nothing forces that trap
 on it. Rejected for the defaults written out.
+
+### `partition` written out, `maxUnavailable` left to the API server
+
+It was the L29 ruling. It holds on 1.33 to 1.36, where the gate is off, but from 1.37 the API server defaults
+`maxUnavailable` with no owner, and the one-upgrade switch to `OnDelete` fails again. Rejected (L30) for both keys
+written out.
 
 ### `rollingUpdate: null` next to `OnDelete` in the rendered manifest
 
@@ -228,6 +251,9 @@ every revision together during a rollout. Rejected for the label the StatefulSet
 - [Kubernetes v1.33.0, `staging/src/k8s.io/api/apps/v1/types.go` (`StatefulSetSpec.UpdateStrategy`, no `patchStrategy`)](https://github.com/kubernetes/kubernetes/blob/v1.33.0/staging/src/k8s.io/api/apps/v1/types.go#L237-L240)
   and [`DeploymentSpec.Strategy`, `patchStrategy:"retainKeys"`](https://github.com/kubernetes/kubernetes/blob/v1.33.0/staging/src/k8s.io/api/apps/v1/types.go#L394-L395)
 - [Kubernetes v1.33.0, `pkg/apis/apps/v1/defaults.go` (`SetDefaults_StatefulSet`: `RollingUpdate`, partition 0)](https://github.com/kubernetes/kubernetes/blob/v1.33.0/pkg/apis/apps/v1/defaults.go#L100-L120)
+- [Kubernetes v1.37.0, `pkg/apis/apps/v1/defaults.go` (`maxUnavailable` 1 where `MaxUnavailableStatefulSet` is on)](https://github.com/kubernetes/kubernetes/blob/v1.37.0/pkg/apis/apps/v1/defaults.go#L120-L123)
+- [Kubernetes v1.37.0, `pkg/features/kube_features.go` (`MaxUnavailableStatefulSet`: alpha 1.24, beta off 1.35, beta on 1.37)](https://github.com/kubernetes/kubernetes/blob/v1.37.0/pkg/features/kube_features.go#L1839-L1843)
+- [Kubernetes v1.33.0, `pkg/registry/apps/statefulset/strategy.go` (`dropStatefulSetDisabledFields`: `maxUnavailable` dropped where the gate is off)](https://github.com/kubernetes/kubernetes/blob/v1.33.0/pkg/registry/apps/statefulset/strategy.go#L126-L130)
 - [Kubernetes v1.33.0, `pkg/controller/statefulset/stateful_set_utils.go` (`initIdentity`, `setPodRevision`)](https://github.com/kubernetes/kubernetes/blob/v1.33.0/pkg/controller/statefulset/stateful_set_utils.go#L437-L509)
 - [Kubernetes v1.33.0, `pkg/controller/history/controller_history.go` (`ControllerRevisionName`, `HashControllerRevision`)](https://github.com/kubernetes/kubernetes/blob/v1.33.0/pkg/controller/history/controller_history.go#L53-L104)
 - [Kubernetes v1.33.0, `pkg/controller/podautoscaler/horizontal.go` (the scale client)](https://github.com/kubernetes/kubernetes/blob/v1.33.0/pkg/controller/podautoscaler/horizontal.go#L1329-L1333)
