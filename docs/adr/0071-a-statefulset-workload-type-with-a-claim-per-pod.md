@@ -78,14 +78,16 @@ None of the four turned out false, so no alternative ruling was needed.
   ([ADR-0069](0069-grpcroute-httproute-rules-and-appprotocol.md)); the schema's own rules condition on `workload.type`
   only.
 - **A StatefulSet always renders its `updateStrategy`, the Kubernetes defaults written out** (rulings after review,
-  L29 and L30), so that Helm owns its keys from the first install:
+  L29, L30 and L31), so that Helm owns its keys from the first install:
   - `statefulset.updateStrategy` absent, `null`, `{}` or left empty by its `null`s, or `type: RollingUpdate` without
-    `partition` (a `null` one included): `{type: RollingUpdate, rollingUpdate: {partition: 0, maxUnavailable: 1}}`;
-  - `rollingUpdate.partition: N` without `type`: `{type: RollingUpdate, rollingUpdate: {partition: N,
-    maxUnavailable: 1}}`;
-  - `type: OnDelete`: `{type: OnDelete}` alone; the guard against a `rollingUpdate` next to `OnDelete` stays.
+    `partition` (a `null` one included): `{type: RollingUpdate, rollingUpdate: {partition: 0}}`;
+  - `rollingUpdate.partition: N` without `type`: `{type: RollingUpdate, rollingUpdate: {partition: N}}`;
+  - rendering for Kubernetes 1.37 or later (`semverCompare ">=1.37.0-0" .Capabilities.KubeVersion.Version`, the style
+    of the 1.33 floor guard), `rollingUpdate` also carries `maxUnavailable: 1`, next to the `partition`;
+  - `type: OnDelete`: `{type: OnDelete}` alone, on every version; the guard against a `rollingUpdate` next to
+    `OnDelete` stays.
 
-  `maxUnavailable: 1` is a constant the chart writes next to every `partition`, not a value: the schema still rejects
+  `maxUnavailable: 1` is a constant the chart writes, not a value: the schema still rejects
   `statefulset.updateStrategy.rollingUpdate.maxUnavailable`.
 
   The reason is the trap [ADR-0050](0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md) measured
@@ -108,8 +110,14 @@ None of the four turned out false, so no alternative ruling was needed.
   partition: 0}, type: RollingUpdate}`, `maxUnavailable` has no owner, and the switch to `OnDelete` fails as above.
   Written by the chart, Helm owns it and removes it on the switch. Where the gate is off (1.33 to 1.36 by default), the
   API server drops a `maxUnavailable` on create and update unless the stored object already uses it
-  (`dropStatefulSetDisabledFields`, v1.33.0 `pkg/registry/apps/statefulset/strategy.go`), so the written constant
-  changes nothing there.
+  (`dropStatefulSetDisabledFields`, v1.33.0 `pkg/registry/apps/statefulset/strategy.go`). A constant written there
+  would never reach the live object, and every tool that compares the rendered manifest with the live object (Argo
+  CD's diff, for example) would show the StatefulSet out of sync for good. So the chart writes it only when it renders
+  for 1.37 or later (L31): an install or upgrade renders for the cluster's version (Helm reads it from the API
+  server), and Argo CD passes its cluster's version as `--kube-version`. After a cluster upgrade to 1.37, the next
+  Helm upgrade writes `maxUnavailable: 1`, the value the API server already defaulted, and Helm takes ownership of it.
+  A cluster below 1.37 with the gate turned on by hand is not covered: the API server defaults `maxUnavailable` there
+  with no owner, as it would without the chart's constant.
 - **Claim templates are a new `volumes` entry type, `volumeClaimTemplate`** (the `volumes` name space,
   [ADR-0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)). It takes the fields of an
   `ephemeral` entry (`size`, required; `accessMode`, `ReadWriteOnce` by default; `storageClassName`) and its shape:
@@ -179,6 +187,10 @@ None of the four turned out false, so no alternative ruling was needed.
 - **A switch of `updateStrategy` takes one upgrade, in both directions.** `OnDelete` to `RollingUpdate` (with or
   without a `partition`) and back are ordinary upgrades, on Helm 4 and Helm 3. Every StatefulSet manifest carries an
   `updateStrategy`, also with the `statefulset` block absent.
+- **The rendered StatefulSet depends on the Kubernetes version it is rendered for.** `helm template` without
+  `--kube-version` renders for Helm's built-in version (v1.37.0 for Helm 4.3.0 and 3.22.0, measured), so its output
+  carries `maxUnavailable: 1`; a pipeline that renders for a cluster below 1.37 passes `--kube-version`, as an install
+  or an upgrade does on its own.
 - **Out, recorded:** a DaemonSet (it conflicts with Pod Security `restricted`); a second Service, for example a
   ClusterIP one next to the headless one (one Service per alias, its name in the contract); guards on the immutable
   fields (they need `lookup`); `ordinals`, and `updateStrategy.rollingUpdate.maxUnavailable` as a value (the
@@ -213,7 +225,14 @@ on it. Rejected for the defaults written out.
 
 It was the L29 ruling. It holds on 1.33 to 1.36, where the gate is off, but from 1.37 the API server defaults
 `maxUnavailable` with no owner, and the one-upgrade switch to `OnDelete` fails again. Rejected (L30) for both keys
-written out.
+written out from 1.37.
+
+### `maxUnavailable: 1` written on every Kubernetes version
+
+It was the L30 ruling: one manifest for every version, and harmless to the API server, which drops the field where
+the gate is off. But the dropped field then never reaches the live object, so below 1.37 every StatefulSet would
+differ from its rendered manifest for good, in every tool that compares the two (Argo CD's diff, for example).
+Rejected (L31) for the constant written from 1.37 only.
 
 ### `rollingUpdate: null` next to `OnDelete` in the rendered manifest
 

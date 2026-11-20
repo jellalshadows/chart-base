@@ -902,11 +902,14 @@ statefulset:
   Deployment.
 - **The StatefulSet always carries its `updateStrategy`.** Without `statefulset.updateStrategy`, or with
   `RollingUpdate` and no `partition`, the chart writes the Kubernetes default, `{type: RollingUpdate, rollingUpdate:
-  {partition: 0, maxUnavailable: 1}}`, so that Helm owns its keys. A switch to `{type: OnDelete}` and back then takes
-  one upgrade, on Helm 4 and Helm 3: unlike a Deployment's switch to `Recreate`, no intermediate step is needed.
-  `maxUnavailable: 1` is written next to every `partition` and is not a value. The API server keeps it only where the
-  `MaxUnavailableStatefulSet` feature gate is on (by default from Kubernetes 1.37), so `kubectl get` shows it there and
-  not on 1.33 to 1.36.
+  {partition: 0}}`, so that Helm owns its keys. A switch to `{type: OnDelete}` and back then takes one upgrade, on
+  Helm 4 and Helm 3: unlike a Deployment's switch to `Recreate`, no intermediate step is needed.
+- **From Kubernetes 1.37 the chart also writes `rollingUpdate.maxUnavailable: 1`**, next to the `partition`: the
+  default of the `MaxUnavailableStatefulSet` feature gate, on by default from 1.37. It is not a value, and below 1.37
+  it is not written (the API server would drop it, and the StatefulSet would always differ from its manifest in a tool
+  such as Argo CD). An install or upgrade renders for the cluster's version on its own; `helm template` renders for
+  Helm's built-in version (v1.37.0 for Helm 4.3.0 and 3.22.0) unless `--kube-version` names the cluster's. After a
+  cluster upgrade to 1.37, the next `helm upgrade` writes the field, with the value the API server already stores.
 - **The claims stay after `helm uninstall` and after a scale-down** (Kubernetes' default retention, `Retain`), with
   their data; a new install under the same names mounts them again. Set
   `statefulset.persistentVolumeClaimRetentionPolicy` to `Delete` to remove them with the StatefulSet or the

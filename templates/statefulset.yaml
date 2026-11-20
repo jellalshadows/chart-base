@@ -31,13 +31,14 @@ spec:
   podManagementPolicy: {{ . }}
   {{- end }}
   {{- /*
-  Always rendered, the Kubernetes defaults written out (RollingUpdate, partition 0, maxUnavailable 1): Helm then owns
-  every key from the first install, so a later switch to OnDelete removes rollingUpdate in one upgrade. Left to the API
-  server's defaults, rollingUpdate.partition (and maxUnavailable, defaulted where the MaxUnavailableStatefulSet gate is
-  on, from Kubernetes 1.37) would have no field manager, and a StatefulSet's updateStrategy has no retainKeys to drop
-  them (ADR-0071). maxUnavailable is a constant, not a value: where the gate is off, the API server drops it. Field by
-  field: a partition stays an integer whatever its size (toYaml would write a large one as a float).
-  templates/validate.yaml rejects a rollingUpdate next to OnDelete.
+  Always rendered, the Kubernetes defaults written out (RollingUpdate, partition 0, and maxUnavailable 1 from 1.37):
+  Helm then owns every key from the first install, so a later switch to OnDelete removes rollingUpdate in one upgrade.
+  Left to the API server's defaults, rollingUpdate.partition (and maxUnavailable, defaulted where the
+  MaxUnavailableStatefulSet gate is on, by default from Kubernetes 1.37) would have no field manager, and a
+  StatefulSet's updateStrategy has no retainKeys to drop them (ADR-0071). maxUnavailable is a constant, not a value,
+  written from 1.37 only: below, the gate is off by default and the API server drops it, so a written one would differ
+  from the live object for good. Field by field: a partition stays an integer whatever its size (toYaml would write a
+  large one as a float). templates/validate.yaml rejects a rollingUpdate next to OnDelete.
   */}}
   {{- $updateStrategy := $sts.members.updateStrategy | default dict }}
   updateStrategy:
@@ -47,7 +48,9 @@ spec:
     type: RollingUpdate
     rollingUpdate:
       partition: {{ (($updateStrategy.rollingUpdate | default dict).partition | default 0) | int64 }}
+      {{- if semverCompare ">=1.37.0-0" .Capabilities.KubeVersion.Version }}
       maxUnavailable: 1
+      {{- end }}
     {{- end }}
   {{- with $sts.members.persistentVolumeClaimRetentionPolicy }}
   persistentVolumeClaimRetentionPolicy:

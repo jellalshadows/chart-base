@@ -1398,8 +1398,9 @@ code, official docs) and local renders.
     an `ephemeral` entry) is a claim template named after the volume: each pod mounts its own claim, which outlives the
     pod. The optional `statefulset` block takes `podManagementPolicy`, `updateStrategy` and
     `persistentVolumeClaimRetentionPolicy`, through template guards; `updateStrategy` is always rendered, the default
-    written out (`RollingUpdate`, partition 0, `maxUnavailable: 1`, a constant the API server drops where its feature
-    gate is off), so that Helm owns its keys and a switch to `OnDelete` takes one upgrade.
+    written out (`RollingUpdate`, partition 0, and from Kubernetes 1.37 the constant `maxUnavailable: 1`, the default
+    of a feature gate that is on from that release), so that Helm owns its keys and a switch to `OnDelete` takes one
+    upgrade.
     The routes, the HPA and KEDA (pointed at the
     StatefulSet), the PodDisruptionBudget, the monitors, the preStop sleep and the default topology spread (per
     `controller-revision-hash`) apply as on a Deployment; `strategy` and `progressDeadlineSeconds` do not. The name is at
