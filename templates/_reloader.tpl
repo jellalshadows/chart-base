@@ -62,3 +62,24 @@ configmap.reloader.stakater.com/reload: {{ join "," . | quote }}
 {{- end }}
 {{- end -}}
 {{- end -}}
+
+{{/*
+chart-base.podTemplateAnnotations: the annotations of the pod template of a Deployment or a StatefulSet, as the lines
+under its annotations key, or nothing: checksum/config-env (while chart-base.hasConfig) and checksum/config-files
+(while chart-base.hasConfigFiles), the sha256 of the data each ConfigMap renders, so that a change of either rolls the
+pods inside the deploy (the Reloader annotations of chart-base.reloaderAnnotations cover what changes outside it), then
+podAnnotations without its nulls (chart-base.overCommon: never commonAnnotations, which belong to object metadata).
+The one writer of these keys for both workloads, so that a Deployment and a StatefulSet roll on the same changes.
+Usage: {{- with include "chart-base.podTemplateAnnotations" . }} annotations: {{- . | nindent 8 }} {{- end }}
+*/}}
+{{- define "chart-base.podTemplateAnnotations" -}}
+{{- if include "chart-base.hasConfig" . }}
+checksum/config-env: {{ (include (print $.Template.BasePath "/configmap-env.yaml") . | fromYaml).data | toJson | sha256sum }}
+{{- end }}
+{{- if include "chart-base.hasConfigFiles" . }}
+checksum/config-files: {{ (include (print $.Template.BasePath "/configmap-files.yaml") . | fromYaml).data | toJson | sha256sum }}
+{{- end }}
+{{- with include "chart-base.overCommon" (dict "own" .Values.podAnnotations) }}
+{{ . }}
+{{- end }}
+{{- end -}}

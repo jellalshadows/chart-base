@@ -872,3 +872,74 @@ absent ([ADR-0070](adr/0070-a-null-means-absent-chart-wide.md)).
   still rendered as `null`.
 - **One message changed:** an `externalSecretKeyRef` of the main container while `externalSecret.enabled` is `false`
   now ends `or remove env.<NAME> (an overlay removes it with env.<NAME>: null)`, as an entry's did.
+
+## 1.5.x → 1.6.0
+
+Nothing to change: 1.6.0 adds `workload.type: statefulset`, the optional `statefulset` block and the
+`volumeClaimTemplate` volume type, and no required key. Every value that 1.5.0 renders renders the same manifest, with
+the same guards and messages; two schema messages list the new values, `workload.type`'s and a volume `type`'s
+([ADR-0071](adr/0071-a-statefulset-workload-type-with-a-claim-per-pod.md)).
+
+### New and optional: a StatefulSet with a claim per pod
+
+```yaml
+workload:
+  type: statefulset
+replicas: 3
+volumes:
+  data: {type: volumeClaimTemplate, mountPath: /var/lib/app, size: 10Gi}
+statefulset:
+  podManagementPolicy: Parallel
+```
+
+- The StatefulSet `<fullname>` runs pods `<fullname>-0`, `-1`, ... Each mounts its own claim
+  `data-<fullname>-<ordinal>`, which outlives the pod. The Service, under the same name, is headless: each ready pod
+  is `<fullname>-<ordinal>.<fullname>.<namespace>.svc`, and the Service's name returns every ready pod.
+- `service.type` must be `ClusterIP` (a headless Service has no other type); expose the component outside the cluster
+  with `httpRoute`, `grpcRoute` or `ingress`.
+- `strategy` and `progressDeadlineSeconds` are ignored: the rollout is `statefulset.updateStrategy`. The routes, the HPA
+  and KEDA, the PodDisruptionBudget, the monitors, the preStop sleep and the default topology spread apply as on a
+  Deployment.
+- **The StatefulSet always carries its `updateStrategy`.** Without `statefulset.updateStrategy`, or with
+  `RollingUpdate` and no `partition`, the chart writes the Kubernetes default, `{type: RollingUpdate, rollingUpdate:
+  {partition: 0}}`, so that Helm owns its keys. A switch to `{type: OnDelete}` and back then takes one upgrade, on
+  Helm 4 and Helm 3: unlike a Deployment's switch to `Recreate`, no intermediate step is needed.
+- **From Kubernetes 1.37 the chart also writes `rollingUpdate.maxUnavailable: 1`**, next to the `partition`: the
+  default of the `MaxUnavailableStatefulSet` feature gate, on by default from 1.37. It is not a value, and below 1.37
+  it is not written (the API server would drop it, and the StatefulSet would always differ from its manifest in a tool
+  such as Argo CD). An install or upgrade renders for the cluster's version on its own; `helm template` renders for
+  Helm's built-in version (v1.37.0 for Helm 4.3.0 and 3.22.0) unless `--kube-version` names the cluster's. After a
+  cluster upgrade to 1.37, the next `helm upgrade` writes the field, with the value the API server already stores.
+- **The claims stay after `helm uninstall` and after a scale-down** (Kubernetes' default retention, `Retain`), with
+  their data; a new install under the same names mounts them again. Set
+  `statefulset.persistentVolumeClaimRetentionPolicy` to `Delete` to remove them with the StatefulSet or the
+  scaled-down pods.
+
+### What cannot change once the StatefulSet exists
+
+The API server refuses an update of a StatefulSet's `serviceName`, `podManagementPolicy` and claim templates. The
+upgrade then fails at the StatefulSet. With chart-base that is a change of:
+
+- `statefulset.podManagementPolicy`, or `service.enabled` (it decides `serviceName`);
+- a `volumeClaimTemplate` entry added, removed or renamed, or its `size`, `accessMode` or `storageClassName`.
+
+`commonLabels` is not among them: a claim template carries the two selector labels only, which never change.
+
+To apply such a change, delete the StatefulSet without its pods, then upgrade; the new StatefulSet adopts the running
+pods and the existing claims (the selector labels are the same), and rolls the pods when their template changed:
+
+```sh
+kubectl delete statefulset <fullname> --cascade=orphan
+helm upgrade ...
+```
+
+A new claim template applies to new claims only: an existing claim keeps its size, which a resize of the claim itself
+changes (when its StorageClass allows expansion).
+
+### Switching an existing component from `deployment` to `statefulset`
+
+The upgrade deletes the Deployment and creates the StatefulSet: the pods are replaced, under new names. A component
+with a Service cannot switch in one upgrade: the Service becomes headless, and the API server refuses to change a
+Service's cluster IP once set (`spec.clusterIPs[0]: may not change once set`, `validateUpgradeDowngradeClusterIPs` in
+Kubernetes' Service validation). Delete the Service first (`kubectl delete service <fullname>`), then upgrade: the
+component has no Service between the two commands.

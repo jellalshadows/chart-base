@@ -186,6 +186,25 @@ tests:
           path: spec.template.metadata.annotations["checksum/config-files"]
           value: da1d8cf0160d2a981d53bd025d10965d98642bcee39d3f2f6faecbad0499fe73
 
+  - it: keeps the pod template annotations, the two checksums then podAnnotations, never commonAnnotations (shared with the StatefulSet)
+    template: templates/deployment.yaml
+    set:
+      config.APP_MODE: api
+      configFiles.files:
+        application.yaml: "server:\n  port: 8080\n"
+      podAnnotations: {prometheus.io/scrape: "false"}
+      commonAnnotations: {team: data}
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations
+          value:
+            checksum/config-env: 75b7a7c324b7b1ceeee7b8e259bbac68dc693ec9adf80945c927b2a1116c4ebb
+            checksum/config-files: da1d8cf0160d2a981d53bd025d10965d98642bcee39d3f2f6faecbad0499fe73
+            prometheus.io/scrape: "false"
+      - equal:
+          path: metadata.annotations
+          value: {team: data}
+
   - it: changes the config checksum when config changes
     template: templates/deployment.yaml
     set:

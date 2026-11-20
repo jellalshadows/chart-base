@@ -87,3 +87,12 @@ tests:
       - equal:
           path: spec.activeDeadlineSeconds
           value: 1000000
+
+  - it: keeps a Job's pod without the built-in preStop sleep or the default topology spread (a long-running workload's)
+    set:
+      workload.type: job
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].lifecycle
+      - notExists:
+          path: spec.template.spec.topologySpreadConstraints

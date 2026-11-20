@@ -1,0 +1,1166 @@
+suite: statefulset (workload.type statefulset, the statefulset block, ADR-0071)
+templates:
+  - templates/statefulset.yaml
+  - templates/configmap-env.yaml
+  - templates/configmap-files.yaml
+  - templates/validate.yaml
+  - templates/service.yaml
+  - templates/hpa.yaml
+  - templates/scaledobject.yaml
+  - templates/pdb.yaml
+  - templates/servicemonitor.yaml
+  - templates/podmonitor.yaml
+  - templates/httproute.yaml
+  - templates/grpcroute.yaml
+  - templates/ingress.yaml
+release:
+  name: vending
+  namespace: vending
+capabilities:
+  majorVersion: 1
+  minorVersion: 33
+chart:
+  version: 0.0.0-test
+values:
+  - values/base.yaml
+set:
+  workload.type: statefulset
+tests:
+  # The workload: an apps/v1 StatefulSet <release>-<alias>, on workload.type statefulset only.
+  - it: renders a StatefulSet named <release>-<component>
+    template: templates/statefulset.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: StatefulSet
+      - isAPIVersion:
+          of: apps/v1
+      - equal:
+          path: metadata.name
+          value: vending-chart-base
+
+  - it: renders no StatefulSet for a deployment
+    template: templates/statefulset.yaml
+    set:
+      workload.type: deployment
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders no StatefulSet for a cronjob
+    template: templates/statefulset.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 3 * * *"
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders no StatefulSet for a job
+    template: templates/statefulset.yaml
+    set:
+      workload.type: job
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: selects with the two frozen selector labels and writes the pod labels on the pod template
+    template: templates/statefulset.yaml
+    set:
+      podLabels: {tier: data}
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels
+          value: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+      - equal:
+          path: spec.template.metadata.labels
+          value:
+            app.kubernetes.io/name: chart-base
+            app.kubernetes.io/instance: vending
+            app.kubernetes.io/part-of: vending
+            app.kubernetes.io/version: "1.4.2"
+            tier: data
+      - equal:
+          path: metadata.labels["helm.sh/chart"]
+          value: chart-base-0.0.0-test
+      - notExists:
+          path: metadata.labels.tier
+
+  # serviceName names the alias's one Service, which is headless on a statefulset (templates/service.yaml).
+  - it: names the component's Service in serviceName while service.enabled
+    template: templates/statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.serviceName
+          value: vending-chart-base
+
+  - it: renders no serviceName without a Service (service.enabled false)
+    template: templates/statefulset.yaml
+    set:
+      service.enabled: false
+    asserts:
+      - notExists:
+          path: spec.serviceName
+
+  # The count, as the Deployment's: an autoscaler owns it.
+  - it: renders replicas when no autoscaler is on
+    template: templates/statefulset.yaml
+    set:
+      replicas: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+
+  - it: renders replicas 0 as written
+    template: templates/statefulset.yaml
+    set:
+      replicas: 0
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 0
+
+  - it: omits replicas while autoscaling is enabled (the HPA owns them)
+    template: templates/statefulset.yaml
+    set:
+      autoscaling.enabled: true
+    asserts:
+      - notExists:
+          path: spec.replicas
+
+  - it: omits replicas while keda is enabled (KEDA owns them)
+    template: templates/statefulset.yaml
+    set:
+      keda.enabled: true
+      keda.triggers.queue: {type: rabbitmq, metadata: {queueName: orders, mode: QueueLength, value: "10"}}
+    asserts:
+      - notExists:
+          path: spec.replicas
+
+  - it: renders replicas for keda null (KEDA off)
+    template: templates/statefulset.yaml
+    set:
+      keda: null
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+
+  # The rollout knobs: minReadySeconds and revisionHistoryLimit as on a Deployment; strategy and
+  # progressDeadlineSeconds have no StatefulSet equivalent and are ignored.
+  - it: leaves minReadySeconds and revisionHistoryLimit to Kubernetes by default, and renders no strategy or progressDeadlineSeconds
+    template: templates/statefulset.yaml
+    asserts:
+      - notExists:
+          path: spec.minReadySeconds
+      - notExists:
+          path: spec.revisionHistoryLimit
+      - notExists:
+          path: spec.strategy
+      - notExists:
+          path: spec.progressDeadlineSeconds
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+      - notExists:
+          path: spec.podManagementPolicy
+      - notExists:
+          path: spec.persistentVolumeClaimRetentionPolicy
+
+  - it: renders minReadySeconds and revisionHistoryLimit, including an explicit 0
+    template: templates/statefulset.yaml
+    set:
+      minReadySeconds: 0
+      revisionHistoryLimit: 0
+    asserts:
+      - equal:
+          path: spec.minReadySeconds
+          value: 0
+      - equal:
+          path: spec.revisionHistoryLimit
+          value: 0
+
+  - it: ignores strategy and progressDeadlineSeconds (no StatefulSet equivalent)
+    template: templates/statefulset.yaml
+    set:
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 1, maxUnavailable: 0}}
+      progressDeadlineSeconds: 600
+    asserts:
+      - notExists:
+          path: spec.strategy
+      - notExists:
+          path: spec.progressDeadlineSeconds
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+
+  # The pod template: the Deployment's (chart-base.podSpec), its checksums and the Reloader annotations.
+  - it: renders the shared pod spec (main container, ServiceAccount, security context, /tmp)
+    template: templates/statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: chart-base
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/acme/sales:1.4.2
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: vending-chart-base
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].ports
+          value: [{name: http, containerPort: 8080, protocol: TCP}]
+      - equal:
+          path: spec.template.spec.volumes[0]
+          value: {name: tmp, emptyDir: {}}
+      - notExists:
+          path: spec.template.spec.restartPolicy
+
+  - it: adds no pod annotations when there is no config
+    template: templates/statefulset.yaml
+    asserts:
+      - notExists:
+          path: spec.template.metadata.annotations
+      - notExists:
+          path: metadata.annotations
+
+  - it: adds the checksums of both ConfigMaps, the Deployment's values, so a config change rolls the pods
+    template: templates/statefulset.yaml
+    set:
+      config.APP_MODE: api
+      configFiles.files:
+        application.yaml: "server:\n  port: 8080\n"
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config-env"]
+          value: 75b7a7c324b7b1ceeee7b8e259bbac68dc693ec9adf80945c927b2a1116c4ebb
+      - equal:
+          path: spec.template.metadata.annotations["checksum/config-files"]
+          value: da1d8cf0160d2a981d53bd025d10965d98642bcee39d3f2f6faecbad0499fe73
+
+  - it: writes podAnnotations after the checksums, and never commonAnnotations, on the pod template
+    template: templates/statefulset.yaml
+    set:
+      config.APP_MODE: api
+      podAnnotations: {prometheus.io/scrape: "false"}
+      commonAnnotations: {team: data}
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations
+          value:
+            checksum/config-env: 75b7a7c324b7b1ceeee7b8e259bbac68dc693ec9adf80945c927b2a1116c4ebb
+            prometheus.io/scrape: "false"
+      - equal:
+          path: metadata.annotations
+          value: {team: data}
+
+  - it: adds the Reloader annotations on the StatefulSet when an ExternalSecret is rendered
+    template: templates/statefulset.yaml
+    set:
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: gcp-sm
+      externalSecret.data.DB_PASSWORD.key: sales-db-password
+      envFrom: [{configMapRef: {name: shared-settings}}]
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            secret.reloader.stakater.com/reload: vending-chart-base-secrets
+            configmap.reloader.stakater.com/reload: shared-settings
+
+  - it: omits the Reloader annotations when reloadOnChange is false
+    template: templates/statefulset.yaml
+    set:
+      externalSecret.enabled: true
+      externalSecret.secretStoreRef.name: gcp-sm
+      externalSecret.data.DB_PASSWORD.key: sales-db-password
+      reloadOnChange: false
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  # The statefulset block: each member rendered as written without its nulls (ADR-0070); absent, null or left empty by
+  # its nulls, nothing is rendered and Kubernetes' default applies. updateStrategy is the exception: it is always
+  # rendered, the Kubernetes defaults written out (partition 0, and from Kubernetes 1.37, where the
+  # MaxUnavailableStatefulSet gate defaults on, maxUnavailable 1), so that Helm owns its keys from the first install and
+  # a later switch to OnDelete removes rollingUpdate in one upgrade (ADR-0071). The suite renders for 1.33.
+  - it: renders podManagementPolicy as written
+    template: templates/statefulset.yaml
+    set:
+      statefulset.podManagementPolicy: Parallel
+    asserts:
+      - equal:
+          path: spec.podManagementPolicy
+          value: Parallel
+
+  - it: renders an OnDelete updateStrategy
+    template: templates/statefulset.yaml
+    set:
+      statefulset.updateStrategy: {type: OnDelete}
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: OnDelete}
+
+  - it: renders a RollingUpdate updateStrategy with its partition
+    template: templates/statefulset.yaml
+    set:
+      statefulset.updateStrategy: {type: RollingUpdate, rollingUpdate: {partition: 2}}
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 2}}
+
+  - it: renders a partition without type as a RollingUpdate with that partition
+    template: templates/statefulset.yaml
+    set:
+      statefulset.updateStrategy: {rollingUpdate: {partition: 3}}
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 3}}
+
+  - it: renders a partition 0 without type as a RollingUpdate with partition 0
+    template: templates/statefulset.yaml
+    set:
+      statefulset.updateStrategy: {rollingUpdate: {partition: 0}}
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+
+  - it: renders updateStrategy {} as the Kubernetes defaults, written out
+    template: templates/statefulset.yaml
+    set:
+      statefulset.updateStrategy: {}
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+
+  - it: renders type RollingUpdate without partition with partition 0
+    template: templates/statefulset.yaml
+    set:
+      statefulset.updateStrategy: {type: RollingUpdate}
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+
+  - it: renders type RollingUpdate with an empty rollingUpdate with partition 0
+    template: templates/statefulset.yaml
+    set:
+      statefulset.updateStrategy: {type: RollingUpdate, rollingUpdate: {}}
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+
+  - it: keeps a large partition an integer
+    template: templates/statefulset.yaml
+    set:
+      statefulset.updateStrategy: {rollingUpdate: {partition: 2000000000}}
+    asserts:
+      - equal:
+          path: spec.updateStrategy.rollingUpdate.partition
+          value: 2000000000
+
+  # maxUnavailable by Kubernetes version: written from 1.37 only, where the MaxUnavailableStatefulSet gate defaults on;
+  # below, the API server drops it, and a written one would differ from the live object for good.
+  - it: writes no maxUnavailable for Kubernetes 1.33 by default
+    template: templates/statefulset.yaml
+    capabilities:
+      majorVersion: 1
+      minorVersion: 33
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+
+  - it: writes no maxUnavailable for Kubernetes 1.33 next to a set partition
+    template: templates/statefulset.yaml
+    capabilities:
+      majorVersion: 1
+      minorVersion: 33
+    set:
+      statefulset.updateStrategy: {rollingUpdate: {partition: 2}}
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 2}}
+
+  - it: writes no maxUnavailable for Kubernetes 1.36 by default
+    template: templates/statefulset.yaml
+    capabilities:
+      majorVersion: 1
+      minorVersion: 36
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+
+  - it: writes no maxUnavailable for Kubernetes 1.36 next to a set partition
+    template: templates/statefulset.yaml
+    capabilities:
+      majorVersion: 1
+      minorVersion: 36
+    set:
+      statefulset.updateStrategy: {type: RollingUpdate, rollingUpdate: {partition: 2}}
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 2}}
+
+  - it: writes maxUnavailable as the integer 1 for Kubernetes 1.37 by default (a constant of the chart, not a value)
+    template: templates/statefulset.yaml
+    capabilities:
+      majorVersion: 1
+      minorVersion: 37
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0, maxUnavailable: 1}}
+
+  - it: writes maxUnavailable 1 for Kubernetes 1.37 next to a set partition
+    template: templates/statefulset.yaml
+    capabilities:
+      majorVersion: 1
+      minorVersion: 37
+    set:
+      statefulset.updateStrategy: {rollingUpdate: {partition: 2}}
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 2, maxUnavailable: 1}}
+
+  - it: renders OnDelete alone for Kubernetes 1.37 too
+    template: templates/statefulset.yaml
+    capabilities:
+      majorVersion: 1
+      minorVersion: 37
+    set:
+      statefulset.updateStrategy: {type: OnDelete}
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: OnDelete}
+
+  - it: renders persistentVolumeClaimRetentionPolicy as written
+    template: templates/statefulset.yaml
+    set:
+      statefulset.persistentVolumeClaimRetentionPolicy: {whenDeleted: Delete, whenScaled: Retain}
+    asserts:
+      - equal:
+          path: spec.persistentVolumeClaimRetentionPolicy
+          value: {whenDeleted: Delete, whenScaled: Retain}
+
+  - it: renders nothing of the block for statefulset null, but the default updateStrategy
+    template: templates/statefulset.yaml
+    set:
+      statefulset: null
+    asserts:
+      - hasDocuments:
+          count: 1
+      - notExists:
+          path: spec.podManagementPolicy
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+      - notExists:
+          path: spec.persistentVolumeClaimRetentionPolicy
+
+  - it: renders nothing for each member set to null, but the default updateStrategy
+    template: templates/statefulset.yaml
+    set:
+      statefulset: {podManagementPolicy: null, updateStrategy: null, persistentVolumeClaimRetentionPolicy: null}
+    asserts:
+      - notExists:
+          path: spec.podManagementPolicy
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+      - notExists:
+          path: spec.persistentVolumeClaimRetentionPolicy
+
+  - it: leaves out a null field of a member (type, rollingUpdate, partition, whenDeleted, whenScaled)
+    template: templates/statefulset.yaml
+    set:
+      statefulset.updateStrategy: {type: OnDelete, rollingUpdate: null}
+      statefulset.persistentVolumeClaimRetentionPolicy: {whenDeleted: Delete, whenScaled: null}
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: OnDelete}
+      - equal:
+          path: spec.persistentVolumeClaimRetentionPolicy
+          value: {whenDeleted: Delete}
+
+  - it: renders nothing for a member left empty by its nulls, and the default updateStrategy for one
+    template: templates/statefulset.yaml
+    set:
+      statefulset.updateStrategy: {type: null, rollingUpdate: null}
+      statefulset.persistentVolumeClaimRetentionPolicy: {whenDeleted: null, whenScaled: null}
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+      - notExists:
+          path: spec.persistentVolumeClaimRetentionPolicy
+
+  - it: renders a rollingUpdate whose partition is null with partition 0 (the Kubernetes default, written out)
+    template: templates/statefulset.yaml
+    set:
+      statefulset.updateStrategy: {type: RollingUpdate, rollingUpdate: {partition: null}}
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+
+  # Guards (templates/validate.yaml).
+  - it: rejects a rollingUpdate next to OnDelete, which Kubernetes rejects
+    template: templates/validate.yaml
+    set:
+      statefulset.updateStrategy: {type: OnDelete, rollingUpdate: {partition: 1}}
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: statefulset.updateStrategy.rollingUpdate is set and statefulset.updateStrategy.type is OnDelete, which Kubernetes rejects (an empty rollingUpdate too): remove statefulset.updateStrategy.rollingUpdate (from an override file over values that set it, write statefulset.updateStrategy: {type: OnDelete, rollingUpdate: null}), or set statefulset.updateStrategy.type: RollingUpdate"
+
+  - it: rejects an empty rollingUpdate next to OnDelete, also one left empty by its nulls
+    template: templates/validate.yaml
+    set:
+      statefulset.updateStrategy: {type: OnDelete, rollingUpdate: {partition: null}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'statefulset.updateStrategy.rollingUpdate is set and statefulset.updateStrategy.type is OnDelete'
+
+  - it: accepts the block on a statefulset
+    template: templates/validate.yaml
+    set:
+      statefulset:
+        podManagementPolicy: OrderedReady
+        updateStrategy: {type: RollingUpdate, rollingUpdate: {partition: 1}}
+        persistentVolumeClaimRetentionPolicy: {whenDeleted: Retain, whenScaled: Delete}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects podManagementPolicy on a deployment
+    template: templates/validate.yaml
+    set:
+      workload.type: deployment
+      statefulset.podManagementPolicy: Parallel
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: statefulset.podManagementPolicy applies to workload.type statefulset only, and workload.type is deployment: remove it (from an overlay, set it to null), or set workload.type: statefulset"
+
+  - it: rejects updateStrategy on a cronjob
+    template: templates/validate.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 3 * * *"
+      statefulset.updateStrategy: {type: OnDelete}
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: statefulset.updateStrategy applies to workload.type statefulset only, and workload.type is cronjob: remove it (from an overlay, set it to null), or set workload.type: statefulset"
+
+  - it: rejects persistentVolumeClaimRetentionPolicy on a job
+    template: templates/validate.yaml
+    set:
+      workload.type: job
+      statefulset.persistentVolumeClaimRetentionPolicy: {whenDeleted: Delete}
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: statefulset.persistentVolumeClaimRetentionPolicy applies to workload.type statefulset only, and workload.type is job: remove it (from an overlay, set it to null), or set workload.type: statefulset"
+
+  - it: accepts the block with every member null on a deployment (the default)
+    template: templates/validate.yaml
+    set:
+      workload.type: deployment
+      statefulset: {podManagementPolicy: null, updateStrategy: null, persistentVolumeClaimRetentionPolicy: null}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts statefulset null on a deployment
+    template: templates/validate.yaml
+    set:
+      workload.type: deployment
+      statefulset: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a member left empty by its nulls on a deployment (nothing would be rendered)
+    template: templates/validate.yaml
+    set:
+      workload.type: deployment
+      statefulset.updateStrategy: {type: null}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # The headless Service needs service.type ClusterIP.
+  - it: rejects service.type NodePort on a statefulset (its Service is headless)
+    template: templates/validate.yaml
+    set:
+      service.type: NodePort
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: service.type is NodePort, and the Service of a statefulset is headless (clusterIP: None, which gives each pod its DNS name), which only type ClusterIP allows: set service.type: ClusterIP, and expose the component outside the cluster with httpRoute, grpcRoute or ingress"
+
+  - it: rejects service.type LoadBalancer on a statefulset
+    template: templates/validate.yaml
+    set:
+      service.type: LoadBalancer
+    asserts:
+      - failedTemplate:
+          errorPattern: 'service.type is LoadBalancer, and the Service of a statefulset is headless'
+
+  - it: accepts service.type NodePort on a statefulset without a Service
+    template: templates/validate.yaml
+    set:
+      service.type: NodePort
+      service.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: keeps accepting service.type NodePort on a deployment
+    template: templates/validate.yaml
+    set:
+      workload.type: deployment
+      service.type: NodePort
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # Schema: the block is closed at every level; every member is optional and accepts null.
+  - it: rejects an unknown podManagementPolicy
+    template: templates/validate.yaml
+    set:
+      statefulset.podManagementPolicy: Serial
+    asserts:
+      - failedTemplate:
+          errorPattern: "/statefulset/podManagementPolicy'"
+
+  - it: rejects an unknown updateStrategy type
+    template: templates/validate.yaml
+    set:
+      statefulset.updateStrategy: {type: Recreate}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/statefulset/updateStrategy/type'"
+
+  - it: rejects a negative partition
+    template: templates/validate.yaml
+    set:
+      statefulset.updateStrategy: {rollingUpdate: {partition: -1}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/statefulset/updateStrategy/rollingUpdate/partition'"
+
+  - it: rejects maxUnavailable in rollingUpdate (not offered, the chart writes its default 1)
+    template: templates/validate.yaml
+    set:
+      statefulset.updateStrategy: {rollingUpdate: {maxUnavailable: 1}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'maxUnavailable' not allowed"
+
+  - it: rejects an unknown retention policy
+    template: templates/validate.yaml
+    set:
+      statefulset.persistentVolumeClaimRetentionPolicy: {whenDeleted: Keep}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/statefulset/persistentVolumeClaimRetentionPolicy/whenDeleted'"
+
+  - it: rejects an unknown member of the block (ordinals is not offered)
+    template: templates/validate.yaml
+    set:
+      statefulset.ordinals: {start: 1}
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'ordinals' not allowed"
+
+  - it: requires ports with a Service, as on a deployment (ports null)
+    template: templates/validate.yaml
+    set:
+      ports: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "missing property 'ports'"
+
+  - it: requires ports with a Service, as on a deployment (ports empty)
+    template: templates/validate.yaml
+    set:
+      ports: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "/ports': minItems"
+
+  - it: accepts a statefulset without ports and without a Service
+    template: templates/validate.yaml
+    set:
+      ports: []
+      service.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # Claim templates: volumeClaimTemplate entries of volumes (ADR-0049's name space), rendered as volumeClaimTemplates[]
+  # named after the volume, with an ephemeral claim's labels and spec, mounted like any volume, never a pod volume.
+  - it: renders a volumeClaimTemplate entry as a claim template named after the volume, ReadWriteOnce by default, no class
+    template: templates/statefulset.yaml
+    set:
+      volumes:
+        data: {type: volumeClaimTemplate, mountPath: /data, size: 10Gi}
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates
+          value:
+            - metadata:
+                name: data
+                labels:
+                  app.kubernetes.io/name: chart-base
+                  app.kubernetes.io/instance: vending
+              spec:
+                accessModes: [ReadWriteOnce]
+                resources:
+                  requests:
+                    storage: 10Gi
+
+  - it: mounts a volumeClaimTemplate volume in the main container and renders no pod volume for it
+    template: templates/statefulset.yaml
+    set:
+      volumes:
+        data: {type: volumeClaimTemplate, mountPath: /data, subPath: db, size: 10Gi}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - {name: tmp, mountPath: /tmp}
+            - {name: data, mountPath: /data, subPath: db}
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - {name: tmp, emptyDir: {}}
+
+  - it: renders the accessMode and storageClassName of a claim template, and readOnly on the main container's mount
+    template: templates/statefulset.yaml
+    set:
+      volumes:
+        data: {type: volumeClaimTemplate, size: 5Gi, accessMode: ReadWriteOncePod, storageClassName: fast.ssd, mountPath: /data, readOnly: true}
+      initContainers:
+        seed:
+          image: {repository: ghcr.io/acme/seed, tag: "1"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          volumeMounts:
+            data: {mountPath: /seed}
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec
+          value:
+            accessModes: [ReadWriteOncePod]
+            storageClassName: fast.ssd
+            resources:
+              requests:
+                storage: 5Gi
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[1]
+          value: {name: data, mountPath: /data, readOnly: true}
+      - equal:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          value:
+            - {name: data, mountPath: /seed}
+
+  # The API server refuses any change of a claim template: a label that can change (commonLabels) would fail every
+  # upgrade that changes it, so a claim template carries the two frozen selector labels only (ADR-0071).
+  - it: labels a claim template with exactly the two selector labels, never commonLabels, podLabels or helm.sh/chart, while an ephemeral claim template keeps commonLabels
+    template: templates/statefulset.yaml
+    set:
+      commonLabels: {team: a, gone: null}
+      podLabels: {tier: data}
+      volumes:
+        data: {type: volumeClaimTemplate, mountPath: /data, size: 1Gi}
+        scratch: {type: ephemeral, mountPath: /scratch, size: 1Gi}
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates[0].metadata
+          value:
+            name: data
+            labels:
+              app.kubernetes.io/name: chart-base
+              app.kubernetes.io/instance: vending
+      - equal:
+          path: spec.template.spec.volumes[1].ephemeral.volumeClaimTemplate.metadata.labels
+          value:
+            app.kubernetes.io/name: chart-base
+            app.kubernetes.io/instance: vending
+            team: a
+
+  - it: renders the claim templates in key order next to the pod volumes of the other types
+    template: templates/statefulset.yaml
+    set:
+      volumes:
+        wal: {type: volumeClaimTemplate, mountPath: /wal, size: 1Gi}
+        cache: {type: emptyDir, mountPath: /cache}
+        data: {type: volumeClaimTemplate, mountPath: /data, size: 10Gi}
+        scratch: {type: ephemeral, mountPath: /scratch, size: 1Gi}
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates[0].metadata.name
+          value: data
+      - equal:
+          path: spec.volumeClaimTemplates[1].metadata.name
+          value: wal
+      - lengthEqual:
+          path: spec.volumeClaimTemplates
+          count: 2
+      - equal:
+          path: spec.template.spec.volumes[1]
+          value: {name: cache, emptyDir: {}}
+      - equal:
+          path: spec.template.spec.volumes[2].name
+          value: scratch
+      - lengthEqual:
+          path: spec.template.spec.volumes
+          count: 3
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - {name: tmp, mountPath: /tmp}
+            - {name: cache, mountPath: /cache}
+            - {name: data, mountPath: /data}
+            - {name: scratch, mountPath: /scratch}
+            - {name: wal, mountPath: /wal}
+
+  - it: quotes a claim template's name and size (a name and a quantity that YAML reads otherwise)
+    template: templates/statefulset.yaml
+    set:
+      volumes:
+        "true": {type: volumeClaimTemplate, mountPath: /data, size: "1e3"}
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates[0].metadata.name
+          value: "true"
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec.resources.requests.storage
+          value: "1e3"
+
+  - it: renders no volumeClaimTemplates without a volumeClaimTemplate entry
+    template: templates/statefulset.yaml
+    set:
+      volumes:
+        cache: {type: emptyDir, mountPath: /cache}
+    asserts:
+      - notExists:
+          path: spec.volumeClaimTemplates
+
+  - it: renders no claim template for a null entry, and none of its null fields (accessMode, storageClassName)
+    template: templates/statefulset.yaml
+    set:
+      volumes:
+        gone: null
+        data: {type: volumeClaimTemplate, mountPath: /data, size: 1Gi, accessMode: null, storageClassName: null, subPath: null}
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates
+          value:
+            - metadata:
+                name: data
+                labels:
+                  app.kubernetes.io/name: chart-base
+                  app.kubernetes.io/instance: vending
+              spec:
+                accessModes: [ReadWriteOnce]
+                resources:
+                  requests:
+                    storage: 1Gi
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[1]
+          value: {name: data, mountPath: /data}
+
+  # As the Deployment: the autoscalers (scaleTargetRef names the StatefulSet), the PodDisruptionBudget and its floor
+  # guard, the monitors, the routes, the built-in preStop sleep and its guards, the default topology spread.
+  - it: renders the HPA of a statefulset, pointed at the StatefulSet, with the handover annotation when asked
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.kedaHandover: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.scaleTargetRef
+          value: {apiVersion: apps/v1, kind: StatefulSet, name: vending-chart-base}
+      - equal:
+          path: metadata.annotations["validations.keda.sh/hpa-ownership"]
+          value: "false"
+      - equal:
+          path: spec.minReplicas
+          value: 2
+
+  - it: renders the ScaledObject of a statefulset, pointed at the StatefulSet
+    template: templates/scaledobject.yaml
+    set:
+      keda.enabled: true
+      keda.triggers.queue: {type: rabbitmq, metadata: {queueName: orders, mode: QueueLength, value: "10"}}
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.scaleTargetRef
+          value: {apiVersion: apps/v1, kind: StatefulSet, name: vending-chart-base}
+
+  - it: renders the PodDisruptionBudget of a statefulset by default
+    template: templates/pdb.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec
+          value:
+            selector:
+              matchLabels: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+            maxUnavailable: 1
+            unhealthyPodEvictionPolicy: AlwaysAllow
+
+  - it: rejects a PodDisruptionBudget of a statefulset that allows no eviction at the replica floor
+    template: templates/validate.yaml
+    set:
+      replicas: 3
+      pdb.minAvailable: 3
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: pdb.minAvailable is 3 and the replica floor is 3 \(replicas\): the PodDisruptionBudget allows no eviction at the floor'
+
+  - it: renders a ServiceMonitor for a statefulset with a Service
+    template: templates/servicemonitor.yaml
+    set:
+      metrics.enabled: true
+      metrics.port: http
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.endpoints[0].port
+          value: http
+
+  - it: renders a PodMonitor for a statefulset without a Service
+    template: templates/podmonitor.yaml
+    set:
+      service.enabled: false
+      metrics.enabled: true
+      metrics.port: http
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.podMetricsEndpoints[0].port
+          value: http
+
+  - it: renders the HTTPRoute, the GRPCRoute and the Ingress of a statefulset, sent to its Service
+    set:
+      httpRoute: {enabled: true, parentRefs: [{name: gw}]}
+      grpcRoute: {enabled: true, parentRefs: [{name: gw}]}
+      ingress: {enabled: true, className: nginx, hosts: [{host: db.example.com, paths: [{path: /, pathType: Prefix}]}]}
+    asserts:
+      - equal:
+          path: spec.rules[0].backendRefs[0]
+          value: {name: vending-chart-base, port: 8080}
+        template: templates/httproute.yaml
+      - equal:
+          path: spec.rules[0].backendRefs[0]
+          value: {name: vending-chart-base, port: 8080}
+        template: templates/grpcroute.yaml
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service
+          value: {name: vending-chart-base, port: {name: http}}
+        template: templates/ingress.yaml
+
+  - it: adds the built-in preStop sleep to the main container of a statefulset
+    template: templates/statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].lifecycle
+          value: {preStop: {sleep: {seconds: 5}}}
+
+  - it: rejects preStopSleepSeconds >= terminationGracePeriodSeconds on a statefulset
+    template: templates/validate.yaml
+    set:
+      preStopSleepSeconds: 30
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: preStopSleepSeconds must be lower than terminationGracePeriodSeconds"
+
+  - it: rejects lifecycle.preStop next to the built-in sleep on a statefulset
+    template: templates/validate.yaml
+    set:
+      lifecycle.preStop: {exec: {command: [/bin/drain]}}
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: lifecycle.preStop replaces the built-in preStop sleep: set preStopSleepSeconds: 0 (a container has one preStop hook)"
+
+  - it: spreads the pods of a statefulset across zones and hosts by default, per revision (controller-revision-hash)
+    template: templates/statefulset.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints
+          value:
+            - maxSkew: 1
+              topologyKey: topology.kubernetes.io/zone
+              whenUnsatisfiable: ScheduleAnyway
+              labelSelector:
+                matchLabels: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+              matchLabelKeys: [controller-revision-hash]
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: ScheduleAnyway
+              labelSelector:
+                matchLabels: {app.kubernetes.io/name: chart-base, app.kubernetes.io/instance: vending}
+              matchLabelKeys: [controller-revision-hash]
+
+  - it: renders no topology spread for an empty list on a statefulset, and a custom one verbatim
+    template: templates/statefulset.yaml
+    set:
+      topologySpreadConstraints: [{maxSkew: 2, topologyKey: kubernetes.io/hostname, whenUnsatisfiable: DoNotSchedule}]
+    asserts:
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints
+          value: [{maxSkew: 2, topologyKey: kubernetes.io/hostname, whenUnsatisfiable: DoNotSchedule}]
+
+  - it: renders no topology spread for topologySpreadConstraints [] on a statefulset
+    template: templates/statefulset.yaml
+    set:
+      topologySpreadConstraints: []
+    asserts:
+      - notExists:
+          path: spec.template.spec.topologySpreadConstraints
+
+  - it: names the StatefulSet in the message of an HPA next to KEDA
+    template: templates/validate.yaml
+    set:
+      autoscaling.enabled: true
+      keda.enabled: true
+      keda.triggers.queue: {type: rabbitmq, metadata: {queueName: orders, mode: QueueLength, value: "10"}}
+    asserts:
+      - failedTemplate:
+          errorMessage: 'chart-base[chart-base]: autoscaling.enabled and keda.enabled are both true, and a StatefulSet can have one autoscaler: set autoscaling.enabled: false in the values layer that enables keda (for an existing HPA, see "Switching to KEDA" in docs/upgrading.md: delete the HPA first or the upgrade fails at KEDA''s admission webhook), or set keda.enabled: false'
+
+  - it: names the StatefulSet in the message of metricsFromNamespaces without metrics
+    template: templates/validate.yaml
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.ingress.metricsFromNamespaces: [monitoring]
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: networkPolicy.ingress.metricsFromNamespaces opens metrics.port, but metrics.enabled is false (metrics is for Deployments and StatefulSets only): remove it, or enable metrics"
+
+  # The name limit: the StatefulSet controller writes controller-revision-hash: <name>-<hash of up to 10 characters> on
+  # every pod, and a label value is at most 63 characters (ADR-0071).
+  - it: rejects a 53-character resource name on a statefulset (52 max)
+    template: templates/validate.yaml
+    release:
+      name: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    asserts:
+      - failedTemplate:
+          errorMessage: 'chart-base[chart-base]: resource name "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-chart-base" is 53 chars, max is 52 for workload.type statefulset'
+
+  - it: accepts a 52-character resource name on a statefulset
+    template: templates/validate.yaml
+    release:
+      name: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # An existing claim declared ReadWriteOnce or ReadWriteOncePod (ADR-0050), the statefulset branch: one pod at a time,
+  # with no surge term (a StatefulSet's rolling update deletes a pod before it creates its replacement).
+  - it: rejects an existing ReadWriteOnce claim on a statefulset of two replicas
+    template: templates/validate.yaml
+    set:
+      replicas: 2
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - failedTemplate:
+          errorMessage: 'chart-base[chart-base]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOnce (claimAccessMode, the default): a node attaches such a claim for one pod at a time, and this StatefulSet can run a second pod (replicas is 2); on another node that pod waits for the volume and never starts. Run one pod: replicas 0 or 1, autoscaling.enabled: false. For a claim per pod, use a volumeClaimTemplate entry instead; or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.data.claimAccessMode'
+
+  - it: rejects an existing ReadWriteOncePod claim on a statefulset with an HPA
+    template: templates/validate.yaml
+    set:
+      autoscaling.enabled: true
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data, claimAccessMode: ReadWriteOncePod}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data mounts the existing claim "sales-data", declared ReadWriteOncePod \(claimAccessMode\): a node attaches such a claim for one pod at a time, and this StatefulSet can run a second pod \(autoscaling.enabled is true\)'
+
+  - it: rejects an existing ReadWriteOnce claim on a statefulset whose KEDA maximum is above 1, naming KEDA's remedy
+    template: templates/validate.yaml
+    set:
+      keda.enabled: true
+      keda.minReplicaCount: 2
+      keda.maxReplicaCount: 4
+      keda.triggers.queue: {type: rabbitmq, metadata: {queueName: orders, mode: QueueLength, value: "10"}}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'this StatefulSet can run a second pod \(keda.maxReplicaCount is 4\); on another node that pod waits for the volume and never starts. Run one pod: keda.maxReplicaCount: 1, keda.minReplicaCount: 1\. For a claim per pod'
+
+  - it: accepts an existing ReadWriteOnce claim on a statefulset of one replica, whatever the strategy (no surge)
+    template: templates/validate.yaml
+    set:
+      replicas: 1
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 1, maxUnavailable: 0}}
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts an existing ReadWriteOnce claim on a statefulset of zero replicas
+    template: templates/validate.yaml
+    set:
+      replicas: 0
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts an existing ReadWriteMany claim on a statefulset of three replicas
+    template: templates/validate.yaml
+    set:
+      replicas: 3
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data, claimAccessMode: ReadWriteMany}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a claim template on a statefulset of three replicas (a claim per pod)
+    template: templates/validate.yaml
+    set:
+      replicas: 3
+      volumes:
+        data: {type: volumeClaimTemplate, mountPath: /data, size: 1Gi}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: ignores strategy guards on a statefulset that has no strategy (maxSurge and maxUnavailable both 0 are not checked)
+    template: templates/validate.yaml
+    set:
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 0}}
+      minReadySeconds: 600
+    asserts:
+      - hasDocuments:
+          count: 0

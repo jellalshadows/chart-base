@@ -1,6 +1,6 @@
 # ADR-0015: PDB and topology spread on by default
 
-- **Status:** Accepted — amended by [ADR-0062](0062-a-pdb-never-blocks-a-drain-at-the-replica-floor.md) (0.12.0)
+- **Status:** Accepted — amended by [ADR-0062](0062-a-pdb-never-blocks-a-drain-at-the-replica-floor.md) (0.12.0) and [ADR-0071](0071-a-statefulset-workload-type-with-a-claim-per-pod.md) (1.6.0)
 - **Date:** 2026-09-27
 - **Since:** 0.1.0
 

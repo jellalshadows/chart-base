@@ -63,10 +63,17 @@ tests:
 
   - it: rejects an unknown workload.type
     set:
-      workload.type: statefulset
+      workload.type: daemonset
     asserts:
       - failedTemplate:
-          errorPattern: "/workload/type'"
+          errorPattern: "/workload/type': value must be one of 'deployment', 'statefulset', 'cronjob', 'job'"
+
+  - it: accepts workload.type statefulset (1.6.0)
+    set:
+      workload.type: statefulset
+    asserts:
+      - hasDocuments:
+          count: 0
 
   - it: requires cronjob.schedule for cronjobs
     set:

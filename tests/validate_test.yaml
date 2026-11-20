@@ -1406,3 +1406,50 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "strategy.rollingUpdate is set and strategy.type is Recreate"
+
+  # Previous behavior that 1.6.0 (workload.type statefulset, ADR-0071) keeps on the other workload types.
+  - it: keeps the metricsFromNamespaces message of a deployment (metrics is for Deployments only)
+    set:
+      networkPolicy.enabled: true
+      networkPolicy.ingress.metricsFromNamespaces: [monitoring]
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: networkPolicy.ingress.metricsFromNamespaces opens metrics.port, but metrics.enabled is false (metrics is for Deployments only): remove it, or enable metrics"
+
+  - it: keeps a job's name limit at 63 characters
+    release:
+      name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    set:
+      workload.type: job
+    asserts:
+      - failedTemplate:
+          errorMessage: 'chart-base[chart-base]: resource name "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-chart-base" is 64 chars, max is 63 for workload.type job'
+
+  - it: keeps accepting preStopSleepSeconds >= terminationGracePeriodSeconds on a cronjob (no built-in sleep there)
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 3 * * *"
+      preStopSleepSeconds: 30
+      lifecycle.preStop: {exec: {command: [/bin/drain]}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: keeps not checking the PodDisruptionBudget floor on a cronjob (no PodDisruptionBudget there)
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 3 * * *"
+      pdb.minAvailable: 5
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: keeps accepting an existing ReadWriteOnce claim on a job (the claim rule is a Deployment's and a StatefulSet's)
+    set:
+      workload.type: job
+      replicas: 3
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: sales-data}
+    asserts:
+      - hasDocuments:
+          count: 0

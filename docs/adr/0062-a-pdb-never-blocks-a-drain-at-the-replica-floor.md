@@ -1,6 +1,6 @@
 # ADR-0062: A PodDisruptionBudget never blocks a drain at the replica floor
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0071](0071-a-statefulset-workload-type-with-a-claim-per-pod.md) (1.6.0)
 - **Date:** 2026-11-17
 - **Since:** 0.12.0
 - **Related:** [ADR-0015](0015-pdb-and-topology-spread-by-default.md) (amended), [ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md), [ADR-0055](0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md), [ADR-0056](0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md), [ADR-0057](0057-common-labels-and-annotations-service-annotations-and-extraobjects.md), [ADR-0058](0058-the-1-0-contract-and-how-it-stays-frozen.md)

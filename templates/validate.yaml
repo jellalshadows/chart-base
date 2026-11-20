@@ -29,7 +29,8 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if not (regexMatch $dns1035 $fullname) -}}
 {{- include "chart-base.fail" (list . (printf "resource name %q (release-alias) must match %s" $fullname $dns1035)) -}}
 {{- end -}}
-{{- $maxLen := ternary 52 63 (eq .Values.workload.type "cronjob") -}}
+{{- /* 52 on a cronjob (the Job name <name>-<minutes since the epoch>) and on a statefulset (the controller-revision-hash label of its pods, <name>-<hash of up to 10 characters>, ADR-0071); a label value and a DNS label are at most 63 characters. */ -}}
+{{- $maxLen := ternary 52 63 (has .Values.workload.type (list "cronjob" "statefulset")) -}}
 {{- if gt (len $fullname) $maxLen -}}
 {{- include "chart-base.fail" (list . (printf "resource name %q is %d chars, max is %d for workload.type %s" $fullname (len $fullname) $maxLen .Values.workload.type)) -}}
 {{- end -}}
@@ -53,9 +54,9 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- end -}}
 {{- end -}}
 {{- end -}}
-{{- /* keda: one autoscaler per Deployment; then, while keda is enabled (a base values file may keep a disabled block), what KEDA's webhook or operator would reject, or what would do nothing. */ -}}
+{{- /* keda: one autoscaler per Deployment or StatefulSet; then, while keda is enabled (a base values file may keep a disabled block), what KEDA's webhook or operator would reject, or what would do nothing. */ -}}
 {{- if and .Values.autoscaling.enabled $keda.enabled -}}
-{{- include "chart-base.fail" (list . "autoscaling.enabled and keda.enabled are both true, and a Deployment can have one autoscaler: set autoscaling.enabled: false in the values layer that enables keda (for an existing HPA, see \"Switching to KEDA\" in docs/upgrading.md: delete the HPA first or the upgrade fails at KEDA's admission webhook), or set keda.enabled: false") -}}
+{{- include "chart-base.fail" (list . (printf "autoscaling.enabled and keda.enabled are both true, and a %s can have one autoscaler: set autoscaling.enabled: false in the values layer that enables keda (for an existing HPA, see \"Switching to KEDA\" in docs/upgrading.md: delete the HPA first or the upgrade fails at KEDA's admission webhook), or set keda.enabled: false" (ternary "StatefulSet" "Deployment" (eq .Values.workload.type "statefulset")))) -}}
 {{- end -}}
 {{- if $keda.enabled -}}
 {{- if gt (len $fullname) 54 -}}
@@ -127,13 +128,13 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- end -}}
 {{- /* The token directory, whether or not the token is mounted now: the rule of every mount (chart-base.validateMountPath, ADR-0060); its / rule never fires here, the one above does first. */ -}}
 {{- include "chart-base.validateMountPath" (dict "ctx" . "owner" "configFiles.mountPath" "path" $configMountPath) -}}
-{{- if and (eq .Values.workload.type "deployment") (ge (int .Values.preStopSleepSeconds) (int .Values.terminationGracePeriodSeconds)) (gt (int .Values.preStopSleepSeconds) 0) -}}
+{{- if and (include "chart-base.longRunning" .) (ge (int .Values.preStopSleepSeconds) (int .Values.terminationGracePeriodSeconds)) (gt (int .Values.preStopSleepSeconds) 0) -}}
 {{- include "chart-base.fail" (list . "preStopSleepSeconds must be lower than terminationGracePeriodSeconds") -}}
 {{- end -}}
 {{- /* The hooks without their nulls (ADR-0070), as templates/_pod.tpl renders them: a null hook or handler is absent. */ -}}
 {{- $lifecycle := deepCopy (.Values.lifecycle | default dict) -}}
 {{- include "chart-base.pruneNulls" $lifecycle -}}
-{{- if and (eq .Values.workload.type "deployment") $lifecycle.preStop (gt (int .Values.preStopSleepSeconds) 0) -}}
+{{- if and (include "chart-base.longRunning" .) $lifecycle.preStop (gt (int .Values.preStopSleepSeconds) 0) -}}
 {{- include "chart-base.fail" (list . "lifecycle.preStop replaces the built-in preStop sleep: set preStopSleepSeconds: 0 (a container has one preStop hook)") -}}
 {{- end -}}
 {{- /* Same bound as the API server (validateSleepAction): a lifecycle sleep may last the whole grace period, not longer. */ -}}
@@ -164,8 +165,26 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list . "strategy.rollingUpdate.maxSurge and maxUnavailable cannot both be 0 (the rollout could not replace any pod)") -}}
 {{- end -}}
 {{- end -}}
+{{- /* statefulset (ADR-0071), read through chart-base.statefulset: a null member, or one left empty by its nulls, is not set. Template guards, not a schema if on a key of the block, which holds vacuously when a --reuse-values upgrade lacks it (ADR-0069). */ -}}
+{{- $sts := dict -}}
+{{- include "chart-base.statefulset" (dict "ctx" . "out" $sts) -}}
+{{- if ne .Values.workload.type "statefulset" -}}
+{{- range $member, $_ := $sts.members -}}
+{{- include "chart-base.fail" (list $ (printf "statefulset.%s applies to workload.type statefulset only, and workload.type is %s: remove it (from an overlay, set it to null), or set workload.type: statefulset" $member $.Values.workload.type)) -}}
+{{- end -}}
+{{- end -}}
+{{- /* Kubernetes rejects any rollingUpdate next to OnDelete, an empty one included (also one left empty by its nulls). */ -}}
+{{- with $sts.members.updateStrategy -}}
+{{- if and (eq (.type | default "") "OnDelete") (hasKey . "rollingUpdate") -}}
+{{- include "chart-base.fail" (list $ "statefulset.updateStrategy.rollingUpdate is set and statefulset.updateStrategy.type is OnDelete, which Kubernetes rejects (an empty rollingUpdate too): remove statefulset.updateStrategy.rollingUpdate (from an override file over values that set it, write statefulset.updateStrategy: {type: OnDelete, rollingUpdate: null}), or set statefulset.updateStrategy.type: RollingUpdate") -}}
+{{- end -}}
+{{- end -}}
+{{- /* A statefulset's Service is headless (clusterIP: None), which the API server allows on type ClusterIP only. */ -}}
+{{- if and (eq .Values.workload.type "statefulset") .Values.service.enabled (ne .Values.service.type "ClusterIP") -}}
+{{- include "chart-base.fail" (list . (printf "service.type is %s, and the Service of a statefulset is headless (clusterIP: None, which gives each pod its DNS name), which only type ClusterIP allows: set service.type: ClusterIP, and expose the component outside the cluster with httpRoute, grpcRoute or ingress" .Values.service.type)) -}}
+{{- end -}}
 {{- /* pdb: the PodDisruptionBudget must allow one eviction at the replica floor, or every node drain stalls (ADR-0062). The floor is max(keda.minReplicaCount, 1) with KEDA (a pod runs while a trigger is active), autoscaling.minReplicas with the HPA, otherwise replicas (0: no pod to protect, nothing checked). The disruption controller rounds a percentage up (getExpectedPodCount). minAvailable wins over maxUnavailable, as in templates/pdb.yaml; a string that is not a percentage is the API server's to reject. */ -}}
-{{- if and (eq .Values.workload.type "deployment") .Values.pdb.enabled -}}
+{{- if and (include "chart-base.longRunning" .) .Values.pdb.enabled -}}
 {{- $floor := int64 .Values.replicas -}}
 {{- $floorSource := "replicas" -}}
 {{- if $keda.enabled -}}
@@ -264,7 +283,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list . "networkPolicy.ingress.metricsFromNamespaces is empty, but metrics.enabled is true: the policy would block the scrapes; list the namespaces Prometheus runs in, e.g. [monitoring]") -}}
 {{- end -}}
 {{- if and $in.metricsFromNamespaces (not .Values.metrics.enabled) -}}
-{{- include "chart-base.fail" (list . "networkPolicy.ingress.metricsFromNamespaces opens metrics.port, but metrics.enabled is false (metrics is for Deployments only): remove it, or enable metrics") -}}
+{{- include "chart-base.fail" (list . (printf "networkPolicy.ingress.metricsFromNamespaces opens metrics.port, but metrics.enabled is false (metrics is for %s only): remove it, or enable metrics" (ternary "Deployments and StatefulSets" "Deployments" (eq .Values.workload.type "statefulset")))) -}}
 {{- end -}}
 {{- if and (or .Values.httpRoute.enabled .Values.ingress.enabled $grpcRouteOn) (not $in.fromNamespaces) (not $in.extra) (not $in.routeTrafficAllowedElsewhere) -}}
 {{- $routeKeys := ternary "httpRoute.enabled or ingress.enabled" "grpcRoute.enabled" (or .Values.httpRoute.enabled .Values.ingress.enabled) -}}
@@ -450,7 +469,10 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.volumes" (dict "ctx" . "out" $volumes) -}}
 {{- /* The name: a DNS-1123 label that chart-base does not reserve. The fields: those of the entry's type, and its required one set. */ -}}
 {{- $typeFields := include "chart-base.volumeTypeFields" . | fromYaml -}}
-{{- $requiredField := dict "configMap" "name" "secret" "secretName" "persistentVolumeClaim" "claimName" "ephemeral" "size" -}}
+{{- $requiredField := dict "configMap" "name" "secret" "secretName" "persistentVolumeClaim" "claimName" "ephemeral" "size" "volumeClaimTemplate" "size" -}}
+{{- /* The types an entry can take on this workload type: volumeClaimTemplate on a statefulset only (ADR-0071). The owners a field-ownership message names are among them, so a message on another workload type reads as it did before 1.6.0. */ -}}
+{{- $offered := keys $typeFields -}}
+{{- if ne .Values.workload.type "statefulset" }}{{ $offered = without $offered "volumeClaimTemplate" }}{{ end -}}
 {{- range $name, $v := $volumes -}}
 {{- if or (not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $name)) (gt (len $name) 63) -}}
 {{- include "chart-base.fail" (list $ (printf "volumes.%s: a volume name is a lowercase DNS-1123 label (a-z, 0-9, \"-\", at most 63 characters), e.g. app-data" $name)) -}}
@@ -461,6 +483,9 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if or (hasPrefix "kube-api-access-" $name) (hasPrefix "chart-base-" $name) -}}
 {{- include "chart-base.fail" (list $ (printf "volumes.%s: a name that starts with kube-api-access- (Kubernetes takes such a volume for the ServiceAccount token volume) or chart-base- (reserved for volumes chart-base adds) is not allowed: choose another name" $name)) -}}
 {{- end -}}
+{{- if and (eq $v.type "volumeClaimTemplate") (ne $.Values.workload.type "statefulset") -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s is a volumeClaimTemplate entry, a claim per pod that only a StatefulSet creates, and workload.type is %s: set workload.type: statefulset, or use an ephemeral entry (a claim per pod, deleted with its pod) or a persistentVolumeClaim entry (an existing claim)" $name $.Values.workload.type)) -}}
+{{- end -}}
 {{- $required := index $requiredField $v.type -}}
 {{- if and $required (not (hasKey $v $required)) -}}
 {{- include "chart-base.fail" (list $ (printf "volumes.%s.%s is null, and %s %s entry needs it: set it, or remove the entry with volumes.%s: null" $name $required (ternary "an" "a" (eq $v.type "ephemeral")) $v.type $name)) -}}
@@ -469,7 +494,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- range $field := keys $v | sortAlpha -}}
 {{- if not (has $field $own) -}}
 {{- $owners := list -}}
-{{- range $t := keys $typeFields | sortAlpha }}{{ if has $field (index $typeFields $t) }}{{ $owners = append $owners $t }}{{ end }}{{ end -}}
+{{- range $t := $offered | sortAlpha }}{{ if has $field (index $typeFields $t) }}{{ $owners = append $owners $t }}{{ end }}{{ end -}}
 {{- include "chart-base.fail" (list $ (printf "volumes.%s.%s is a field of type %s and the entry is %s: remove it (from an overlay, set it to null)" $name $field (join " or " $owners) $v.type)) -}}
 {{- end -}}
 {{- end -}}
@@ -534,8 +559,8 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- if and (eq $v.type "persistentVolumeClaim") (eq ($v.claimAccessMode | default "ReadWriteOnce") "ReadOnlyMany") (hasKey $v "readOnly") (not $v.readOnly) -}}
 {{- include "chart-base.fail" (list $ (printf "volumes.%s.readOnly is false, and the claim is declared ReadOnlyMany (claimAccessMode), so its mount is read-only: remove readOnly, or declare the claim's real access mode" $name)) -}}
 {{- end -}}
-{{- /* An emptyDir or ephemeral volume that every container mounts read-only can never be written (an init container that fills a volume the main container reads mounts it writable). */ -}}
-{{- if has $v.type (list "emptyDir" "ephemeral") -}}
+{{- /* An emptyDir, ephemeral or volumeClaimTemplate volume that every container mounts read-only can never be written (an init container that fills a volume the main container reads mounts it writable; a new claim starts empty). */ -}}
+{{- if has $v.type (list "emptyDir" "ephemeral" "volumeClaimTemplate") -}}
 {{- $readOnly := list -}}
 {{- if hasKey $v "mountPath" }}{{ $readOnly = append $readOnly (and (hasKey $v "readOnly") $v.readOnly) }}{{ end -}}
 {{- range $c := $containers.ordered }}{{ with get ($c.entry.volumeMounts | default dict) $name }}{{ $readOnly = append $readOnly (and (hasKey . "readOnly") .readOnly) }}{{ end }}{{ end -}}
@@ -565,11 +590,12 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- end -}}
 {{- end -}}
 
-{{- /* volumes: an existing claim declared ReadWriteOnce or ReadWriteOncePod is attached for one pod at a time, so a Deployment that mounts it must never run two pods. Only persistentVolumeClaim entries: an ephemeral volume has a claim per pod. This is the Deployment branch: its remedies are a Deployment's (another workload type gets a branch of its own). */ -}}
-{{- if eq .Values.workload.type "deployment" -}}
+{{- /* volumes: an existing claim declared ReadWriteOnce or ReadWriteOncePod is attached for one pod at a time, so a Deployment or a StatefulSet that mounts it must never run two pods. Only persistentVolumeClaim entries: an ephemeral or volumeClaimTemplate volume has a claim per pod. Two branches, as their remedies differ: the Deployment's has a surge term (a rolling update adds a pod); the StatefulSet's has none (its rolling update deletes a pod before it creates the replacement) and offers a claim per pod (ADR-0071). */ -}}
+{{- if include "chart-base.longRunning" . -}}
+{{- $isDeployment := eq .Values.workload.type "deployment" -}}
 {{- $claimStrategy := $strategy -}}
 {{- $claimRollingUpdate := $claimStrategy.rollingUpdate | default dict -}}
-{{- $surges := ne ($claimStrategy.type | default "") "Recreate" -}}
+{{- $surges := and $isDeployment (ne ($claimStrategy.type | default "") "Recreate") -}}
 {{- if hasKey $claimRollingUpdate "maxSurge" -}}
 {{- $claimSurge := $claimRollingUpdate.maxSurge -}}
 {{- if kindIs "string" $claimSurge }}{{ $claimSurge = trimSuffix "%" $claimSurge | atoi }}{{ end -}}
@@ -594,7 +620,11 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- $declared := $v.claimAccessMode | default "ReadWriteOnce" -}}
 {{- if and $twoPods (hasKey $onePodClaims $name) -}}
 {{- $declaration := printf "%s (claimAccessMode%s)" $declared (ternary "" ", the default" (hasKey $v "claimAccessMode")) -}}
+{{- if $isDeployment -}}
 {{- include "chart-base.fail" (list $ (printf "volumes.%s mounts the existing claim %q, declared %s: a node attaches such a claim for one pod at a time, and this Deployment can run a second pod (%s); on another node that pod waits for the volume and the rollout fails at progressDeadlineSeconds. Run one pod at a time: %s, and a strategy that adds no pod: strategy: {type: Recreate} for a new component; strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}} for a Deployment that already exists (with Helm 4 the API refuses a switch to Recreate in that upgrade); strategy: {type: Recreate, rollingUpdate: null} from an override file over values that set rollingUpdate. Or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.%s.claimAccessMode" $name $v.claimName $declaration (join "; " $twoPods) $onePod $name)) -}}
+{{- else -}}
+{{- include "chart-base.fail" (list $ (printf "volumes.%s mounts the existing claim %q, declared %s: a node attaches such a claim for one pod at a time, and this StatefulSet can run a second pod (%s); on another node that pod waits for the volume and never starts. Run one pod: %s. For a claim per pod, use a volumeClaimTemplate entry instead; or, if the claim really is ReadWriteMany or ReadOnlyMany, declare it in volumes.%s.claimAccessMode" $name $v.claimName $declaration (join "; " $twoPods) $onePod $name)) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

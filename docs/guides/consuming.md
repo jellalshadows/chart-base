@@ -20,8 +20,8 @@ Contents:
 
 - **One umbrella chart per business domain** (for example `vending`).
 - **One `chart-base` dependency per component**, each with a different `alias` (`sales`, `machines`,
-  `front-web`). One alias renders **one workload**: a Deployment, a CronJob or a Job, plus the
-  objects that belong to it (Service, ConfigMaps, ExternalSecret, and so on). A worker is a
+  `front-web`). One alias renders **one workload**: a Deployment, a StatefulSet (1.6.0), a CronJob or a
+  Job, plus the objects that belong to it (Service, ConfigMaps, ExternalSecret, and so on). A worker is a
   Deployment with `service.enabled: false`.
 - **One Helm release per domain.** The umbrella is installed once, so every component of the domain
   is upgraded and rolled back together. This is the accepted trade-off of the model: a broken
@@ -351,7 +351,7 @@ component's `externalSecret` Secret included. Its annotations are its owner's: `
 render with `create: false` (an override file clears inherited annotations with `serviceAccount.annotations: null`;
 `{}` is merged and clears nothing), and an annotation change reaches only pods created afterwards (restart the
 Deployment). Keeping the chart's own ServiceAccount under its name, for a cloud identity's trust policy, takes two
-deploys on a `deployment` or `cronjob` component, with `helm.sh/resource-policy: keep` first
+deploys on a `deployment`, `statefulset` or `cronjob` component, with `helm.sh/resource-policy: keep` first
 ([upgrade guide](../upgrading.md#keeping-the-charts-serviceaccount-under-its-name)): in one step Helm deletes the
 ServiceAccount, and the pods, which do not roll, lose it. On a `job` component the ServiceAccount is a hook, which Helm
 deletes once the phase succeeds whatever `resource-policy` says (measured on Helm 4.3.0 and 3.22.0): after a
@@ -491,7 +491,7 @@ Secret `<fullname>-secrets`. It needs External Secrets Operator 0.16 or later (`
 
 ## Autoscaling: the HPA and KEDA
 
-A Deployment component scales with the chart's HorizontalPodAutoscaler (`autoscaling`,
+A Deployment or StatefulSet component scales with the chart's HorizontalPodAutoscaler (`autoscaling`,
 [ADR-0052](../adr/0052-hpa-targets-measure-the-main-container-with-sidecars.md),
 [ADR-0055](../adr/0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md)) or with a KEDA ScaledObject (`keda`,
 [ADR-0056](../adr/0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md)), never with both. What a consumer
@@ -551,11 +551,45 @@ must know:
   [upgrade guide](../upgrading.md#09x--0100): from the HPA to KEDA in one upgrade is denied by KEDA's webhook, and from
   KEDA back to the HPA at zero replicas leaves the component at zero.
 
+## A StatefulSet: a claim per pod
+
+`workload.type: statefulset` (1.6.0) runs the component as a StatefulSet, for a component that keeps data on a disk of
+its own per pod ([ADR-0071](../adr/0071-a-statefulset-workload-type-with-a-claim-per-pod.md)). The pod template, the
+probes, the containers, the volumes and the integrations are the Deployment's; what differs:
+
+- **A claim per pod.** A `volumes` entry of type `volumeClaimTemplate` takes the fields of an `ephemeral` entry
+  (`size`, `accessMode`, `storageClassName`) and is mounted like any volume, but each pod gets its own claim,
+  `<volume>-<fullname>-<ordinal>`, which outlives the pod: a rollout, a restart or a reschedule keeps the data. The
+  claims also stay after `helm uninstall` and a scale-down unless `statefulset.persistentVolumeClaimRetentionPolicy`
+  says `Delete`. The type fails on any other workload type.
+- **A headless Service.** The alias's Service, under the same name, has `clusterIP: None`: each ready pod is
+  `<fullname>-<ordinal>.<fullname>.<namespace>.svc`, and the Service's name returns every ready pod's address.
+  `service.type` must be `ClusterIP`; traffic from outside the cluster goes through `httpRoute`, `grpcRoute` or
+  `ingress`. Without a Service (`service.enabled: false`) the pods have no DNS name.
+- **The rollout** is `statefulset.updateStrategy` (`RollingUpdate`, with an optional `partition`, or `OnDelete`) and
+  `statefulset.podManagementPolicy` (`OrderedReady`, the default, starts the pods one after the other; `Parallel`
+  starts them together). `strategy` and `progressDeadlineSeconds` are ignored. The chart always renders
+  `updateStrategy`, the default written out as `{type: RollingUpdate, rollingUpdate: {partition: 0}}`, so a later
+  switch to `OnDelete` takes one upgrade. Rendered for Kubernetes 1.37 or later, where the `MaxUnavailableStatefulSet`
+  feature gate defaults on, `rollingUpdate` also carries `maxUnavailable: 1` (a constant, not a value); `helm template`
+  renders for Helm's built-in version unless you pass `--kube-version`.
+- **Fixed after the first install:** `podManagementPolicy`, `serviceName` (`service.enabled`) and the claim templates
+  (a `volumeClaimTemplate` entry added, removed or renamed, its size, access mode or class). The API server refuses
+  such an upgrade; the [upgrade guide](../upgrading.md#what-cannot-change-once-the-statefulset-exists) has the
+  procedure. A claim template carries the two selector labels only, never `commonLabels`, so changing `commonLabels`
+  never touches it.
+- **One pod for an existing `ReadWriteOnce` claim.** A `persistentVolumeClaim` entry declared `ReadWriteOnce` or
+  `ReadWriteOncePod` needs `replicas` 0 or 1 and no HPA (or `keda.maxReplicaCount: 1`), as on a Deployment but without
+  the strategy term; for a claim per pod, use a `volumeClaimTemplate` entry.
+- **The name** `<release>-<alias>` is at most 52 characters, as a CronJob's: the StatefulSet controller writes it,
+  with a hash of up to 10 characters, in a label of every pod.
+
 ## Common labels and annotations, and extra objects
 
 `commonLabels` and `commonAnnotations` are per alias (`global` is not read). The common labels join every labels map the
 chart writes (every object's metadata, the pod templates, the CronJob's job template, an `ephemeral` claim template and
-the ExternalSecret's `template.metadata.labels`), never a selector; the common annotations join every object's
+the ExternalSecret's `template.metadata.labels`), never a selector and never a StatefulSet's claim template, which the
+API server never lets change ([ADR-0071](../adr/0071-a-statefulset-workload-type-with-a-claim-per-pod.md)); the common annotations join every object's
 metadata, never a template's. A per-object map wins on a shared key. `extraObjects` renders objects the chart does not
 offer ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-and-extraobjects.md)). What to know:
 
@@ -605,8 +639,9 @@ offer ([ADR-0057](../adr/0057-common-labels-and-annotations-service-annotations-
    `podLabels` rejected the two selector labels only and the other three annotations maps nothing
    ([ADR-0061](../adr/0061-reserved-metadata-keys-and-a-required-ingress-class.md)). The labels and annotations of a
    PrometheusRule's rules are alert fields, not metadata, and reject nothing.
-9. **Changing `commonLabels` rolls a Deployment's pods** (the pod template changes); the next CronJob run and the next
-   Job get them. `commonAnnotations` roll nothing.
+9. **Changing `commonLabels` rolls a Deployment's or a StatefulSet's pods** (the pod template changes); the next
+   CronJob run and the next Job get them. `commonAnnotations` roll nothing. A StatefulSet's claim templates carry
+   neither, so the upgrade never fails on them.
 
 The rejected kinds, each failing the render with a remedy and then `set extraObjects.<key>: null`: the built-in
 workloads, `Service`, `Endpoints`, `EndpointSlice`, `Secret`, `List`, a kind ending in `List` and any object with a
@@ -624,8 +659,9 @@ release name and `--namespace`, not on `helm lint`
 - A value that breaks the schema: an unknown key, a wrong type, a missing required key, a
   `maxUnavailable` given as a percentage above 100% (an integer above 100 is valid). The error names the
   alias. Keys that apply to one workload type only (`strategy`, `minReadySeconds`, ...) are ignored on the
-  others, not rejected; the exceptions are the Deployment-only integrations (`httpRoute`, `grpcRoute`, `ingress`,
-  `autoscaling`, `metrics`), which fail when they are enabled on a CronJob or a Job. `helm lint` fails on these
+  others, not rejected; the exceptions are the integrations of a Deployment or a StatefulSet (`httpRoute`, `grpcRoute`,
+  `ingress`, `autoscaling`, `keda`, `metrics`), which fail when they are enabled on a CronJob or a Job, and the
+  `statefulset` block and a `volumeClaimTemplate` entry, which fail on any type but `statefulset`. `helm lint` fails on these
   too when it lints the chart itself; through an umbrella it passed a `null` that deletes a required key
   (`api.rbac: null`, measured on Helm 4.3.0 and 3.22.0 with a `-f` file), which `helm template` rejects.
 - A guard that spans several keys or names. `helm lint` does not fail on a guard: it prints the message as an INFO
@@ -663,9 +699,10 @@ release name and `--namespace`, not on `helm lint`
   not one of their paths, a directory that holds one, or `.`; a `configMap` or `secret` file
   (`subPath`) beneath a ConfigMap or Secret mount; a `readOnly` that the type contradicts; a size of zero;
   `medium: Memory` without `sizeLimit`; a reference to the component's own ConfigMaps or Secret; two entries of one
-  claim; an existing claim declared `ReadWriteOnce` or `ReadWriteOncePod` on a Deployment that can run two pods; a
-  volume without `mountPath` that no container mounts, `subPath` or `readOnly` on such a volume, and an `emptyDir` or
-  `ephemeral` volume that every container mounts read-only.
+  claim; an existing claim declared `ReadWriteOnce` or `ReadWriteOncePod` on a Deployment or a StatefulSet that can run
+  two pods; a `volumeClaimTemplate` entry on a workload type other than `statefulset`; a
+  volume without `mountPath` that no container mounts, `subPath` or `readOnly` on such a volume, and an `emptyDir`,
+  `ephemeral` or `volumeClaimTemplate` volume that every container mounts read-only.
 - The guards of `initContainers` and `sidecars` ([ADR-0051](../adr/0051-init-containers-and-sidecars-are-two-maps-in-one-start-order.md)): the list form; a container name that
   is not a DNS-1123 label or that another container of the pod has; `restartPolicy` in an entry; a container that
   would run as UID 0 with `runAsNonRoot: true`; a sidecar on a `job` or `cronjob` without `job.activeDeadlineSeconds`;

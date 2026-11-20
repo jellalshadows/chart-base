@@ -1,4 +1,4 @@
-{{- if and (eq .Values.workload.type "deployment") .Values.pdb.enabled }}
+{{- if and (include "chart-base.longRunning" .) .Values.pdb.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:

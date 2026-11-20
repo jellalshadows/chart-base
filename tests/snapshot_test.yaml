@@ -21,6 +21,7 @@ templates:
   - templates/service.yaml
   - templates/serviceaccount.yaml
   - templates/servicemonitor.yaml
+  - templates/statefulset.yaml
 release:
   name: vending
   namespace: vending
@@ -69,5 +70,11 @@ tests:
   - it: keda scenario
     values:
       - ../ci/keda-values.yaml
+    asserts:
+      - matchSnapshot: {}
+
+  - it: statefulset scenario
+    values:
+      - ../ci/statefulset-values.yaml
     asserts:
       - matchSnapshot: {}

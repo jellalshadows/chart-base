@@ -496,3 +496,30 @@ tests:
             app.kubernetes.io/name: chart-base
             app.kubernetes.io/instance: vending
             team: a
+
+  - it: keeps an ephemeral volume of a cronjob as it was (claim template labels, every field), the claim template now shared with the StatefulSet
+    template: templates/cronjob.yaml
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 3 * * *"
+      commonLabels: {team: a}
+      volumes:
+        scratch: {type: ephemeral, mountPath: /scratch, size: 2Gi, accessMode: ReadWriteOncePod, storageClassName: fast.ssd}
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.volumes[1]
+          value:
+            name: scratch
+            ephemeral:
+              volumeClaimTemplate:
+                metadata:
+                  labels:
+                    app.kubernetes.io/name: chart-base
+                    app.kubernetes.io/instance: vending
+                    team: a
+                spec:
+                  accessModes: [ReadWriteOncePod]
+                  storageClassName: fast.ssd
+                  resources:
+                    requests:
+                      storage: 2Gi

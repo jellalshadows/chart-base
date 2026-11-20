@@ -1,6 +1,6 @@
 {{- /* grpcRoute may be absent: a --reuse-values upgrade from 1.3 or older renders with the previous values. */}}
 {{- $grpcRoute := .Values.grpcRoute | default dict }}
-{{- if and (eq .Values.workload.type "deployment") (eq $grpcRoute.enabled true) }}
+{{- if and (include "chart-base.longRunning" .) (eq $grpcRoute.enabled true) }}
 {{- $fullname := include "chart-base.fullname" . }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: GRPCRoute

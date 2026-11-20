@@ -656,6 +656,15 @@ sidecars.<name>.volumeMounts
 sidecars.<name>.volumeMounts.<name>.mountPath
 sidecars.<name>.volumeMounts.<name>.readOnly
 sidecars.<name>.volumeMounts.<name>.subPath
+statefulset
+statefulset.persistentVolumeClaimRetentionPolicy
+statefulset.persistentVolumeClaimRetentionPolicy.whenDeleted
+statefulset.persistentVolumeClaimRetentionPolicy.whenScaled
+statefulset.podManagementPolicy
+statefulset.updateStrategy
+statefulset.updateStrategy.rollingUpdate
+statefulset.updateStrategy.rollingUpdate.partition
+statefulset.updateStrategy.type
 strategy
 strategy.rollingUpdate
 strategy.rollingUpdate.maxSurge

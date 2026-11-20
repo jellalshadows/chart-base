@@ -498,10 +498,10 @@
       }
     },
     "volume": {
-      "description": "An entry of volumes: one pod volume and, with mountPath, its mount in the main container. null = no entry; every optional field also accepts null (absent). One closed list of the fields of every type: a field of another type is rejected by templates/validate.yaml, so that an overlay can change the type by setting the previous type's fields to null.",
+      "description": "An entry of volumes: one pod volume (a volumeClaimTemplate entry: one claim template of a statefulset, ADR-0071) and, with mountPath, its mount in the main container. null = no entry; every optional field also accepts null (absent). One closed list of the fields of every type: a field of another type is rejected by templates/validate.yaml, so that an overlay can change the type by setting the previous type's fields to null.",
       "type": ["object", "null"], "additionalProperties": false, "required": ["type"],
       "properties": {
-        "type": { "enum": ["emptyDir", "configMap", "secret", "persistentVolumeClaim", "ephemeral"] },
+        "type": { "enum": ["emptyDir", "configMap", "secret", "persistentVolumeClaim", "ephemeral", "volumeClaimTemplate"] },
         "mountPath": { "type": ["string", "null"], "pattern": "^/", "description": "The main container's mount, absolute (the kubelet would resolve a relative path against /). null or absent: no mount in the main container (templates/validate.yaml then requires a mount in an init container or a sidecar)." },
         "subPath": { "$ref": "#/definitions/subPath" },
         "readOnly": { "type": ["boolean", "null"] },
@@ -523,7 +523,8 @@
         { "if": { "required": ["type"], "properties": { "type": { "const": "configMap" } } }, "then": { "required": ["name"] } },
         { "if": { "required": ["type"], "properties": { "type": { "const": "secret" } } }, "then": { "required": ["secretName"] } },
         { "if": { "required": ["type"], "properties": { "type": { "const": "persistentVolumeClaim" } } }, "then": { "required": ["claimName"] } },
-        { "if": { "required": ["type"], "properties": { "type": { "const": "ephemeral" } } }, "then": { "required": ["size"] } }
+        { "if": { "required": ["type"], "properties": { "type": { "const": "ephemeral" } } }, "then": { "required": ["size"] } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "volumeClaimTemplate" } } }, "then": { "required": ["size"] } }
       ]
     },
     "resources": {
@@ -787,7 +788,7 @@
       "additionalProperties": false,
       "required": ["type"],
       "properties": {
-        "type": { "enum": ["deployment", "cronjob", "job"] }
+        "type": { "enum": ["deployment", "statefulset", "cronjob", "job"] }
       }
     },
     "image": {
@@ -973,6 +974,36 @@
     },
     "minReadySeconds": { "type": ["integer", "null"], "minimum": 0 },
     "revisionHistoryLimit": { "type": ["integer", "null"], "minimum": 0 },
+    "statefulset": {
+      "description": "workload.type statefulset only (since 1.6.0, ADR-0071): every member optional (ADR-0064), null or absent = the Kubernetes default, and a null field is absent (ADR-0070); updateStrategy is always rendered, the default written out as {type: RollingUpdate, rollingUpdate: {partition: 0}} (and maxUnavailable: 1 when rendering for Kubernetes 1.37 or later, where the MaxUnavailableStatefulSet gate defaults on) so that Helm owns its keys and a switch to OnDelete takes one upgrade (maxUnavailable is a constant of the chart, not a value). templates/validate.yaml rejects a non-null member on another workload type and a rollingUpdate next to OnDelete (template guards, not an if here: an if on a key of this block holds vacuously when a --reuse-values upgrade lacks it).",
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "podManagementPolicy": { "enum": ["OrderedReady", "Parallel", null] },
+        "updateStrategy": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "enum": ["RollingUpdate", "OnDelete", null] },
+            "rollingUpdate": {
+              "type": ["object", "null"],
+              "additionalProperties": false,
+              "properties": {
+                "partition": { "type": ["integer", "null"], "minimum": 0 }
+              }
+            }
+          }
+        },
+        "persistentVolumeClaimRetentionPolicy": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "whenDeleted": { "enum": ["Retain", "Delete", null] },
+            "whenScaled": { "enum": ["Retain", "Delete", null] }
+          }
+        }
+      }
+    },
     "service": {
       "type": "object",
       "additionalProperties": false,
@@ -1013,7 +1044,7 @@
       }
     },
     "keda": {
-      "description": "A KEDA ScaledObject for the Deployment (keda.sh/v1alpha1); null or absent = KEDA off. Bounds from KEDA chart 2.21.0's CRD.",
+      "description": "A KEDA ScaledObject for the Deployment or the StatefulSet (keda.sh/v1alpha1); null or absent = KEDA off. Bounds from KEDA chart 2.21.0's CRD.",
       "type": ["object", "null"],
       "additionalProperties": false,
       "required": ["enabled", "minReplicaCount", "maxReplicaCount"],
@@ -1309,7 +1340,7 @@
     "commonLabels": { "$ref": "#/definitions/extraLabels" },
     "extraObjects": { "type": ["object", "null"], "additionalProperties": { "$ref": "#/definitions/extraObject" } },
     "commonAnnotations": {
-      "description": "The reserved keys of definitions.extraAnnotations, repeated (one schema: an allOf would add a line to its errors), and the two Reloader keys the chart computes on the Deployment (a common one would render the key twice). A key set to null is absent (ADR-0070).",
+      "description": "The reserved keys of definitions.extraAnnotations, repeated (one schema: an allOf would add a line to its errors), and the two Reloader keys the chart computes on the Deployment or the StatefulSet (a common one would render the key twice). A key set to null is absent (ADR-0070).",
       "type": "object", "additionalProperties": { "if": { "not": { "type": "null" } }, "then": { "type": "string" } },
       "patternProperties": { "^helm\\.sh/hook": false, "^meta\\.helm\\.sh/": false },
       "properties": { "checksum/config-env": false, "checksum/config-files": false, "secret.reloader.stakater.com/reload": false, "configmap.reloader.stakater.com/reload": false }
@@ -1380,7 +1411,7 @@
     {
       "if": {
         "properties": {
-          "workload": { "properties": { "type": { "const": "deployment" } } },
+          "workload": { "properties": { "type": { "enum": ["deployment", "statefulset"] } } },
           "service": { "properties": { "enabled": { "const": true } } }
         }
       },

@@ -44,7 +44,7 @@ tests:
         host: {type: hostPath, mountPath: /host}
     asserts:
       - failedTemplate:
-          errorPattern: "/volumes/host/type': value must be one of 'emptyDir', 'configMap', 'secret', 'persistentVolumeClaim', 'ephemeral'"
+          errorPattern: "/volumes/host/type': value must be one of 'emptyDir', 'configMap', 'secret', 'persistentVolumeClaim', 'ephemeral', 'volumeClaimTemplate'"
 
   - it: rejects an entry without a type, naming only the type
     set:
@@ -1291,3 +1291,170 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "strategy.rollingUpdate.maxSurge is not set, and the Kubernetes default \\(25%\\) adds a pod"
+
+  # volumeClaimTemplate (1.6.0, ADR-0071): a claim per pod that the StatefulSet creates, shaped like an ephemeral claim.
+  - it: accepts a volumeClaimTemplate entry with every field of its own on a statefulset
+    set:
+      workload.type: statefulset
+      volumes:
+        data: {type: volumeClaimTemplate, mountPath: /data, subPath: db, readOnly: false, size: 1Gi, accessMode: ReadWriteOncePod, storageClassName: fast.ssd}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a null for every optional field of a volumeClaimTemplate entry
+    set:
+      workload.type: statefulset
+      volumes:
+        data: {type: volumeClaimTemplate, mountPath: /data, size: 1Gi, subPath: null, readOnly: null, accessMode: null, storageClassName: null, medium: null, claimName: null}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a volumeClaimTemplate entry on a deployment
+    set:
+      volumes:
+        data: {type: volumeClaimTemplate, mountPath: /data, size: 1Gi}
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: volumes.data is a volumeClaimTemplate entry, a claim per pod that only a StatefulSet creates, and workload.type is deployment: set workload.type: statefulset, or use an ephemeral entry (a claim per pod, deleted with its pod) or a persistentVolumeClaim entry (an existing claim)"
+
+  - it: rejects a volumeClaimTemplate entry on a cronjob
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 3 * * *"
+      volumes:
+        data: {type: volumeClaimTemplate, mountPath: /data, size: 1Gi}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data is a volumeClaimTemplate entry, a claim per pod that only a StatefulSet creates, and workload.type is cronjob'
+
+  - it: rejects a volumeClaimTemplate entry on a job
+    set:
+      workload.type: job
+      volumes:
+        data: {type: volumeClaimTemplate, mountPath: /data, size: 1Gi}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data is a volumeClaimTemplate entry, a claim per pod that only a StatefulSet creates, and workload.type is job'
+
+  - it: accepts a null volumeClaimTemplate entry on a deployment (absent)
+    set:
+      volumes:
+        data: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a volumeClaimTemplate entry without its size
+    set:
+      workload.type: statefulset
+      volumes:
+        data: {type: volumeClaimTemplate, mountPath: /data}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/data': missing property 'size'"
+
+  - it: rejects a volumeClaimTemplate entry whose size is null
+    set:
+      workload.type: statefulset
+      volumes:
+        data: {type: volumeClaimTemplate, mountPath: /data, size: null}
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: volumes.data.size is null, and a volumeClaimTemplate entry needs it: set it, or remove the entry with volumes.data: null"
+
+  - it: rejects a volumeClaimTemplate size of zero
+    set:
+      workload.type: statefulset
+      volumes:
+        data: {type: volumeClaimTemplate, mountPath: /data, size: "0Gi"}
+    asserts:
+      - failedTemplate:
+          errorMessage: 'chart-base[chart-base]: volumes.data.size is "0Gi", a size of zero: the claim would request no storage; write a positive quantity, e.g. 1Gi'
+
+  - it: rejects ReadOnlyMany as the accessMode of a volumeClaimTemplate entry (a new claim starts empty)
+    set:
+      workload.type: statefulset
+      volumes:
+        data: {type: volumeClaimTemplate, mountPath: /data, size: 1Gi, accessMode: ReadOnlyMany}
+    asserts:
+      - failedTemplate:
+          errorPattern: "/volumes/data/accessMode': value must be one of 'ReadWriteOnce', 'ReadWriteOncePod', 'ReadWriteMany'"
+
+  - it: rejects claimName on a volumeClaimTemplate entry (a field of type persistentVolumeClaim)
+    set:
+      workload.type: statefulset
+      volumes:
+        data: {type: volumeClaimTemplate, mountPath: /data, size: 1Gi, claimName: d}
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: volumes.data.claimName is a field of type persistentVolumeClaim and the entry is volumeClaimTemplate: remove it (from an overlay, set it to null)"
+
+  - it: rejects medium on a volumeClaimTemplate entry (a field of type emptyDir)
+    set:
+      workload.type: statefulset
+      volumes:
+        data: {type: volumeClaimTemplate, mountPath: /data, size: 1Gi, medium: Memory}
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: volumes.data.medium is a field of type emptyDir and the entry is volumeClaimTemplate: remove it (from an overlay, set it to null)"
+
+  - it: names both claim types as the owners of size on a statefulset
+    set:
+      workload.type: statefulset
+      volumes:
+        x: {type: emptyDir, mountPath: /x, size: 1Gi}
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: volumes.x.size is a field of type ephemeral or volumeClaimTemplate and the entry is emptyDir: remove it (from an overlay, set it to null)"
+
+  - it: keeps naming ephemeral alone as the owner of accessMode on a deployment (volumeClaimTemplate is a statefulset's)
+    set:
+      volumes:
+        data: {type: persistentVolumeClaim, mountPath: /data, claimName: d, accessMode: ReadWriteOnce}
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: volumes.data.accessMode is a field of type ephemeral and the entry is persistentVolumeClaim: remove it (from an overlay, set it to null)"
+
+  - it: accepts a type change written as an overlay writes it (ephemeral to volumeClaimTemplate on a statefulset)
+    set:
+      workload.type: statefulset
+      volumes:
+        data: {type: volumeClaimTemplate, mountPath: /data, size: 10Gi, medium: null, claimName: null}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects readOnly true on a volumeClaimTemplate volume that no other container mounts (nothing could write it)
+    set:
+      workload.type: statefulset
+      volumes:
+        data: {type: volumeClaimTemplate, mountPath: /data, size: 1Gi, readOnly: true}
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: volumes.data (volumeClaimTemplate) is mounted read-only by every container that mounts it, so nothing can write it: mount it writable in one container"
+
+  - it: accepts a volumeClaimTemplate volume without mountPath that a sidecar mounts
+    set:
+      workload.type: statefulset
+      volumes:
+        data: {type: volumeClaimTemplate, size: 1Gi}
+      sidecars:
+        db:
+          image: {repository: ghcr.io/acme/db, tag: "1"}
+          resources: {requests: {cpu: 10m, memory: 16Mi}}
+          volumeMounts:
+            data: {mountPath: /var/lib/db}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: rejects a volumeClaimTemplate volume without mountPath that no container mounts
+    set:
+      workload.type: statefulset
+      volumes:
+        data: {type: volumeClaimTemplate, size: 1Gi}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'chart-base\[chart-base\]: volumes.data has no mountPath and no container mounts it'

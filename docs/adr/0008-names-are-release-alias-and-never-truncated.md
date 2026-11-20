@@ -1,6 +1,6 @@
 # ADR-0008: Names are `<release>-<alias>` and never truncated
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR-0071](0071-a-statefulset-workload-type-with-a-claim-per-pod.md) (1.6.0)
 - **Date:** 2026-09-27
 - **Since:** 0.1.0
 

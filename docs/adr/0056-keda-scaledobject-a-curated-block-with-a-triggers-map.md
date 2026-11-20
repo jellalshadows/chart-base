@@ -1,6 +1,6 @@
 # ADR-0056: KEDA: a curated ScaledObject block with a triggers map, in place of the HPA
 
-- **Status:** Accepted — amended by [ADR-0065](0065-an-opt-in-handover-from-the-chart-s-hpa-to-keda.md) (1.1.0)
+- **Status:** Accepted — amended by [ADR-0065](0065-an-opt-in-handover-from-the-chart-s-hpa-to-keda.md) (1.1.0) and [ADR-0071](0071-a-statefulset-workload-type-with-a-claim-per-pod.md) (1.6.0)
 - **Date:** 2026-10-12
 - **Since:** 0.10.0
 - **Related:** [ADR-0012](0012-no-capabilities-gating.md), [ADR-0015](0015-pdb-and-topology-spread-by-default.md), [ADR-0027](0027-required-keys-in-the-schema.md), [ADR-0044](0044-guards-fail-the-render-helm-lint-reports-them.md), [ADR-0050](0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md) (amended), [ADR-0053](0053-externalsecret-datafrom-template-files-and-an-envfrom-switch.md), [ADR-0054](0054-env-externalsecretkeyref-references-the-components-own-secret.md), [ADR-0055](0055-hpa-behavior-and-metrics-are-validated-pass-throughs.md)

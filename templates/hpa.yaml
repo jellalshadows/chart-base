@@ -1,4 +1,4 @@
-{{- if and (eq .Values.workload.type "deployment") .Values.autoscaling.enabled }}
+{{- if and (include "chart-base.longRunning" .) .Values.autoscaling.enabled }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:

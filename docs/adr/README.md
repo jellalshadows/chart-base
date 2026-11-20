@@ -81,6 +81,7 @@ not published; each record restates every fact it uses.
 | [0068](0068-schema-checks-on-map-keys-report-the-right-path.md) | Schema checks on map keys report the right path | Accepted | 1.3.1 |
 | [0069](0069-grpcroute-httproute-rules-and-appprotocol.md) | A GRPCRoute, extra HTTPRoute rules and `appProtocol` | Accepted | 1.4.0 |
 | [0070](0070-a-null-means-absent-chart-wide.md) | A `null` means absent, chart-wide | Accepted | 1.5.0 |
+| [0071](0071-a-statefulset-workload-type-with-a-claim-per-pod.md) | A StatefulSet workload type with a claim per pod | Accepted | 1.6.0 |
 
 ## Adding a record
 
