@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/jellalshadows/chart-base/compare/v1.5.0...v1.6.0) (2026-11-20)
+
+
+### Features
+
+* a StatefulSet workload type with a claim per pod ([#46](https://github.com/jellalshadows/chart-base/issues/46)) ([d9f8a1b](https://github.com/jellalshadows/chart-base/commit/d9f8a1b79ffa9f186f6ff56f5e6cc9f789d85720))
+
 ## [1.5.0](https://github.com/jellalshadows/chart-base/compare/v1.4.0...v1.5.0) (2026-11-19)
 
 
