@@ -30,21 +30,22 @@ spec:
   {{- with $sts.members.podManagementPolicy }}
   podManagementPolicy: {{ . }}
   {{- end }}
-  {{- /* Field by field: a partition stays an integer whatever its size (toYaml would write a large one as a float). */}}
-  {{- with $sts.members.updateStrategy }}
+  {{- /*
+  Always rendered, the Kubernetes defaults written out (RollingUpdate, partition 0): Helm then owns every key from the
+  first install, so a later switch to OnDelete removes rollingUpdate in one upgrade. Left to the API server's defaults,
+  rollingUpdate.partition would have no field manager, and a StatefulSet's updateStrategy has no retainKeys to drop it
+  (ADR-0071). Field by field: a partition stays an integer whatever its size (toYaml would write a large one as a
+  float). templates/validate.yaml rejects a rollingUpdate next to OnDelete.
+  */}}
+  {{- $updateStrategy := $sts.members.updateStrategy | default dict }}
   updateStrategy:
-    {{- with .type }}
-    type: {{ . }}
-    {{- end }}
-    {{- if hasKey . "rollingUpdate" }}
-    {{- if hasKey .rollingUpdate "partition" }}
-    rollingUpdate:
-      partition: {{ .rollingUpdate.partition | int64 }}
+    {{- if eq ($updateStrategy.type | default "") "OnDelete" }}
+    type: OnDelete
     {{- else }}
-    rollingUpdate: {}
+    type: RollingUpdate
+    rollingUpdate:
+      partition: {{ (($updateStrategy.rollingUpdate | default dict).partition | default 0) | int64 }}
     {{- end }}
-    {{- end }}
-  {{- end }}
   {{- with $sts.members.persistentVolumeClaimRetentionPolicy }}
   persistentVolumeClaimRetentionPolicy:
     {{- with .whenDeleted }}

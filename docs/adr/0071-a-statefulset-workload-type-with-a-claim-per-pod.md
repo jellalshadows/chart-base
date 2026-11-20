@@ -67,7 +67,8 @@ None of the four turned out false, so no alternative ruling was needed.
   ([ADR-0070](0070-a-null-means-absent-chart-wide.md)):
   - `podManagementPolicy`: `OrderedReady` or `Parallel` (absent: Kubernetes' `OrderedReady`);
   - `updateStrategy`: `type` (`RollingUpdate` or `OnDelete`) and `rollingUpdate.partition` (an integer, at least 0).
-    A `rollingUpdate` next to `OnDelete`, an empty one included, fails a guard: Kubernetes rejects it;
+    A `rollingUpdate` next to `OnDelete`, an empty one included, fails a guard: Kubernetes rejects it. It is the one
+    member always rendered (see the next point);
   - `persistentVolumeClaimRetentionPolicy`: `whenDeleted` and `whenScaled`, each `Retain` or `Delete` (absent:
     Kubernetes' `Retain`).
 
@@ -76,6 +77,25 @@ None of the four turned out false, so no alternative ruling was needed.
   key of the new block, which would hold vacuously after a `--reuse-values` upgrade from a release without it
   ([ADR-0069](0069-grpcroute-httproute-rules-and-appprotocol.md)); the schema's own rules condition on `workload.type`
   only.
+- **A StatefulSet always renders its `updateStrategy`, the Kubernetes defaults written out** (a ruling after review,
+  L29), so that Helm owns its keys from the first install:
+  - `statefulset.updateStrategy` absent, `null`, `{}` or left empty by its `null`s, or `type: RollingUpdate` without
+    `partition` (a `null` one included): `{type: RollingUpdate, rollingUpdate: {partition: 0}}`;
+  - `rollingUpdate.partition: N` without `type`: `{type: RollingUpdate, rollingUpdate: {partition: N}}`;
+  - `type: OnDelete`: `{type: OnDelete}` alone; the guard against a `rollingUpdate` next to `OnDelete` stays.
+
+  The reason is the trap [ADR-0050](0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md) measured
+  for a Deployment's switch to `Recreate`, predicted here from the Kubernetes source (the kind e2e pins the remedy).
+  Without `updateStrategy` in the manifest, the API server stores `{type: RollingUpdate, rollingUpdate: {partition:
+  0}}` (`SetDefaults_StatefulSet`), and no field manager owns `rollingUpdate`. A StatefulSet's `updateStrategy` has no
+  `retainKeys` patch strategy, unlike a Deployment's `strategy` (`apps/v1` `types.go`). A later upgrade to `{type:
+  OnDelete}` would then keep the stored `rollingUpdate`: under Helm 4's server-side apply because nobody owns it, under
+  Helm 3's three-way merge because the previous manifest did not have it. The API server rejects the result with
+  `` spec.updateStrategy.rollingUpdate: Invalid value: ...: only allowed for updateStrategy 'RollingUpdate' ``
+  (`ValidateStatefulSetSpec`). With the defaults written out, Helm owns `rollingUpdate.partition`, and a switch to
+  `OnDelete` removes it in one upgrade on Helm 4 (an owned key the new manifest lacks is removed) and on Helm 3 (the
+  three-way patch deletes a key the previous manifest had). The written defaults equal the stored ones, so the
+  StatefulSet behaves as with nothing rendered. The type is new in 1.6.0: no existing release changes.
 - **Claim templates are a new `volumes` entry type, `volumeClaimTemplate`** (the `volumes` name space,
   [ADR-0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md)). It takes the fields of an
   `ephemeral` entry (`size`, required; `accessMode`, `ReadWriteOnce` by default; `storageClassName`) and its shape:
@@ -138,7 +158,12 @@ None of the four turned out false, so no alternative ruling was needed.
 - A Deployment, a CronJob and a Job render as on 1.5.0, guards and messages included (measured: every 1.5.0 `ci/`
   scenario and a probe set of the features this decision touches, on Helm 4.3.0 and 3.22.0).
 - The kind e2e installs `ci/statefulset-values.yaml` and checks the headless Service, one Bound claim per pod on
-  kind's local-path class, the Ready pods, and that a pod's claim outlives the pod.
+  kind's local-path class, the Ready pods, that a pod's claim outlives the pod, and the stored `spec.updateStrategy`
+  (`{"rollingUpdate":{"partition":0},"type":"RollingUpdate"}`); it then switches the StatefulSet to `OnDelete` in one
+  upgrade and checks that `spec.updateStrategy` is exactly `{"type":"OnDelete"}`.
+- **A switch of `updateStrategy` takes one upgrade, in both directions.** `OnDelete` to `RollingUpdate` (with or
+  without a `partition`) and back are ordinary upgrades, on Helm 4 and Helm 3. Every StatefulSet manifest carries an
+  `updateStrategy`, also with the `statefulset` block absent.
 - **Out, recorded:** a DaemonSet (it conflicts with Pod Security `restricted`); a second Service, for example a
   ClusterIP one next to the headless one (one Service per alias, its name in the contract); guards on the immutable
   fields (they need `lookup`); `ordinals` and `updateStrategy.rollingUpdate.maxUnavailable` (`MaxUnavailableStatefulSet`
@@ -158,6 +183,21 @@ It would keep ADR-0057's rule that `commonLabels` reaches every labels map the c
 any change of a StatefulSet's claim templates, so every later change of `commonLabels`, a routine values change, would
 fail the upgrade of every statefulset with a claim template, until someone deletes the StatefulSet with
 `--cascade=orphan`. Rejected: a claim template carries the two frozen selector labels only.
+
+### Rendering no `updateStrategy` by default
+
+It keeps the rule of the other members (absent is the Kubernetes default, nothing rendered) and a shorter manifest.
+But the API server's default then has no field manager, and a later switch to `OnDelete` fails the upgrade (the
+reason above): the remedy would be two upgrades, a `partition` first so that Helm owns `rollingUpdate`, then
+`OnDelete`, as ADR-0050 documents for a Deployment that already exists. The type is new, so nothing forces that trap
+on it. Rejected for the defaults written out.
+
+### `rollingUpdate: null` next to `OnDelete` in the rendered manifest
+
+It would ask the API server to delete the unowned `rollingUpdate` on the switch. But server-side apply drops a `null`
+from the applied configuration, so the stored `rollingUpdate` would stay; and a `null` in the chart's values is absent
+by rule ([ADR-0070](0070-a-null-means-absent-chart-wide.md)), so the template would have to write it on its own.
+Rejected.
 
 ### A ClusterIP Service next to a headless one
 
@@ -185,6 +225,9 @@ every revision together during a rollout. Rejected for the label the StatefulSet
 - `tests/statefulset_test.yaml`, `tests/contract_test.yaml`, `tests/volumes_guards_test.yaml`,
   `tests/service_test.yaml`, `ci/statefulset-values.yaml`, `.github/scripts/e2e.sh`
 - [Kubernetes v1.33.0, `staging/src/k8s.io/api/apps/v1/types.go` (`ControllerRevisionHashLabelKey`, `StatefulSetRevisionLabel`)](https://github.com/kubernetes/kubernetes/blob/v1.33.0/staging/src/k8s.io/api/apps/v1/types.go#L27-L28)
+- [Kubernetes v1.33.0, `staging/src/k8s.io/api/apps/v1/types.go` (`StatefulSetSpec.UpdateStrategy`, no `patchStrategy`)](https://github.com/kubernetes/kubernetes/blob/v1.33.0/staging/src/k8s.io/api/apps/v1/types.go#L237-L240)
+  and [`DeploymentSpec.Strategy`, `patchStrategy:"retainKeys"`](https://github.com/kubernetes/kubernetes/blob/v1.33.0/staging/src/k8s.io/api/apps/v1/types.go#L394-L395)
+- [Kubernetes v1.33.0, `pkg/apis/apps/v1/defaults.go` (`SetDefaults_StatefulSet`: `RollingUpdate`, partition 0)](https://github.com/kubernetes/kubernetes/blob/v1.33.0/pkg/apis/apps/v1/defaults.go#L100-L120)
 - [Kubernetes v1.33.0, `pkg/controller/statefulset/stateful_set_utils.go` (`initIdentity`, `setPodRevision`)](https://github.com/kubernetes/kubernetes/blob/v1.33.0/pkg/controller/statefulset/stateful_set_utils.go#L437-L509)
 - [Kubernetes v1.33.0, `pkg/controller/history/controller_history.go` (`ControllerRevisionName`, `HashControllerRevision`)](https://github.com/kubernetes/kubernetes/blob/v1.33.0/pkg/controller/history/controller_history.go#L53-L104)
 - [Kubernetes v1.33.0, `pkg/controller/podautoscaler/horizontal.go` (the scale client)](https://github.com/kubernetes/kubernetes/blob/v1.33.0/pkg/controller/podautoscaler/horizontal.go#L1329-L1333)

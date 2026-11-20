@@ -1874,6 +1874,10 @@ statefulset scenario:
           volumes:
             - emptyDir: {}
               name: tmp
+      updateStrategy:
+        rollingUpdate:
+          partition: 0
+        type: RollingUpdate
       volumeClaimTemplates:
         - metadata:
             labels:

@@ -1397,7 +1397,9 @@ code, official docs) and local renders.
     only), so each pod gets a DNS name. A `volumes` entry of type `volumeClaimTemplate` (statefulset only, the fields of
     an `ephemeral` entry) is a claim template named after the volume: each pod mounts its own claim, which outlives the
     pod. The optional `statefulset` block takes `podManagementPolicy`, `updateStrategy` and
-    `persistentVolumeClaimRetentionPolicy`, through template guards. The routes, the HPA and KEDA (pointed at the
+    `persistentVolumeClaimRetentionPolicy`, through template guards; `updateStrategy` is always rendered, the default
+    written out (`RollingUpdate`, partition 0), so that Helm owns its keys and a switch to `OnDelete` takes one upgrade.
+    The routes, the HPA and KEDA (pointed at the
     StatefulSet), the PodDisruptionBudget, the monitors, the preStop sleep and the default topology spread (per
     `controller-revision-hash`) apply as on a Deployment; `strategy` and `progressDeadlineSeconds` do not. The name is at
     most 52 characters, an existing `ReadWriteOnce` claim needs one pod, and `serviceName`, `podManagementPolicy` and

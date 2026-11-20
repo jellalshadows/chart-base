@@ -900,6 +900,10 @@ statefulset:
 - `strategy` and `progressDeadlineSeconds` are ignored: the rollout is `statefulset.updateStrategy`. The routes, the HPA
   and KEDA, the PodDisruptionBudget, the monitors, the preStop sleep and the default topology spread apply as on a
   Deployment.
+- **The StatefulSet always carries its `updateStrategy`.** Without `statefulset.updateStrategy`, or with
+  `RollingUpdate` and no `partition`, the chart writes the Kubernetes default, `{type: RollingUpdate, rollingUpdate:
+  {partition: 0}}`, so that Helm owns its keys. A switch to `{type: OnDelete}` and back then takes one upgrade, on
+  Helm 4 and Helm 3: unlike a Deployment's switch to `Recreate`, no intermediate step is needed.
 - **The claims stay after `helm uninstall` and after a scale-down** (Kubernetes' default retention, `Retain`), with
   their data; a new install under the same names mounts them again. Set
   `statefulset.persistentVolumeClaimRetentionPolicy` to `Delete` to remove them with the StatefulSet or the

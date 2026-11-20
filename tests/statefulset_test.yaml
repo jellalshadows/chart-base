@@ -161,8 +161,9 @@ tests:
           path: spec.strategy
       - notExists:
           path: spec.progressDeadlineSeconds
-      - notExists:
+      - equal:
           path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
       - notExists:
           path: spec.podManagementPolicy
       - notExists:
@@ -191,8 +192,9 @@ tests:
           path: spec.strategy
       - notExists:
           path: spec.progressDeadlineSeconds
-      - notExists:
+      - equal:
           path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
 
   # The pod template: the Deployment's (chart-base.podSpec), its checksums and the Reloader annotations.
   - it: renders the shared pod spec (main container, ServiceAccount, security context, /tmp)
@@ -283,7 +285,9 @@ tests:
           path: metadata.annotations
 
   # The statefulset block: each member rendered as written without its nulls (ADR-0070); absent, null or left empty by
-  # its nulls, nothing is rendered and Kubernetes' default applies.
+  # its nulls, nothing is rendered and Kubernetes' default applies. updateStrategy is the exception: it is always
+  # rendered, the Kubernetes defaults written out, so that Helm owns its keys from the first install and a later switch
+  # to OnDelete removes rollingUpdate in one upgrade (ADR-0071).
   - it: renders podManagementPolicy as written
     template: templates/statefulset.yaml
     set:
@@ -311,14 +315,59 @@ tests:
           path: spec.updateStrategy
           value: {type: RollingUpdate, rollingUpdate: {partition: 2}}
 
-  - it: renders a rollingUpdate without type (Kubernetes defaults it to RollingUpdate), a partition 0 included
+  - it: renders a partition without type as a RollingUpdate with that partition
+    template: templates/statefulset.yaml
+    set:
+      statefulset.updateStrategy: {rollingUpdate: {partition: 3}}
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 3}}
+
+  - it: renders a partition 0 without type as a RollingUpdate with partition 0
     template: templates/statefulset.yaml
     set:
       statefulset.updateStrategy: {rollingUpdate: {partition: 0}}
     asserts:
       - equal:
           path: spec.updateStrategy
-          value: {rollingUpdate: {partition: 0}}
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+
+  - it: renders updateStrategy {} as the Kubernetes defaults, written out
+    template: templates/statefulset.yaml
+    set:
+      statefulset.updateStrategy: {}
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+
+  - it: renders type RollingUpdate without partition with partition 0
+    template: templates/statefulset.yaml
+    set:
+      statefulset.updateStrategy: {type: RollingUpdate}
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+
+  - it: renders type RollingUpdate with an empty rollingUpdate with partition 0
+    template: templates/statefulset.yaml
+    set:
+      statefulset.updateStrategy: {type: RollingUpdate, rollingUpdate: {}}
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+
+  - it: keeps a large partition an integer
+    template: templates/statefulset.yaml
+    set:
+      statefulset.updateStrategy: {rollingUpdate: {partition: 2000000000}}
+    asserts:
+      - equal:
+          path: spec.updateStrategy.rollingUpdate.partition
+          value: 2000000000
 
   - it: renders persistentVolumeClaimRetentionPolicy as written
     template: templates/statefulset.yaml
@@ -329,7 +378,7 @@ tests:
           path: spec.persistentVolumeClaimRetentionPolicy
           value: {whenDeleted: Delete, whenScaled: Retain}
 
-  - it: renders nothing of the block for statefulset null
+  - it: renders nothing of the block for statefulset null, but the default updateStrategy
     template: templates/statefulset.yaml
     set:
       statefulset: null
@@ -338,20 +387,22 @@ tests:
           count: 1
       - notExists:
           path: spec.podManagementPolicy
-      - notExists:
+      - equal:
           path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
       - notExists:
           path: spec.persistentVolumeClaimRetentionPolicy
 
-  - it: renders nothing for each member set to null
+  - it: renders nothing for each member set to null, but the default updateStrategy
     template: templates/statefulset.yaml
     set:
       statefulset: {podManagementPolicy: null, updateStrategy: null, persistentVolumeClaimRetentionPolicy: null}
     asserts:
       - notExists:
           path: spec.podManagementPolicy
-      - notExists:
+      - equal:
           path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
       - notExists:
           path: spec.persistentVolumeClaimRetentionPolicy
 
@@ -368,25 +419,26 @@ tests:
           path: spec.persistentVolumeClaimRetentionPolicy
           value: {whenDeleted: Delete}
 
-  - it: renders nothing for a member left empty by its nulls
+  - it: renders nothing for a member left empty by its nulls, and the default updateStrategy for one
     template: templates/statefulset.yaml
     set:
       statefulset.updateStrategy: {type: null, rollingUpdate: null}
       statefulset.persistentVolumeClaimRetentionPolicy: {whenDeleted: null, whenScaled: null}
     asserts:
-      - notExists:
+      - equal:
           path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
       - notExists:
           path: spec.persistentVolumeClaimRetentionPolicy
 
-  - it: renders a rollingUpdate whose partition is null as an empty rollingUpdate (Kubernetes defaults the partition to 0)
+  - it: renders a rollingUpdate whose partition is null with partition 0 (the Kubernetes default, written out)
     template: templates/statefulset.yaml
     set:
       statefulset.updateStrategy: {type: RollingUpdate, rollingUpdate: {partition: null}}
     asserts:
       - equal:
           path: spec.updateStrategy
-          value: {type: RollingUpdate, rollingUpdate: {}}
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
 
   # Guards (templates/validate.yaml).
   - it: rejects a rollingUpdate next to OnDelete, which Kubernetes rejects

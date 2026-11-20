@@ -568,7 +568,9 @@ probes, the containers, the volumes and the integrations are the Deployment's; w
   `ingress`. Without a Service (`service.enabled: false`) the pods have no DNS name.
 - **The rollout** is `statefulset.updateStrategy` (`RollingUpdate`, with an optional `partition`, or `OnDelete`) and
   `statefulset.podManagementPolicy` (`OrderedReady`, the default, starts the pods one after the other; `Parallel`
-  starts them together). `strategy` and `progressDeadlineSeconds` are ignored.
+  starts them together). `strategy` and `progressDeadlineSeconds` are ignored. The chart always renders
+  `updateStrategy`, the default written out as `{type: RollingUpdate, rollingUpdate: {partition: 0}}`, so a later
+  switch to `OnDelete` takes one upgrade.
 - **Fixed after the first install:** `podManagementPolicy`, `serviceName` (`service.enabled`) and the claim templates
   (a `volumeClaimTemplate` entry added, removed or renamed, its size, access mode or class). The API server refuses
   such an upgrade; the [upgrade guide](../upgrading.md#what-cannot-change-once-the-statefulset-exists) has the

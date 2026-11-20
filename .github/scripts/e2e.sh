@@ -19,8 +19,8 @@
 # scenario's native sidecar. The full scenario also checks commonLabels and commonAnnotations on every object of its
 # release in the cluster, the Service's own annotation, the common label on its pods and on the Secret that External
 # Secrets writes, and an extra object (the ConfigMap full-chart-base.settings). The statefulset scenario checks the
-# headless Service, one Bound claim per pod from its volumeClaimTemplate entry, the Ready pods, and that a pod's claim
-# outlives the pod.
+# headless Service, one Bound claim per pod from its volumeClaimTemplate entry, the Ready pods, that a pod's claim
+# outlives the pod, the default updateStrategy the chart writes, and a switch to OnDelete in one upgrade.
 # Usage: e2e.sh <chart-dir>     Requires: kubectl, helm, yq (mikefarah v4)
 # Env: GATEWAY_API_VERSION (e.g. v1.6.2), ESO_CHART_VERSION (e.g. 2.11.0),
 #      PROMETHEUS_OPERATOR_VERSION (e.g. v0.94.1), KEDA_CHART_VERSION (e.g. 2.21.0),
@@ -581,6 +581,10 @@ kubectl rollout status -n "$ns" statefulset/statefulset-chart-base --timeout=180
   || fail "the StatefulSet statefulset-chart-base never became Ready"
 sts="$(kubectl get statefulset -n "$ns" statefulset-chart-base -o jsonpath='{.status.readyReplicas} {.spec.serviceName}' || true)"
 [ "$sts" = "2 statefulset-chart-base" ] || fail "the StatefulSet must have 2 Ready pods and name its Service in serviceName, got '$sts' (ready serviceName)"
+# The chart writes the default updateStrategy out (ADR-0071), so that Helm owns rollingUpdate from the first install.
+strategy="$(kubectl get statefulset -n "$ns" statefulset-chart-base -o jsonpath='{.spec.updateStrategy}' || true)"
+[ "$strategy" = '{"rollingUpdate":{"partition":0},"type":"RollingUpdate"}' ] \
+  || fail "the StatefulSet installed without statefulset.updateStrategy must store the defaults the chart writes (ADR-0071), RollingUpdate with partition 0, got '$strategy'"
 svc="$(kubectl get service -n "$ns" statefulset-chart-base -o jsonpath='{.spec.type} {.spec.clusterIP}' || true)"
 [ "$svc" = "ClusterIP None" ] || fail "the Service of a statefulset must be headless (type ClusterIP, clusterIP None), got '$svc'"
 claims="$(kubectl get persistentvolumeclaims -n "$ns" -l app.kubernetes.io/instance=statefulset \
@@ -593,13 +597,32 @@ mounted="$(kubectl get pod -n "$ns" statefulset-chart-base-1 -o jsonpath='{.spec
 token="claim-kept-$(date +%s)"
 kubectl exec -n "$ns" statefulset-chart-base-0 -c chart-base -- sh -c "echo $token > /data/marker" \
   || fail "the pod statefulset-chart-base-0 could not write to its claim at /data"
+old_uid="$(kubectl get pod -n "$ns" statefulset-chart-base-0 -o jsonpath='{.metadata.uid}' || true)"
 kubectl delete pod -n "$ns" statefulset-chart-base-0 --timeout=120s > /dev/null || fail "could not delete the pod statefulset-chart-base-0"
-kubectl rollout status -n "$ns" statefulset/statefulset-chart-base --timeout=180s > /dev/null \
-  || fail "the StatefulSet never replaced the pod statefulset-chart-base-0"
+# The controller recreates the pod under the same name: wait for the new one (another uid), then for it to be Ready (the
+# StatefulSet's status can still count the deleted pod, so a rollout status can return before the new pod exists).
+deadline=$((SECONDS + 120))
+until uid="$(kubectl get pod -n "$ns" statefulset-chart-base-0 -o jsonpath='{.metadata.uid}' 2> /dev/null)" \
+  && [ -n "$uid" ] && [ "$uid" != "$old_uid" ]; do
+  [ "$SECONDS" -lt "$deadline" ] || fail "the StatefulSet never recreated the pod statefulset-chart-base-0 within 120 s"
+  sleep 2
+done
+kubectl wait -n "$ns" --for=condition=Ready pod/statefulset-chart-base-0 --timeout=180s > /dev/null \
+  || fail "the replacement of the pod statefulset-chart-base-0 never became Ready"
 marker="$(kubectl exec -n "$ns" statefulset-chart-base-0 -c chart-base -- cat /data/marker || true)"
 [ "$marker" = "$token" ] \
   || fail "the replacement of statefulset-chart-base-0 must read the marker its predecessor wrote on its claim ($token), got '$marker'"
 pass "statefulset: 2 Ready pods behind a headless Service, one Bound claim per pod, and a pod's claim outlives the pod"
+# A switch to OnDelete in one upgrade, from the default the chart writes: Helm owns rollingUpdate, so it removes it (with
+# the API server's default left unowned, the API would refuse a rollingUpdate next to OnDelete). The values come from a
+# file of this script: ci/statefulset-values.yaml stays as it is.
+printf '%s\n' 'statefulset: {updateStrategy: {type: OnDelete}}' > "$work/statefulset-ondelete.yaml"
+install statefulset -f "$work/statefulset-ondelete.yaml" \
+  || fail "the in-place switch of the StatefulSet from the default RollingUpdate to OnDelete failed (ADR-0071: the chart writes the default updateStrategy so that this switch takes one upgrade)"
+strategy="$(kubectl get statefulset -n "$ns" statefulset-chart-base -o jsonpath='{.spec.updateStrategy}' || true)"
+[ "$strategy" = '{"type":"OnDelete"}' ] \
+  || fail "after the switch to OnDelete, spec.updateStrategy must be OnDelete with no rollingUpdate (ADR-0071), got '$strategy'"
+pass "the StatefulSet then switches to OnDelete in one upgrade: spec.updateStrategy has no rollingUpdate"
 
 echo "== networkpolicy (an umbrella of three components under a namespace default-deny)"
 # kindnet enforces NetworkPolicy, but it fails open, and skips enforcement with only a log line when
