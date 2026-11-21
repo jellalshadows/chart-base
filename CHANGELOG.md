@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/jellalshadows/chart-base/compare/v1.6.0...v1.6.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* guards accept the statefulset and strategy values they ignore ([#48](https://github.com/jellalshadows/chart-base/issues/48)) ([00778bd](https://github.com/jellalshadows/chart-base/commit/00778bd606ff57d84e2b7b3f15e4a31c51525fb0))
+
 ## [1.6.0](https://github.com/jellalshadows/chart-base/compare/v1.5.0...v1.6.0) (2026-11-20)
 
 
