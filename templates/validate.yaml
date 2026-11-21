@@ -165,7 +165,7 @@ Every message is prefixed with "chart-base[<component>]:".
 {{- include "chart-base.fail" (list . "strategy.rollingUpdate.maxSurge and maxUnavailable cannot both be 0 (the rollout could not replace any pod)") -}}
 {{- end -}}
 {{- end -}}
-{{- /* statefulset (ADR-0071), read through chart-base.statefulset: a null member, or one left empty by its nulls, is not set. Template guards, not a schema if on a key of the block, which holds vacuously when a --reuse-values upgrade lacks it (ADR-0069). */ -}}
+{{- /* statefulset (ADR-0071), read through chart-base.statefulset: a null member, or one left empty by its nulls at every depth, is not set. Template guards, not a schema if on a key of the block, which holds vacuously when a --reuse-values upgrade lacks it (ADR-0069). */ -}}
 {{- $sts := dict -}}
 {{- include "chart-base.statefulset" (dict "ctx" . "out" $sts) -}}
 {{- if ne .Values.workload.type "statefulset" -}}

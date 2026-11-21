@@ -23,6 +23,21 @@ render aborts).
 {{- end -}}
 
 {{/*
+chart-base.holdsValue: "true" when a value holds something other than a map, at any depth: a value that is neither a
+map nor null (false, 0 and "" included), or a map with such a value inside it; nothing for a null, {} or a map whose
+maps are all empty, such as what chart-base.pruneNulls leaves of {rollingUpdate: {partition: null}}. It does not enter
+lists: a list is a value. Renders nothing else.
+Usage: {{- if include "chart-base.holdsValue" $v }}
+*/}}
+{{- define "chart-base.holdsValue" -}}
+{{- if kindIs "map" . -}}
+{{- $found := false -}}
+{{- range $_, $v := . }}{{ if include "chart-base.holdsValue" $v }}{{ $found = true }}{{ end }}{{ end -}}
+{{- if $found }}true{{ end -}}
+{{- else if not (kindIs "invalid" .) }}true{{ end -}}
+{{- end -}}
+
+{{/*
 chart-base.longRunning: "true" when workload.type keeps its pods running: deployment or statefulset (ADR-0071); nothing
 for cronjob and job. The one test of what a Deployment and a StatefulSet share: the Service, the routes, the
 autoscalers, the PodDisruptionBudget, the monitors, the built-in preStop sleep and the default topology spread, and
@@ -37,15 +52,17 @@ Usage: {{- if include "chart-base.longRunning" . }}
 chart-base.statefulset: fills the dict `out` with what templates/statefulset.yaml renders and templates/validate.yaml
 checks of the statefulset block: out.members, the members that are set, by name, each without its null fields
 (chart-base.pruneNulls on a deep copy, ADR-0070). A null or absent block (a --reuse-values upgrade from 1.5 or older
-has none), a null member and a member left empty by its nulls are not set: Kubernetes' default applies. The one reader
-of .Values.statefulset.
+has none), a null member and a member left empty by its nulls, at every depth (chart-base.holdsValue: {},
+{type: null}, {rollingUpdate: {partition: null}}), are not set: Kubernetes' default applies. A member that is set
+keeps its empty maps (templates/validate.yaml rejects {type: OnDelete, rollingUpdate: {}}). The one reader of
+.Values.statefulset.
 Usage: {{- $s := dict }}{{- include "chart-base.statefulset" (dict "ctx" $ "out" $s) }}, then $s.members
 */}}
 {{- define "chart-base.statefulset" -}}
 {{- $block := deepCopy (.ctx.Values.statefulset | default dict) -}}
 {{- include "chart-base.pruneNulls" $block -}}
 {{- $members := dict -}}
-{{- range $name, $member := $block }}{{ if $member }}{{ $_ := set $members $name $member }}{{ end }}{{ end -}}
+{{- range $name, $member := $block }}{{ if and $member (include "chart-base.holdsValue" $member) }}{{ $_ := set $members $name $member }}{{ end }}{{ end -}}
 {{- $_ := set .out "members" $members -}}
 {{- end -}}
 
