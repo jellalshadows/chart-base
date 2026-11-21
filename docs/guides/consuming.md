@@ -658,8 +658,10 @@ release name and `--namespace`, not on `helm lint`
 
 - A value that breaks the schema: an unknown key, a wrong type, a missing required key, a
   `maxUnavailable` given as a percentage above 100% (an integer above 100 is valid). The error names the
-  alias. Keys that apply to one workload type only (`strategy`, `minReadySeconds`, ...) are ignored on the
-  others, not rejected; the exceptions are the integrations of a Deployment or a StatefulSet (`httpRoute`, `grpcRoute`,
+  alias. Several schema errors come in no fixed order: the same values can list them in another order on the next
+  run (Helm's schema library ranges over a map), so a pipeline that compares them sorts their lines first, or
+  matches each one alone. Keys that apply to one workload type only (`strategy`, `minReadySeconds`, ...) are
+  ignored on the others, not rejected; the exceptions are the integrations of a Deployment or a StatefulSet (`httpRoute`, `grpcRoute`,
   `ingress`, `autoscaling`, `keda`, `metrics`), which fail when they are enabled on a CronJob or a Job, and the
   `statefulset` block and a `volumeClaimTemplate` entry, which fail on any type but `statefulset`. `helm lint` fails on these
   too when it lints the chart itself; through an umbrella it passed a `null` that deletes a required key

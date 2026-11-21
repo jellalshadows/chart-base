@@ -78,6 +78,13 @@ A single required check, `ci-ok`, depends on all the jobs. chart-testing (`ct`) 
 - **Schema tests** use `failedTemplate` with an `errorPattern` that matches the schema error path, for
   example `"/image/repository': minLength"`. They go through `templates/validate.yaml`, because rendering
   any template makes Helm validate the values against the schema first.
+  **A schema assert matches one error.** Its `errorPattern` names one error's path and message; it never uses
+  `errorMessage` (the whole text) or an anchor (`^`, `$`, a pattern that spans a line break) across two errors.
+  Schema errors come in no fixed order: Helm's schema library, santhosh-tekuri/jsonschema v6.0.3, collects the
+  errors of an object's properties while it ranges over a Go map (`validator.go` line 240,
+  `for pname, pvalue := range obj`), and Go randomizes that order. Five sibling errors gave 12 different orders
+  in 12 renders of the same values, on Helm 3.22.0 and on 4.3.0, the same lines once sorted. `errorMessage`
+  stays right for a guard's message, which is one error.
 - **Guard tests** (`tests/validate_test.yaml`, `tests/volumes_guards_test.yaml` for `volumes`, `tests/containers_guards_test.yaml` for `initContainers` and `sidecars`, `tests/externalsecret_guards_test.yaml` for `externalSecret`, `tests/autoscaling_guards_test.yaml` for `autoscaling`, and `tests/keda_guards_test.yaml` for `keda`) assert the `chart-base[<alias>]: ...` messages of the
   guards, including the boundaries: a 63-character name passes and a 64-character one fails, and the same
   for 52 and 53 with a CronJob, and for 54 and 55 with `keda.enabled`.
