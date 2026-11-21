@@ -1,0 +1,12 @@
+# A sidecar variable from the component's own ExternalSecret Secret, as an umbrella's values file writes it: the sidecar
+# twin of env-external-ref.yaml. The tests lay an override over it (set): sidecars.proxy.env.PGPASSWORD: null removes it
+# (ADR-0070).
+sidecars:
+  proxy:
+    image: {repository: ghcr.io/acme/proxy, tag: "1.0"}
+    resources: {requests: {cpu: 10m, memory: 16Mi}}
+    env:
+      PGPASSWORD:
+        valueFrom:
+          externalSecretKeyRef:
+            key: DB_PASSWORD
