@@ -1407,6 +1407,40 @@ tests:
       - failedTemplate:
           errorPattern: "strategy.rollingUpdate is set and strategy.type is Recreate"
 
+  # strategy is a Deployment's: the other workload types ignore it, and so does its Recreate guard (ADR-0071).
+  - it: still rejects a rollingUpdate next to Recreate on a deployment, with the full message
+    set:
+      workload.type: deployment
+      strategy: {type: Recreate, rollingUpdate: {}}
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: strategy.rollingUpdate is set and strategy.type is Recreate, which Kubernetes rejects (an empty rollingUpdate too): remove strategy.rollingUpdate (from an override file over values that set it, write strategy: {type: Recreate, rollingUpdate: null}), or set strategy.type: RollingUpdate"
+
+  - it: accepts a rollingUpdate next to Recreate on a statefulset, which ignores strategy
+    set:
+      workload.type: statefulset
+      strategy: {type: Recreate, rollingUpdate: {}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a rollingUpdate next to Recreate on a cronjob, which ignores strategy
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 3 * * *"
+      strategy: {type: Recreate, rollingUpdate: {}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a rollingUpdate next to Recreate on a job, which ignores strategy
+    set:
+      workload.type: job
+      strategy: {type: Recreate, rollingUpdate: {}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
   # Previous behavior that 1.6.0 (workload.type statefulset, ADR-0071) keeps on the other workload types.
   - it: keeps the metricsFromNamespaces message of a deployment (metrics is for Deployments only)
     set:

@@ -196,6 +196,21 @@ tests:
           path: spec.updateStrategy
           value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
 
+  - it: ignores a strategy that a Deployment would reject (a rollingUpdate next to Recreate), as absent
+    set:
+      strategy: {type: Recreate, rollingUpdate: {}}
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/validate.yaml
+      - notExists:
+          path: spec.strategy
+        template: templates/statefulset.yaml
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+        template: templates/statefulset.yaml
+
   # The pod template: the Deployment's (chart-base.podSpec), its checksums and the Reloader annotations.
   - it: renders the shared pod spec (main container, ServiceAccount, security context, /tmp)
     template: templates/statefulset.yaml

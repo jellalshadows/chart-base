@@ -324,19 +324,20 @@ reloadOnChange: true
 replicas: 1
 
 # -- Seconds without rollout progress before the Deployment is marked Failed (lower than Helm's default 300s timeout).
-# Deployments only: a StatefulSet has no such field, and a `statefulset` component ignores it.
+# Deployments only: a StatefulSet, a CronJob and a Job have no such field, and those workload types ignore it.
 progressDeadlineSeconds: 240
 
 # -- (object) Deployment update strategy (`spec.strategy`): `{type: RollingUpdate, rollingUpdate: {maxSurge, maxUnavailable}}`
-# or `{type: Recreate}`. `null` = Kubernetes default (`RollingUpdate`, 25% surge, 25% unavailable). Deployments only
-# (a `statefulset` component ignores it: see `statefulset.updateStrategy`).
+# or `{type: Recreate}`. `null` = Kubernetes default (`RollingUpdate`, 25% surge, 25% unavailable). Deployments only:
+# a `statefulset`, `cronjob` or `job` component ignores it, its guards included (a StatefulSet's rollout is
+# `statefulset.updateStrategy`).
 # `rollingUpdate: null` means absent and is never rendered (`maxSurge: null` or `maxUnavailable: null` is the
 # Kubernetes default, 25%): an override file over values that set `rollingUpdate`
 # switches to Recreate with `{type: Recreate, rollingUpdate: null}` (a `rollingUpdate` next to `Recreate`, even `{}`,
-# fails the render). A `persistentVolumeClaim` volume declared `ReadWriteOnce` or `ReadWriteOncePod` requires a
-# strategy that adds no pod (see `volumes`). With Helm 4, a Deployment created without `strategy` (in a release that
-# Helm 4 installed) cannot switch to Recreate in one upgrade (the API rejects the `rollingUpdate` the server defaulted):
-# use `maxSurge: 0` with `maxUnavailable: 1`, then Recreate in a later upgrade if needed.
+# fails the render of a Deployment). A `persistentVolumeClaim` volume declared `ReadWriteOnce` or `ReadWriteOncePod`
+# requires a strategy that adds no pod (see `volumes`). With Helm 4, a Deployment created without `strategy` (in a
+# release that Helm 4 installed) cannot switch to Recreate in one upgrade (the API rejects the `rollingUpdate` the
+# server defaulted): use `maxSurge: 0` with `maxUnavailable: 1`, then Recreate in a later upgrade if needed.
 strategy: null
 
 # -- (int) Seconds a new pod must be Ready, without any container crashing, before it counts as available

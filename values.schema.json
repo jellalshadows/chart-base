@@ -948,8 +948,9 @@
       }
     },
     "replicas": { "type": "integer", "minimum": 0 },
-    "progressDeadlineSeconds": { "type": "integer", "minimum": 1 },
+    "progressDeadlineSeconds": { "description": "Deployment only (spec.progressDeadlineSeconds): ignored on statefulset, cronjob and job, which have no progress deadline (ADR-0071). On a deployment, minReadySeconds must be lower.", "type": "integer", "minimum": 1 },
     "strategy": {
+      "description": "Deployment only (spec.strategy): ignored on statefulset, cronjob and job, its guards included (a statefulset's rollout is statefulset.updateStrategy, ADR-0071). null = the Kubernetes default (RollingUpdate, 25% surge, 25% unavailable).",
       "type": ["object", "null"],
       "additionalProperties": false,
       "required": ["type"],
