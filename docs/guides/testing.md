@@ -30,7 +30,7 @@ Contents:
 | Unit tests | What the templates render, and what the schema and guards reject | Yes | `unit tests` |
 | `helm lint --strict` | The chart lints on every scenario, on real Helm 3.22 and 4.3 | Yes | `lint` |
 | kubeconform | The rendered manifests are valid for Kubernetes 1.33 and 1.37 | Yes (needs network) | `lint` |
-| Alias contract | Several aliases in one umbrella work and stay independent | Yes | `lint` |
+| Alias contract | Several aliases in one umbrella work and stay independent; a `--reuse-values` upgrade from 1.0.0 or the previous release renders as a fresh install, a `null` key added since 1.0.0 included | Yes (git, with the tags) | `lint` |
 | 1.0 contract | No values key is removed or renamed, and every new key is listed (names, selectors and label keys: the unit tests) | Yes (jq) | `lint` |
 | README recipes | Every YAML block under the README's `## Recipes` renders and is valid for Kubernetes 1.33 and 1.37 | Yes (needs network) | `lint` |
 | End-to-end | The manifests really install and run in a cluster, kindnet enforces the NetworkPolicies as rendered, and the API server grants what the RBAC objects say | No (needs kind) | `e2e` |
@@ -78,6 +78,13 @@ A single required check, `ci-ok`, depends on all the jobs. chart-testing (`ct`) 
 - **Schema tests** use `failedTemplate` with an `errorPattern` that matches the schema error path, for
   example `"/image/repository': minLength"`. They go through `templates/validate.yaml`, because rendering
   any template makes Helm validate the values against the schema first.
+  **A schema assert matches one error.** Its `errorPattern` names one error's path and message; it never uses
+  `errorMessage` (the whole text) or an anchor (`^`, `$`, a pattern that spans a line break) across two errors.
+  Schema errors come in no fixed order: Helm's schema library, santhosh-tekuri/jsonschema v6.0.3, collects the
+  errors of an object's properties while it ranges over a Go map (`validator.go` line 240,
+  `for pname, pvalue := range obj`), and Go randomizes that order. Five sibling errors gave 12 different orders
+  in 12 renders of the same values, on Helm 3.22.0 and on 4.3.0, the same lines once sorted. `errorMessage`
+  stays right for a guard's message, which is one error.
 - **Guard tests** (`tests/validate_test.yaml`, `tests/volumes_guards_test.yaml` for `volumes`, `tests/containers_guards_test.yaml` for `initContainers` and `sidecars`, `tests/externalsecret_guards_test.yaml` for `externalSecret`, `tests/autoscaling_guards_test.yaml` for `autoscaling`, and `tests/keda_guards_test.yaml` for `keda`) assert the `chart-base[<alias>]: ...` messages of the
   guards, including the boundaries: a 63-character name passes and a 64-character one fails, and the same
   for 52 and 53 with a CronJob, and for 54 and 55 with `keda.enabled`.
@@ -242,7 +249,17 @@ covered: a hyphen in the values key, the `condition` path and the resource names
   `metadata.labels.tier`) are absent in U0, U1, F and S, `commonLabels: null` leaves no common label on the Deployment
   or its pod template in all four, and from 1.5.0 a `null` entry of `commonLabels` is absent from the Deployment and
   its pod template in all four;
-- an uppercase alias is rejected by the guard.
+- an uppercase alias is rejected by the guard;
+- last, the R layer: a `--reuse-values` upgrade ([ADR-0064](../adr/0064-from-1-0-0-a-new-key-is-optional.md),
+  [ADR-0070](../adr/0070-a-null-means-absent-chart-wide.md)), rendered directly, since through an umbrella the chart's
+  own defaults always apply. The chart is rendered with the `values.yaml` of v1.0.0 and of the previous release (the
+  latest `v*` tag of `HEAD`) as its defaults, which is what Helm renders on such an upgrade. Every `ci/` scenario
+  renders as with the chart's own defaults; and each key added since 1.0.0 that has a default (a line of
+  `tests/contract/keys.txt` gained since v1.0.0 that is a path of `values.yaml`, read from the files, never listed in
+  the script: 12 in 1.6.1), set to `null`, renders as the key absent, on every `ci/` scenario. The output, the errors
+  and the exit code are compared, and a failure prints each release, scenario and key that differs. Against the 1.4.0
+  chart it fails: its schema rejects such a `null` over v1.0.0's defaults (`at '/autoscaling/kedaHandover': got null,
+  want boolean`), which 1.5.0 accepts.
 
 **Where it lives.** `.github/scripts/alias-contract.sh <chart-dir>`. The script copies the chart next to
 the umbrella and uses a relative `file://` repository, because Helm treats only `file://` paths that start
@@ -255,9 +272,11 @@ because Helm 4 skips subchart schema validation in `helm lint` when the umbrella
 .github/scripts/alias-contract.sh .
 ```
 
-It ends with `alias contract: all checks passed`.
+It ends with `alias contract: all checks passed`. The R layer also needs `git`, and the tags `v1.0.0` and the
+previous release's in the clone (`git fetch --tags`); without them it fails with `FAIL: R: the tag v1.0.0 is not in
+the clone: fetch the tags (actions/checkout with fetch-depth: 0)`.
 
-**In CI.** The `lint` job, on Helm 3.22.0 and 4.3.0.
+**In CI.** The `lint` job, on Helm 3.22.0 and 4.3.0; its checkout has `fetch-depth: 0`, which fetches the tags.
 
 ## The 1.0 contract
 

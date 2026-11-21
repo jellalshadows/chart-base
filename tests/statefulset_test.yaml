@@ -196,6 +196,21 @@ tests:
           path: spec.updateStrategy
           value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
 
+  - it: ignores a strategy that a Deployment would reject (a rollingUpdate next to Recreate), as absent
+    set:
+      strategy: {type: Recreate, rollingUpdate: {}}
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/validate.yaml
+      - notExists:
+          path: spec.strategy
+        template: templates/statefulset.yaml
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+        template: templates/statefulset.yaml
+
   # The pod template: the Deployment's (chart-base.podSpec), its checksums and the Reloader annotations.
   - it: renders the shared pod spec (main container, ServiceAccount, security context, /tmp)
     template: templates/statefulset.yaml
@@ -603,6 +618,146 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  # A member is set when something other than a map remains in it, at any depth, once its nulls are removed
+  # (ADR-0071): {} and a member left empty by its nulls carry no option, and render on another type as absent.
+  - it: accepts an empty updateStrategy on a deployment, as absent
+    set:
+      workload.type: deployment
+      statefulset.updateStrategy: {}
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/validate.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/statefulset.yaml
+
+  - it: accepts an updateStrategy whose rollingUpdate is left empty by its nulls on a deployment, as absent
+    set:
+      workload.type: deployment
+      statefulset.updateStrategy: {rollingUpdate: {partition: null}}
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/validate.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/statefulset.yaml
+
+  - it: accepts a persistentVolumeClaimRetentionPolicy left empty by its nulls on a deployment, as absent
+    set:
+      workload.type: deployment
+      statefulset.persistentVolumeClaimRetentionPolicy: {whenDeleted: null}
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/validate.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/statefulset.yaml
+
+  - it: accepts an empty updateStrategy on a cronjob, as absent
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 3 * * *"
+      statefulset.updateStrategy: {}
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/validate.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/statefulset.yaml
+
+  - it: accepts an updateStrategy whose rollingUpdate is left empty by its nulls on a cronjob, as absent
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 3 * * *"
+      statefulset.updateStrategy: {rollingUpdate: {partition: null}}
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/validate.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/statefulset.yaml
+
+  - it: accepts a persistentVolumeClaimRetentionPolicy left empty by its nulls on a cronjob, as absent
+    set:
+      workload.type: cronjob
+      cronjob.schedule: "0 3 * * *"
+      statefulset.persistentVolumeClaimRetentionPolicy: {whenDeleted: null}
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/validate.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/statefulset.yaml
+
+  - it: accepts an empty updateStrategy on a job, as absent
+    set:
+      workload.type: job
+      statefulset.updateStrategy: {}
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/validate.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/statefulset.yaml
+
+  - it: accepts an updateStrategy whose rollingUpdate is left empty by its nulls on a job, as absent
+    set:
+      workload.type: job
+      statefulset.updateStrategy: {rollingUpdate: {partition: null}}
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/validate.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/statefulset.yaml
+
+  - it: accepts a persistentVolumeClaimRetentionPolicy left empty by its nulls on a job, as absent
+    set:
+      workload.type: job
+      statefulset.persistentVolumeClaimRetentionPolicy: {whenDeleted: null}
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/validate.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/statefulset.yaml
+
+  - it: still rejects a member whose only value is nested and zero (rollingUpdate.partition 0) on a deployment
+    template: templates/validate.yaml
+    set:
+      workload.type: deployment
+      statefulset.updateStrategy: {rollingUpdate: {partition: 0}}
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: statefulset.updateStrategy applies to workload.type statefulset only, and workload.type is deployment: remove it (from an overlay, set it to null), or set workload.type: statefulset"
+
+  - it: still rejects an updateStrategy of type OnDelete on a job
+    template: templates/validate.yaml
+    set:
+      workload.type: job
+      statefulset.updateStrategy: {type: OnDelete}
+    asserts:
+      - failedTemplate:
+          errorMessage: "chart-base[chart-base]: statefulset.updateStrategy applies to workload.type statefulset only, and workload.type is job: remove it (from an overlay, set it to null), or set workload.type: statefulset"
+
+  - it: renders an updateStrategy whose rollingUpdate is left empty by its nulls with the Kubernetes default, on a statefulset
+    template: templates/statefulset.yaml
+    set:
+      statefulset.updateStrategy: {rollingUpdate: {partition: null}}
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
 
   # The headless Service needs service.type ClusterIP.
   - it: rejects service.type NodePort on a statefulset (its Service is headless)

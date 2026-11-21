@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-19
 - **Since:** 1.6.0
+- **Amended in:** 1.6.1, which brought the code in line with two lines of this decision: a member left empty by its `null`s at every depth is not set (the member rule), and the `strategy` guards are Deployment-only ("Ignored on a `statefulset`"), the `Recreate` one included.
 - **Related:** [ADR-0008](0008-names-are-release-alias-and-never-truncated.md) (amended), [ADR-0015](0015-pdb-and-topology-spread-by-default.md) (amended), [ADR-0036](0036-rollout-and-runtime-knobs-are-validated-pass-throughs.md) (amended), [ADR-0037](0037-one-prestop-hook.md) (amended), [ADR-0038](0038-one-metrics-endpoint-servicemonitor-or-podmonitor.md) (amended), [ADR-0049](0049-volumes-are-a-map-of-typed-entries-mounted-in-the-main-container.md) (amended), [ADR-0050](0050-existing-claim-on-a-deployment-and-strategy-rollingupdate-null.md) (amended), [ADR-0056](0056-keda-scaledobject-a-curated-block-with-a-triggers-map.md) (amended), [ADR-0057](0057-common-labels-and-annotations-service-annotations-and-extraobjects.md) (amended), [ADR-0062](0062-a-pdb-never-blocks-a-drain-at-the-replica-floor.md) (amended), [ADR-0017](0017-progress-deadline-240s.md), [ADR-0058](0058-the-1-0-contract-and-how-it-stays-frozen.md), [ADR-0064](0064-from-1-0-0-a-new-key-is-optional.md), [ADR-0069](0069-grpcroute-httproute-rules-and-appprotocol.md), [ADR-0070](0070-a-null-means-absent-chart-wide.md)
 
 ## Context

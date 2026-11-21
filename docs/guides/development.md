@@ -177,7 +177,10 @@ or change a key:
    ([ADR-0027](../adr/0027-required-keys-in-the-schema.md)). Keys whose default is `null` stay optional. **A key added
    after 1.0.0 is never required:** the templates read it absent as its default, a test sets it to `null`, and the
    new chart must render with the previous release's `values.yaml` as its defaults, which is what a `--reuse-values`
-   upgrade sees ([ADR-0064](../adr/0064-from-1-0-0-a-new-key-is-optional.md)).
+   upgrade sees ([ADR-0064](../adr/0064-from-1-0-0-a-new-key-is-optional.md)). CI checks it: the R layer of the
+   [alias contract](testing.md#the-alias-contract) renders every `ci/` scenario with v1.0.0's and the previous
+   release's `values.yaml` as defaults, and each key added since 1.0.0 that has a default set to `null`, which must
+   render as the key absent. A new key is in it once its line is in `tests/contract/keys.txt` and it has a default.
 5. **A guard in `templates/validate.yaml`** when the rule spans several keys or needs the release or the
    cluster version, which a schema cannot express (for example `autoscaling.minReplicas` against
    `maxReplicas`).

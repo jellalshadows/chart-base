@@ -943,3 +943,16 @@ with a Service cannot switch in one upgrade: the Service becomes headless, and t
 Service's cluster IP once set (`spec.clusterIPs[0]: may not change once set`, `validateUpgradeDowngradeClusterIPs` in
 Kubernetes' Service validation). Delete the Service first (`kubectl delete service <fullname>`), then upgrade: the
 component has no Service between the two commands.
+
+## 1.6.0 → 1.6.1
+
+Nothing to change: every value that 1.6.0 renders renders the same manifest, with the same guards and messages. Two
+values that 1.6.0 rejects now render ([ADR-0071](adr/0071-a-statefulset-workload-type-with-a-claim-per-pod.md)):
+
+- **A `rollingUpdate` next to `strategy.type: Recreate` on a `statefulset`, `cronjob` or `job`**, for example
+  `strategy: {type: Recreate, rollingUpdate: {}}`. These types ignore `strategy`, and its guards now check a
+  Deployment only: the manifest is the one without `strategy`. On a Deployment it still fails, with the same message.
+- **A `statefulset` member left empty by its `null`s at every depth, on another workload type**, for example
+  `statefulset.updateStrategy: {rollingUpdate: {partition: null}}` on a Deployment. It carries no option, so it is
+  not set, as `{}` and `{type: null}` already were. A member that holds a value, such as `{type: OnDelete}` or
+  `{rollingUpdate: {partition: 0}}`, still fails on another type, with the same message.
