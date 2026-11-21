@@ -851,4 +851,72 @@ if err="$(helm template vending "$bad" --kube-version 1.33.0 2>&1)"; then fail "
 echo "$err" | grep -q "lowercase kebab-case" || fail "unexpected error for uppercase alias: $err"
 pass "uppercase alias is rejected by the chart guard"
 
+# R = a --reuse-values upgrade (ADR-0064, ADR-0070), rendered directly: through an umbrella the chart's own defaults
+# always apply. Helm renders the new chart with the values of the release it upgrades, that release's defaults
+# included, so a key added after 1.0.0 is missing, or null where an override file wrote null over it. The chart, with
+# the values.yaml of v1.0.0 and of the previous release (the latest v* tag of HEAD) as its defaults: (a) every ci/
+# scenario renders as with the chart's own defaults; (b) each key added since 1.0.0 that has a default (a line of
+# tests/contract/keys.txt gained since v1.0.0 that is a path of values.yaml, so neither a [] nor a <name> line), set to
+# null, renders as the key absent, on every ci/ scenario. The output, the errors and the exit code are compared. The
+# tags must be in the clone (CI: actions/checkout with fetch-depth: 0).
+git -C "$chart_src" cat-file -e 'v1.0.0^{commit}' 2> /dev/null \
+  || fail "R: the tag v1.0.0 is not in the clone: fetch the tags (actions/checkout with fetch-depth: 0)"
+prev="$(git -C "$chart_src" describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2> /dev/null)" \
+  || fail "R: no release tag v* is reachable from HEAD: fetch the tags (actions/checkout with fetch-depth: 0)"
+base_keys="$(git -C "$chart_src" show 'v1.0.0:./tests/contract/keys.txt' 2> /dev/null)" \
+  || fail "R: v1.0.0 has no tests/contract/keys.txt"
+keys="$(LC_ALL=C comm -12 \
+  <(LC_ALL=C comm -13 <(printf '%s\n' "$base_keys" | tr -d '\r' | LC_ALL=C sort -u) \
+    <(tr -d '\r' < "$chart_src/tests/contract/keys.txt" | LC_ALL=C sort -u)) \
+  <(yq '.. | path | join(".")' "$chart_src/values.yaml" | tr -d '\r' | LC_ALL=C sort -u))"
+[ -n "$keys" ] || fail "R: no line of tests/contract/keys.txt gained since v1.0.0 is a path of values.yaml"
+refs="v1.0.0"
+[ "$prev" = v1.0.0 ] || refs="$refs $prev"
+reuse="$work/reuse"
+for ref in $refs; do
+  mkdir -p "$reuse/$ref"
+  cp -r "$work/chart-base" "$reuse/$ref/"
+  git -C "$chart_src" show "$ref:./values.yaml" > "$reuse/$ref/chart-base/values.yaml"
+done
+rrender() { # <chart dir> <values file>: the direct render, its errors and its exit code (a failed render is compared too)
+  local out rc=0
+  out="$(helm template vending "$1" --namespace platform --kube-version 1.33.0 -f "$2" 2>&1)" || rc=$?
+  printf '%s\nexit %s\n' "$out" "$rc"
+}
+differs() { # <wanted render> <render>: the first lines that differ, for a FAIL line
+  seen "$2" "$(diff <(printf '%s\n' "$1") <(printf '%s\n' "$2") | grep -m2 '^[<>]' | tr -s ' \n' ' ' || true)"
+}
+
+bad_layers=""
+for values in "$chart_src"/ci/*-values.yaml; do
+  s="$(basename "$values" -values.yaml)"
+  want="$(rrender "$work/chart-base" "$values")"
+  for ref in $refs; do
+    rrender "$reuse/$ref/chart-base" "$values" > "$reuse/$ref/$s.out"
+    got="$(< "$reuse/$ref/$s.out")"
+    [ "$got" = "$want" ] || bad_layers="$bad_layers $ref:$s (got: $(differs "$want" "$got"))"
+  done
+done
+[ -z "$bad_layers" ] || fail "R: every ci/ scenario must render with an older release's values.yaml as the chart's defaults (a --reuse-values upgrade from it) as with the chart's own; differs in:$bad_layers"
+pass "R: every ci/ scenario renders the same with the values.yaml of ${refs// / and } as defaults (a --reuse-values upgrade) as with the chart's own"
+
+bad_layers=""
+for values in "$chart_src"/ci/*-values.yaml; do
+  s="$(basename "$values" -values.yaml)"
+  plain="$(yq '.' "$values")"
+  for key in $keys; do
+    K="$key" yq 'setpath(strenv(K) | split("."); null)' "$values" > "$reuse/null.yaml"
+    gone="$(K="$key" yq 'delpaths([strenv(K) | split(".")])' "$values")"
+    [ "$gone" = "$plain" ] || printf '%s\n' "$gone" > "$reuse/absent.yaml"
+    for ref in $refs; do
+      if [ "$gone" = "$plain" ]; then want="$(< "$reuse/$ref/$s.out")"   # the scenario does not set the key
+      else want="$(rrender "$reuse/$ref/chart-base" "$reuse/absent.yaml")"; fi
+      got="$(rrender "$reuse/$ref/chart-base" "$reuse/null.yaml")"
+      [ "$got" = "$want" ] || bad_layers="$bad_layers $ref:$s:$key (got: $(differs "$want" "$got"))"
+    done
+  done
+done
+[ -z "$bad_layers" ] || fail "R: a key added since 1.0.0 that has a default, set to null over an older release's defaults (a --reuse-values upgrade from it), must render as the key absent; differs in:$bad_layers"
+pass "R: each of the $(wc -w <<< "$keys" | tr -d ' ') keys added since 1.0.0 with a default renders as absent when null, on every ci/ scenario, over the defaults of ${refs// / and }"
+
 echo "alias contract: all checks passed"
