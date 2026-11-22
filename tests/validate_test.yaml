@@ -1441,8 +1441,8 @@ tests:
       - hasDocuments:
           count: 0
 
-  # The maxSurge and maxUnavailable both-0 guard is a Deployment's too: a cronjob (above, the rollout checks) and a
-  # statefulset (tests/statefulset_test.yaml) are already pinned.
+  # Like the Recreate guard, the maxSurge and maxUnavailable both-0 guard checks a deployment only. Its cronjob case
+  # (above, the rollout checks) and its statefulset case (tests/statefulset_test.yaml) are already pinned.
   - it: accepts maxSurge and maxUnavailable both 0 on a job, which ignores strategy
     set:
       workload.type: job

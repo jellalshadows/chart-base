@@ -867,8 +867,9 @@ prev="$(git -C "$chart_src" describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>
 # On the tagged release commit itself, the latest tag is this release: the upgrade into it starts from the one before.
 if [ "$prev" != v1.0.0 ] \
   && [ "$(git -C "$chart_src" rev-parse "$prev^{commit}")" = "$(git -C "$chart_src" rev-parse 'HEAD^{commit}')" ]; then
-  prev="$(git -C "$chart_src" describe --tags --abbrev=0 --match 'v[0-9]*' "$prev^" 2> /dev/null)" \
-    || fail "R: HEAD is the release $prev and no release tag v* is reachable from its parent"
+  release="$prev"
+  prev="$(git -C "$chart_src" describe --tags --abbrev=0 --match 'v[0-9]*' "$release^" 2> /dev/null)" \
+    || fail "R: HEAD is the release $release and no release tag v* is reachable from its parent"
 fi
 base_keys="$(git -C "$chart_src" show 'v1.0.0:./tests/contract/keys.txt' 2> /dev/null)" \
   || fail "R: v1.0.0 has no tests/contract/keys.txt"
