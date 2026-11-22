@@ -1441,6 +1441,16 @@ tests:
       - hasDocuments:
           count: 0
 
+  # The maxSurge and maxUnavailable both-0 guard is a Deployment's too: a cronjob (above, the rollout checks) and a
+  # statefulset (tests/statefulset_test.yaml) are already pinned.
+  - it: accepts maxSurge and maxUnavailable both 0 on a job, which ignores strategy
+    set:
+      workload.type: job
+      strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 0}}
+    asserts:
+      - hasDocuments:
+          count: 0
+
   # Previous behavior that 1.6.0 (workload.type statefulset, ADR-0071) keeps on the other workload types.
   - it: keeps the metricsFromNamespaces message of a deployment (metrics is for Deployments only)
     set:
