@@ -645,6 +645,18 @@ tests:
           count: 0
         template: templates/statefulset.yaml
 
+  - it: accepts an updateStrategy whose rollingUpdate is an empty map on a deployment, as absent
+    set:
+      workload.type: deployment
+      statefulset.updateStrategy: {rollingUpdate: {}}
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/validate.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/statefulset.yaml
+
   - it: accepts a persistentVolumeClaimRetentionPolicy left empty by its nulls on a deployment, as absent
     set:
       workload.type: deployment
@@ -754,6 +766,15 @@ tests:
     template: templates/statefulset.yaml
     set:
       statefulset.updateStrategy: {rollingUpdate: {partition: null}}
+    asserts:
+      - equal:
+          path: spec.updateStrategy
+          value: {type: RollingUpdate, rollingUpdate: {partition: 0}}
+
+  - it: renders an updateStrategy whose rollingUpdate is an empty map with the Kubernetes default, on a statefulset
+    template: templates/statefulset.yaml
+    set:
+      statefulset.updateStrategy: {rollingUpdate: {}}
     asserts:
       - equal:
           path: spec.updateStrategy

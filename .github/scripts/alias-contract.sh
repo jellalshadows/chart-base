@@ -854,15 +854,23 @@ pass "uppercase alias is rejected by the chart guard"
 # R = a --reuse-values upgrade (ADR-0064, ADR-0070), rendered directly: through an umbrella the chart's own defaults
 # always apply. Helm renders the new chart with the values of the release it upgrades, that release's defaults
 # included, so a key added after 1.0.0 is missing, or null where an override file wrote null over it. The chart, with
-# the values.yaml of v1.0.0 and of the previous release (the latest v* tag of HEAD) as its defaults: (a) every ci/
-# scenario renders as with the chart's own defaults; (b) each key added since 1.0.0 that has a default (a line of
-# tests/contract/keys.txt gained since v1.0.0 that is a path of values.yaml, so neither a [] nor a <name> line), set to
-# null, renders as the key absent, on every ci/ scenario. The output, the errors and the exit code are compared. The
-# tags must be in the clone (CI: actions/checkout with fetch-depth: 0).
+# the values.yaml of v1.0.0 and of the previous release (the latest v* tag of HEAD, or the one before it when HEAD is
+# the tagged release commit) as its defaults: (a) every ci/ scenario renders as with the chart's own defaults; (b) each
+# key added since 1.0.0 that has a default (a line of tests/contract/keys.txt gained since v1.0.0 that is a path of
+# values.yaml, so neither a [] nor a <name> line), set to null, renders as the key absent, on every ci/ scenario. The
+# output, the errors (sorted: Helm lists schema errors in no fixed order) and the exit code are compared. The tags must
+# be in the clone (CI: actions/checkout with fetch-depth: 0).
 git -C "$chart_src" cat-file -e 'v1.0.0^{commit}' 2> /dev/null \
   || fail "R: the tag v1.0.0 is not in the clone: fetch the tags (actions/checkout with fetch-depth: 0)"
 prev="$(git -C "$chart_src" describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2> /dev/null)" \
   || fail "R: no release tag v* is reachable from HEAD: fetch the tags (actions/checkout with fetch-depth: 0)"
+# On the tagged release commit itself, the latest tag is this release: the upgrade into it starts from the one before.
+if [ "$prev" != v1.0.0 ] \
+  && [ "$(git -C "$chart_src" rev-parse "$prev^{commit}")" = "$(git -C "$chart_src" rev-parse 'HEAD^{commit}')" ]; then
+  release="$prev"
+  prev="$(git -C "$chart_src" describe --tags --abbrev=0 --match 'v[0-9]*' "$release^" 2> /dev/null)" \
+    || fail "R: HEAD is the release $release and no release tag v* is reachable from its parent"
+fi
 base_keys="$(git -C "$chart_src" show 'v1.0.0:./tests/contract/keys.txt' 2> /dev/null)" \
   || fail "R: v1.0.0 has no tests/contract/keys.txt"
 keys="$(LC_ALL=C comm -12 \
@@ -880,8 +888,9 @@ for ref in $refs; do
 done
 rrender() { # <chart dir> <values file>: the direct render, its errors and its exit code (a failed render is compared too)
   local out rc=0
-  out="$(helm template vending "$1" --namespace platform --kube-version 1.33.0 -f "$2" 2>&1)" || rc=$?
-  printf '%s\nexit %s\n' "$out" "$rc"
+  out="$(helm template vending "$1" --namespace platform --kube-version 1.33.0 -f "$2" 2> "$reuse/stderr")" || rc=$?
+  # The error lines sorted: Helm lists several schema errors in no fixed order (docs/guides/testing.md).
+  printf '%s\n%s\nexit %s\n' "$out" "$(LC_ALL=C sort "$reuse/stderr")" "$rc"
 }
 differs() { # <wanted render> <render>: the first lines that differ, for a FAIL line
   seen "$2" "$(diff <(printf '%s\n' "$1") <(printf '%s\n' "$2") | grep -m2 '^[<>]' | tr -s ' \n' ' ' || true)"
@@ -892,6 +901,7 @@ for values in "$chart_src"/ci/*-values.yaml; do
   s="$(basename "$values" -values.yaml)"
   want="$(rrender "$work/chart-base" "$values")"
   for ref in $refs; do
+    # Kept: the null check below reads this render as its expected output when a scenario does not set the key.
     rrender "$reuse/$ref/chart-base" "$values" > "$reuse/$ref/$s.out"
     got="$(< "$reuse/$ref/$s.out")"
     [ "$got" = "$want" ] || bad_layers="$bad_layers $ref:$s (got: $(differs "$want" "$got"))"
@@ -909,7 +919,7 @@ for values in "$chart_src"/ci/*-values.yaml; do
     gone="$(K="$key" yq 'delpaths([strenv(K) | split(".")])' "$values")"
     [ "$gone" = "$plain" ] || printf '%s\n' "$gone" > "$reuse/absent.yaml"
     for ref in $refs; do
-      if [ "$gone" = "$plain" ]; then want="$(< "$reuse/$ref/$s.out")"   # the scenario does not set the key
+      if [ "$gone" = "$plain" ]; then want="$(< "$reuse/$ref/$s.out")"   # not set by the scenario: the render above
       else want="$(rrender "$reuse/$ref/chart-base" "$reuse/absent.yaml")"; fi
       got="$(rrender "$reuse/$ref/chart-base" "$reuse/null.yaml")"
       [ "$got" = "$want" ] || bad_layers="$bad_layers $ref:$s:$key (got: $(differs "$want" "$got"))"

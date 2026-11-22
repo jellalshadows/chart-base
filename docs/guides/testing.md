@@ -253,13 +253,14 @@ covered: a hyphen in the values key, the `condition` path and the resource names
 - last, the R layer: a `--reuse-values` upgrade ([ADR-0064](../adr/0064-from-1-0-0-a-new-key-is-optional.md),
   [ADR-0070](../adr/0070-a-null-means-absent-chart-wide.md)), rendered directly, since through an umbrella the chart's
   own defaults always apply. The chart is rendered with the `values.yaml` of v1.0.0 and of the previous release (the
-  latest `v*` tag of `HEAD`) as its defaults, which is what Helm renders on such an upgrade. Every `ci/` scenario
-  renders as with the chart's own defaults; and each key added since 1.0.0 that has a default (a line of
-  `tests/contract/keys.txt` gained since v1.0.0 that is a path of `values.yaml`, read from the files, never listed in
-  the script: 12 in 1.6.1), set to `null`, renders as the key absent, on every `ci/` scenario. The output, the errors
-  and the exit code are compared, and a failure prints each release, scenario and key that differs. Against the 1.4.0
-  chart it fails: its schema rejects such a `null` over v1.0.0's defaults (`at '/autoscaling/kedaHandover': got null,
-  want boolean`), which 1.5.0 accepts.
+  latest `v*` tag of `HEAD`, or the one before it when `HEAD` is the tagged release commit) as its defaults, which is
+  what Helm renders on such an upgrade. Every `ci/` scenario renders as with the chart's own defaults; and each key
+  added since 1.0.0 that has a default (a line of `tests/contract/keys.txt` gained since v1.0.0 that is a path of
+  `values.yaml`, read from the files, never listed in the script; the pass line prints how many), set to `null`,
+  renders as the key absent, on every `ci/` scenario. The output, the errors (sorted, since schema errors come in no
+  fixed order) and the exit code are compared, and a failure prints each release, scenario and key that differs.
+  Against the 1.4.0 chart it fails: its schema rejects such a `null` over v1.0.0's defaults
+  (`at '/autoscaling/kedaHandover': got null, want boolean`), which 1.5.0 accepts.
 
 **Where it lives.** `.github/scripts/alias-contract.sh <chart-dir>`. The script copies the chart next to
 the umbrella and uses a relative `file://` repository, because Helm treats only `file://` paths that start

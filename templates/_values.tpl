@@ -62,6 +62,8 @@ Usage: {{- $s := dict }}{{- include "chart-base.statefulset" (dict "ctx" $ "out"
 {{- $block := deepCopy (.ctx.Values.statefulset | default dict) -}}
 {{- include "chart-base.pruneNulls" $block -}}
 {{- $members := dict -}}
+{{- /* The rule is chart-base.holdsValue. The truthiness test before it is 1.6.0's, kept so no value that rendered then
+fails now: the schema allows no member that it alone drops (podManagementPolicy is an enum, the others objects). */ -}}
 {{- range $name, $member := $block }}{{ if and $member (include "chart-base.holdsValue" $member) }}{{ $_ := set $members $name $member }}{{ end }}{{ end -}}
 {{- $_ := set .out "members" $members -}}
 {{- end -}}
