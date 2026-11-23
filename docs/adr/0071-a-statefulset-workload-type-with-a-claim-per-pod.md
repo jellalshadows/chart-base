@@ -78,8 +78,8 @@ None of the four turned out false, so no alternative ruling was needed.
   key of the new block, which would hold vacuously after a `--reuse-values` upgrade from a release without it
   ([ADR-0069](0069-grpcroute-httproute-rules-and-appprotocol.md)); the schema's own rules condition on `workload.type`
   only.
-- **A StatefulSet always renders its `updateStrategy`, the Kubernetes defaults written out** (rulings after review,
-  L29, L30 and L31), so that Helm owns its keys from the first install:
+- **A StatefulSet always renders its `updateStrategy`, the Kubernetes defaults written out** (three rulings in review,
+  each in Alternatives considered), so that Helm owns its keys from the first install:
   - `statefulset.updateStrategy` absent, `null`, `{}` or left empty by its `null`s, or `type: RollingUpdate` without
     `partition` (a `null` one included): `{type: RollingUpdate, rollingUpdate: {partition: 0}}`;
   - `rollingUpdate.partition: N` without `type`: `{type: RollingUpdate, rollingUpdate: {partition: N}}`;
@@ -104,7 +104,7 @@ None of the four turned out false, so no alternative ruling was needed.
   three-way patch deletes a key the previous manifest had). The written defaults equal the stored ones, so the
   StatefulSet behaves as with nothing rendered. The type is new in 1.6.0: no existing release changes.
 
-  `maxUnavailable` follows from the same reason (L30, from the Kubernetes source). Where the `MaxUnavailableStatefulSet`
+  `maxUnavailable` follows from the same reason (from the Kubernetes source). Where the `MaxUnavailableStatefulSet`
   feature gate is on, `SetDefaults_StatefulSet` also stores `rollingUpdate.maxUnavailable: 1` (v1.37.0 `defaults.go`),
   and the gate is on by default from 1.37 (alpha from 1.24, beta and off from 1.35, beta and on from 1.37: v1.37.0
   `kube_features.go`). Left to the API server there, the stored object is `{rollingUpdate: {maxUnavailable: 1,
@@ -114,7 +114,7 @@ None of the four turned out false, so no alternative ruling was needed.
   (`dropStatefulSetDisabledFields`, v1.33.0 `pkg/registry/apps/statefulset/strategy.go`). A constant written there
   would never reach the live object, and every tool that compares the rendered manifest with the live object (Argo
   CD's diff, for example) would show the StatefulSet out of sync for good. So the chart writes it only when it renders
-  for 1.37 or later (L31): an install or upgrade renders for the cluster's version (Helm reads it from the API
+  for 1.37 or later: an install or upgrade renders for the cluster's version (Helm reads it from the API
   server), and Argo CD passes its cluster's version as `--kube-version`. After a cluster upgrade to 1.37, the next
   Helm upgrade writes `maxUnavailable: 1`, the value the API server already defaulted, and Helm takes ownership of it.
   A cluster below 1.37 with the gate turned on by hand is not covered: the API server defaults `maxUnavailable` there
@@ -131,7 +131,7 @@ None of the four turned out false, so no alternative ruling was needed.
   size of zero, a field of another type, and a volume that every container mounts read-only. The field-ownership
   message names `volumeClaimTemplate` among a field's owners on a `statefulset` only, so the messages of the other
   workload types are unchanged.
-- **A claim template carries the two selector labels only, never `commonLabels`** (a ruling after review, L27). The
+- **A claim template carries the two selector labels only, never `commonLabels`** (a ruling in review). The
   API server refuses any change of a StatefulSet's claim templates, their labels included, so a label that the values
   can change would fail every upgrade that changes it; the selector labels are frozen
   ([ADR-0058](0058-the-1-0-contract-and-how-it-stays-frozen.md)) and never do. It is the one labels map
@@ -224,16 +224,16 @@ on it. Rejected for the defaults written out.
 
 ### `partition` written out, `maxUnavailable` left to the API server
 
-It was the L29 ruling. It holds on 1.33 to 1.36, where the gate is off, but from 1.37 the API server defaults
-`maxUnavailable` with no owner, and the one-upgrade switch to `OnDelete` fails again. Rejected (L30) for both keys
+It was the first ruling. It holds on 1.33 to 1.36, where the gate is off, but from 1.37 the API server defaults
+`maxUnavailable` with no owner, and the one-upgrade switch to `OnDelete` fails again. Rejected for both keys
 written out from 1.37.
 
 ### `maxUnavailable: 1` written on every Kubernetes version
 
-It was the L30 ruling: one manifest for every version, and harmless to the API server, which drops the field where
+It was the second ruling: one manifest for every version, and harmless to the API server, which drops the field where
 the gate is off. But the dropped field then never reaches the live object, so below 1.37 every StatefulSet would
 differ from its rendered manifest for good, in every tool that compares the two (Argo CD's diff, for example).
-Rejected (L31) for the constant written from 1.37 only.
+Rejected for the constant written from 1.37 only.
 
 ### `rollingUpdate: null` next to `OnDelete` in the rendered manifest
 
