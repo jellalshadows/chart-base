@@ -3,6 +3,13 @@
 The [README](../README.md) is the reference for consumers: quick start, recipes, every value and a
 one-paragraph summary of each design decision. This directory is the long-form record behind it.
 
+## Start here
+
+| Page | Read it to |
+|---|---|
+| [Ten decisions that shape chart-base](decisions.md) | See the decisions with the most consequence, each with its problem, the rejected alternative and its cost |
+| [From 1.0 to 1.6.1 without breaking the contract](case-study-1.x.md) | See how eight 1.x releases kept the 1.0 contract, and what the checks caught |
+
 ## Architecture decision records
 
 [`adr/`](adr/README.md) holds one record per design decision: the context and the constraints, the
